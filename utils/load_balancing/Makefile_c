@@ -1,0 +1,34 @@
+CC = mpicc
+
+CFLAGS  := -O2 -g -Wall -Wextra -Wuninitialized -fno-omit-frame-pointer
+LDFLAGS :=
+
+# /usr/local を検索パスに入れる
+INCLUDES := -I/usr/local/include \
+            -I ../../../test_thermal/submodule/monolis/submodule/gedatsu/include \
+            -I ../../../test_thermal/submodule/monolis/submodule/monolis_utils/include
+
+# metis は libmetis.so が無いので実体(.so.5)を直指定
+METIS_SO := /lib/x86_64-linux-gnu/libmetis.so.5
+
+# 必要そうな lib を並べる（最小限から）
+LIBS := -L/usr/local/lib -lm -lstdc++ \
+        -L../../../test_thermal/submodule/monolis/submodule/gedatsu/lib -lgedatsu \
+        -L../../../test_thermal/submodule/monolis/submodule/monolis_utils/lib -lmonolis_utils \
+        $(METIS_SO)
+
+TARGET = hddm
+OBJS   = HDDM.o
+
+all: $(TARGET)
+
+$(TARGET): src/$(OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+
+src/%.o: src/%.c
+	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+
+clean:
+	$(RM) -f $(TARGET) src/*.o
+
+.PHONY: all clean

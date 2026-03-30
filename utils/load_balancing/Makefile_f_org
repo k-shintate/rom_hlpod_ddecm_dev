@@ -1,0 +1,21 @@
+
+FC = mpif90
+FFLAGS = -O2 -fbounds-check -fbacktrace -Wuninitialized -ffpe-trap=invalid,zero,overflow
+GDB = -g -ggdb
+
+TARGET = a.out
+OBJS = HDDM.o
+
+all: $(TARGET)
+
+$(TARGET): src/$(OBJS)
+	$(FC) -o $@ src/$(OBJS) -L../monolis_solid/submodule/monolis/submodule/gedatsu/lib -lgedatsu -L../monolis_solid/submodule/monolis/submodule/monolis_utils/lib -lmonolis_utils -lmetis
+
+src/%.o: src/%.f90
+	$(FC) $(FFLAGS) -I ../monolis_solid/submodule/monolis/submodule/gedatsu/include -I ../monolis_solid/submodule/monolis/submodule/monolis_utils/include -o $@ -c $<
+
+clean:
+	rm a.out
+	rm src/*.o
+
+.PHONY: clean

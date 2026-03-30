@@ -1,0 +1,34 @@
+FC = mpif90
+
+FFLAGS  := -O2 -fbounds-check -fbacktrace -Wuninitialized -ffpe-trap=invalid,zero,overflow
+LDFLAGS :=
+
+# 1つ目を参考に：/usr/local を検索パスに入れる
+INCLUDES := -I/usr/local/include \
+            -I ../../../test_thermal/submodule/monolis/submodule/gedatsu/include \
+            -I ../../../test_thermal/submodule/monolis/submodule/monolis_utils/include
+
+# metis は libmetis.so が無いので実体(.so.5)を直指定
+METIS_SO := /lib/x86_64-linux-gnu/libmetis.so.5
+
+# 1つ目を参考に：必要そうな lib を並べる（最小限から）
+LIBS := -L/usr/local/lib -lm -lstdc++ \
+        -L../../../test_thermal/submodule/monolis/submodule/gedatsu/lib -lgedatsu \
+        -L../../../test_thermal/submodule/monolis/submodule/monolis_utils/lib -lmonolis_utils \
+        $(METIS_SO)
+
+TARGET = hddm
+OBJS   = HDDM_diff.o
+
+all: $(TARGET)
+
+$(TARGET): src/$(OBJS)
+	$(FC) $(FFLAGS) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS) -Wl,--end-group
+
+src/%.o: src/%.f90
+	$(FC) $(FFLAGS) $(INCLUDES) -c $< -o $@
+
+clean:
+	$(RM) -f $(TARGET) src/*.o
+
+.PHONY: all clean

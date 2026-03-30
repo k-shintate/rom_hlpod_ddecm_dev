@@ -1,0 +1,25 @@
+# ignore all
+*
+!*/
+
+# allow any
+!*.c
+!*.h
+!*.sh
+!*.py
+!*Makefile
+!*Makefile_squid
+!*Makefile_offline_online
+!*.geo
+!*.md
+!.gitignore
+!install.sh
+!util_install.sh
+
+lib/
+include
+
+# allow some
+!utils/load_balancing/include/
+
+

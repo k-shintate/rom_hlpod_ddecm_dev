@@ -1,0 +1,3 @@
+run ./ -nd 1 -nm 20 -pa 0 -st 1
+backtrace
+exit
