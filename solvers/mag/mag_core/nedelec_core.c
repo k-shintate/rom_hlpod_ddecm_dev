@@ -210,6 +210,117 @@ void compute_nedelec_edge_coords(
     }
 }
 
+typedef struct {
+    int g0, g1, g2;   /* sorted */
+    int e;            /* element id */
+    int f;            /* local face id 0..3 */
+} FaceRec;
+
+static inline void sort3_int(int* a, int* b, int* c){
+    int x=*a,y=*b,z=*c,t;
+    if(x>y){t=x;x=y;y=t;}
+    if(y>z){t=y;y=z;z=t;}
+    if(x>y){t=x;x=y;y=t;}
+    *a=x; *b=y; *c=z;
+}
+
+static int cmp_face(const void* A, const void* B){
+    const FaceRec* a=(const FaceRec*)A;
+    const FaceRec* b=(const FaceRec*)B;
+    if(a->g0!=b->g0) return (a->g0<b->g0)?-1:1;
+    if(a->g1!=b->g1) return (a->g1<b->g1)?-1:1;
+    if(a->g2!=b->g2) return (a->g2<b->g2)?-1:1;
+    return 0;
+}
+
+static int find_local_edge_id_tet(int lnA, int lnB){
+    for(int ed=0; ed<6; ++ed){
+        int a = tet_edge_conn[ed][0];
+        int b = tet_edge_conn[ed][1];
+        if((a==lnA && b==lnB) || (a==lnB && b==lnA)) return ed;
+    }
+    return -1;
+}
+
+void build_dirichlet_edge_mask_from_boundary_faces_tet(
+    const BBFE_DATA* fe,
+    const BBFE_BC* bc,
+    const NEDELEC* ned,
+    bool* is_dir_edge,          /* size = num_global_edges, zero-initialized */
+    int  num_global_edges
+){
+    const int M = fe->total_num_elems;
+    const int nen = fe->local_num_nodes;
+    if(nen != 4){
+        fprintf(stderr, "This helper is for Tet4 only (nen=%d)\n", nen);
+        return;
+    }
+
+    /* 4 faces per tet */
+    static const int face_nodes[4][3] = {
+        {0,1,2},{0,1,3},{0,2,3},{1,2,3}
+    };
+
+    FaceRec* faces = (FaceRec*)malloc(sizeof(FaceRec) * (size_t)M * 4);
+    if(!faces){ perror("malloc"); return; }
+
+    int idx=0;
+    for(int e=0; e<M; ++e){
+        for(int f=0; f<4; ++f){
+            int gA = fe->conn[e][ face_nodes[f][0] ];
+            int gB = fe->conn[e][ face_nodes[f][1] ];
+            int gC = fe->conn[e][ face_nodes[f][2] ];
+            int a=gA,b=gB,c=gC;
+            sort3_int(&a,&b,&c);
+            faces[idx++] = (FaceRec){ .g0=a,.g1=b,.g2=c,.e=e,.f=f };
+        }
+    }
+
+    qsort(faces, (size_t)idx, sizeof(FaceRec), cmp_face);
+
+    /* 同一面の出現回数を見る */
+    for(int i=0; i<idx; ){
+        int j=i+1;
+        while(j<idx && cmp_face(&faces[i], &faces[j])==0) j++;
+
+        const int count = j - i;
+        if(count == 1){
+            /* 境界面。OuterBoundaryかどうか判定：3節点すべてDirichletノードなら採用 */
+            const int e = faces[i].e;
+            const int f = faces[i].f;
+
+            int ln0 = face_nodes[f][0];
+            int ln1 = face_nodes[f][1];
+            int ln2 = face_nodes[f][2];
+
+            int gn0 = fe->conn[e][ln0];
+            int gn1 = fe->conn[e][ln1];
+            int gn2 = fe->conn[e][ln2];
+
+            if(bc->D_bc_exists[gn0] && bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2]){
+                /* この境界三角形の3辺だけをDirichlet対象にする */
+                const int lned01 = find_local_edge_id_tet(ln0, ln1);
+                const int lned12 = find_local_edge_id_tet(ln1, ln2);
+                const int lned20 = find_local_edge_id_tet(ln2, ln0);
+
+                const int ledges[3] = { lned01, lned12, lned20 };
+                for(int k=0;k<3;++k){
+                    int led = ledges[k];
+                    if(led < 0) continue;
+                    int gid = ned->nedelec_conn[e][led];
+                    if(0 <= gid && gid < num_global_edges){
+                        is_dir_edge[gid] = 1;
+                    }
+                }
+            }
+        }
+
+        i = j;
+    }
+
+    free(faces);
+}
+
 
 void BBFE_mag_set_basis(
         BBFE_DATA*     fe,

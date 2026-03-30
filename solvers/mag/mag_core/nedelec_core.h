@@ -65,6 +65,14 @@ void copy_Aphi_to_V_phi_time2(
     double * phi,
     const int total_num_elems);
 
+void build_dirichlet_edge_mask_from_boundary_faces_tet(
+    const BBFE_DATA* fe,
+    const BBFE_BC* bc,
+    const NEDELEC* ned,
+    bool* is_dir_edge,          /* size = num_global_edges, zero-initialized */
+    int  num_global_edges);
+
+
 void accumulate_B_cell_to_nodes(
     BBFE_DATA* fe,
     double** B_cell,

@@ -5,6 +5,9 @@
 static const double AIR_PHI_SIGMA_FACTOR  = 1.0e-5; /* phi-phi stabilization relative to copper sigma */
 static const double AIR_A_MASS_SIGMA_FACTOR = 1.0e-5; /* A-A mass stabilization relative to copper sigma */
 
+const double Sigma_coil = 5.77*10e7;                  // 無次元化（典型導電率）
+const double Sigma_core =  3.72*10e3;                  // 無次元化（典型導電率）
+
 /* ============================================================
  * Material coefficient policy (prop: 1..3 coil, 4 core, 5 air)
  * ============================================================ */
@@ -18,23 +21,52 @@ void get_sigmas_for_prop(
         /* coil (conductor) */
         *sigma_mass_A = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
         *sigma_cpl    = 0.0;
-        *sigma_phi    = SIGMA_COPPER * AIR_PHI_SIGMA_FACTOR;
+        *sigma_phi    = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
     } else if(prop == 4){
         /* core (A-only by default; phi is not solved here) */
-        *sigma_mass_A = SIGMA_CORE;
-        *sigma_cpl    = SIGMA_CORE;
-        *sigma_phi    = SIGMA_CORE;
+        *sigma_mass_A = Sigma_core;
+        *sigma_cpl    = Sigma_core;
+        *sigma_phi    = Sigma_core;
     } else if(prop == 5){
         /* air: coupling cut; add small penalties for solvability */
         *sigma_mass_A = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
         *sigma_cpl    = 0.0;
-        *sigma_phi    = SIGMA_COPPER * AIR_PHI_SIGMA_FACTOR;
+        *sigma_phi    = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
+    } else {
+        *sigma_mass_A = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
+        *sigma_cpl    = 0.0;
+        *sigma_phi    = SIGMA_COPPER * AIR_A_MASS_SIGMA_FACTOR;
+    }
+}
+
+void get_sigmas_for_prop2(
+    int prop,
+    double* sigma_mass_A,   /* used for (sigma/dt) * M_A in Jacobian */
+    double* sigma_cpl,      /* used for coupling C and C^T/dt */
+    double* sigma_phi       /* used for phi-phi Laplace term */
+){
+    if(prop == 1 || prop == 2 || prop == 3){
+        /* coil (conductor) */
+        *sigma_mass_A = Sigma_coil;
+        *sigma_cpl    = Sigma_coil;
+        *sigma_phi    = Sigma_coil;
+    } else if(prop == 4){
+        /* core (A-only by default; phi is not solved here) */
+        *sigma_mass_A = Sigma_core;
+        *sigma_cpl    = Sigma_core;
+        *sigma_phi    = Sigma_core;
+    } else if(prop == 5){
+        /* air: coupling cut; add small penalties for solvability */
+        *sigma_mass_A = 0.0;
+        *sigma_cpl    = 0.0;
+        *sigma_phi    = 0.0;
     } else {
         *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     }
 }
+
 
 /* --- Nonlinear Material Property (Brauer Law) --- */
 /* nu(B) = 100 + 10 * exp(2 * |B|^2) */
@@ -355,7 +387,7 @@ void set_element_vec_NR_Aphi(
          *   - air stabilization: -(sigma_stab/dt) M (A_curr)  (NO history)
          * ========================================================== */
         if(sigma_mass_A > 0.0){
-            int use_history = (prop != 1 || prop != 2|| prop != 3|| prop != 5); /* air uses NO history (penalty only) */
+            int use_history = (prop == 1 || prop == 2|| prop == 3|| prop == 5); /* air uses NO history (penalty only) */
 
             for(int i=0; i<ned->local_num_edges; ++i){
                 int gi = ned->nedelec_conn[e][i];
@@ -505,29 +537,12 @@ void apply_dirichlet_bc_for_A_and_phi(
 {
     int num_nodes = fe->total_num_nodes;
 
-    int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
+    const int nen = fe->local_num_nodes;
 
-    /* 要素をループして、導体要素(prop=1,2,3,4)に含まれるノードにフラグを立てる */
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-
-        if(prop == 1 || prop == 2 || prop == 3 || prop == 4){
-            /* 導体：優先度高 (1) をセット */
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 1; 
-            }
-        }
-        else if(prop == 5){
-            /* 空気：まだ導体(1)と判定されていない場合のみ 空気(2) をセット */
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                if(node_is_conductor[gn] != 1){ 
-                    node_is_conductor[gn] = 2;
-                }
-            }
-        }
-    }
+    static int  is_dir_edge_n = 0;
+    is_dir_edge_n  = fe->total_num_nodes;
+    bool* is_dir_edge = BB_std_calloc_1d_bool(is_dir_edge, is_dir_edge_n);
+    build_dirichlet_edge_mask_from_boundary_faces_tet(fe, bc, ned, is_dir_edge, is_dir_edge_n);
 
     /* --------------------------------------------------------
        2. A (Edge) に対する境界条件: A_tan = 0
@@ -535,7 +550,7 @@ void apply_dirichlet_bc_for_A_and_phi(
        -------------------------------------------------------- */
     
     /* 要素タイプに応じたエッジテーブル (Tet/Hex) */
-    const int nen = fe->local_num_nodes;
+    //const int nen = fe->local_num_nodes;
     int n_local_edges = 0;
     const int (*edge_tbl)[2] = NULL;
     
@@ -555,8 +570,13 @@ void apply_dirichlet_bc_for_A_and_phi(
             int gn1 = fe->conn[e][n1_local];
             int gn2 = fe->conn[e][n2_local];
 
+            const int gid = ned->nedelec_conn[e][i];
+
             /* 両端点がDirichlet境界上にあるエッジは、境界エッジとみなす */
-            if (bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2]) {
+            if (!(bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2])) continue;
+            
+            if(!is_dir_edge[gid]) continue; 
+
                 int ged = ned->nedelec_conn[e][i]; /* Edge Global ID */
                 
                 /* A = 0.0 を設定 (Monolisの関数で行固定) */
@@ -567,20 +587,37 @@ void apply_dirichlet_bc_for_A_and_phi(
                     0,    /* DOF index (スカラーなので0) */
                     0.0   /* 指定値 */
                 );
+            
+        }
+    }
+
+    
+    double* node_is_conductor = (double*)calloc(num_nodes, sizeof(double));
+    
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+        if(prop == 4){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                node_is_conductor[gn] = 4;
             }
         }
     }
 
-    /* --------------------------------------------------------
-       3. phi (Node) に対する境界条件
-       
-       Case A: 空気領域 (絶縁体) -> phi = 0 で固定 (特異性回避)
-       Case B: 導体領域の境界 -> 接地などが必要なら設定
-       -------------------------------------------------------- */
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+
+        if(prop == 1 || prop == 2 || prop == 3 || prop == 4){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                //node_is_conductor[gn] = 1; 
+            }
+        }
+    }
+
+    /*
     for (int i = 0; i < num_nodes; ++i){
-        /* [Case A] ノードが導体に含まれていない (つまり空気) */
-        /*
-        if (node_is_conductor[i] == 2) {
+        if (node_is_conductor[i] == 5) {
             monolis_set_Dirichlet_bc_R(
                 monolis, 
                 monolis->mat.R.B, 
@@ -588,34 +625,35 @@ void apply_dirichlet_bc_for_A_and_phi(
                 0, 
                 0.0
             );
-        }
-        /* [Case B] 導体かつ境界条件指定あり (接地など) */
-        //else 
-        /*
-        if (bc->D_bc_exists[i]) {
-            monolis_set_Dirichlet_bc_R(
-                monolis, 
-                monolis->mat.R.B, 
-                i, 
-                0, 
-                0.0 
-            );
-        }
-        */
+        }  
     }
-/*
+    */
+
+
+    int count = 0;
     if(monolis_mpi_get_global_my_rank()==0){
-        int ref_node = -1;
-        for(int e=0;e<fe->total_num_elems;++e){
-            if(ned->elem_prop[e]==1){
-                ref_node = fe->conn[e][0]; break;
+        for (int i = 0; i < num_nodes; ++i){
+            if (node_is_conductor[i] == 4) {
+                count++;
+                if(count == 1){
+                    monolis_set_Dirichlet_bc_R(
+                    monolis, 
+                    monolis->mat.R.B, 
+                    i, 
+                    0, 
+                    0.0
+                );
+
+                printf("\n\n\n\n\nadd D_bc\n\n\n\n\n");
+
+                }
+                else{
+                }
             }
         }
-        if(ref_node>=0){
-            monolis_set_Dirichlet_bc_R(monolis, monolis->mat.R.B, ref_node, 0, 0.0);
-        }
     }
-*/
+
+
     free(node_is_conductor);
 }
 
