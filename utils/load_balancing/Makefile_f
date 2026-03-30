@@ -18,7 +18,7 @@ LIBS := -L/usr/local/lib -lm -lstdc++ \
         $(METIS_SO)
 
 TARGET = hddm
-OBJS   = HDDM_diff.o
+OBJS   = HDDM.o
 
 all: $(TARGET)
 

@@ -4,7 +4,9 @@ FC = mpif90
 CFLAGS   := -g -O3
 LDFLAGS  :=
 INCLUDES := -I/usr/local/include -I./../../../test_thermal/submodule/monolis/include
-LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lscalapack -llapack -lblas
+LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lscalapack -llapack -lblas -L$(MKLROOT)/lib/intel64 \
+        -lmkl_intel_lp64 -lmkl_sequential -lmkl_core \
+        -lpthread -lm -ldl
 
 INCLUDES_BB = -I../../../test_thermal/include
 LIBS_BB     = -L../../../test_thermal/lib -lBBFE_std -lBBFE_sys -lBBFE_elemmat -lBBFE_manusol -lBB

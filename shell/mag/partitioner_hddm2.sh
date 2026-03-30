@@ -24,7 +24,7 @@ cd $directory
 
 mkdir -p parted.0/parted.1
 cd parted.0/parted.1
-./../../../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np -i metagraph.dat -d ./../
+./../../../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np -i metagraph.dat -d ./metagraphparted.0
 cd ../..
 
 mpirun -np $np ./../../utils/load_balancing/hddm $nd
@@ -42,3 +42,5 @@ do
 done
 
 cd ../..
+
+cp -r ./parted.o/parted.0 ./

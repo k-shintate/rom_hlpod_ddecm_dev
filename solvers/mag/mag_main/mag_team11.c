@@ -789,7 +789,6 @@ int main (
     output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
 */
     
-/*
     char fname[BUFFER_SIZE];         
     snprintf(fname, BUFFER_SIZE, "hot_start/%s.%d.dat", "velosity_pressure", monolis_mpi_get_global_my_rank());
     t_hs = hot_start_read_initialize_val(sys.vals.Aphi_time, fname, sys.cond.directory);
@@ -818,7 +817,7 @@ int main (
             sys.vals.snapshot_interval,
             1,
 			1);
-    */
+    
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis), &(sys.monolis_mass));
 
     for (step = step_hs; step <= nsteps; ++step) {
@@ -826,20 +825,20 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
         
-        
+        /*
         solver_fom_NR_Aphi(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
-        
-/*
+        */
+
         solver_fom_NR_Aphi_collect_snapmat(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
-*/
+
         log_accuracy_metrics(
             &sys, sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);

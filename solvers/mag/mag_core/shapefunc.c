@@ -220,7 +220,7 @@ void BBFE_std_shapefunc_hex1st_nedelec_get_curl(
     }
 }
 
-void cross3(const double a[3], const double b[3], double c[3])
+static inline void cross3(const double a[3], const double b[3], double c[3])
 {
     c[0] = a[1]*b[2] - a[2]*b[1];
     c[1] = a[2]*b[0] - a[0]*b[2];
@@ -260,14 +260,23 @@ void BBFE_std_shapefunc_tet1st_nedelec_get_val(
         /* 物理要素へ: N = J^{-T} hatN
            N_i = sum_a (∂ξ_a/∂x_i) * hatN_a = sum_a J_inv[a][i] * hatN[a]
         */
-        for (int phys = 0; phys < 3; ++phys) {
+/*
+	for (int phys = 0; phys < 3; ++phys) {
             N_edge[e][phys] =
                 J_inv[0][phys]*hatN[0] +
                 J_inv[1][phys]*hatN[1] +
                 J_inv[2][phys]*hatN[2];
         }
+*/
+	        for(int phys = 0; phys < 3; ++phys){
+            N_edge[e][phys] =
+                J_inv[phys][0]*hatN[0] +
+                J_inv[phys][1]*hatN[1] +
+                J_inv[phys][2]*hatN[2];
+        }
     }
 }
+
 
 /* --- Nedelec(1st kind, lowest order) の curl --- */
 void BBFE_std_shapefunc_tet1st_nedelec_get_curl(

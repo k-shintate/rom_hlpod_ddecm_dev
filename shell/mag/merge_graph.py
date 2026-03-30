@@ -84,7 +84,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "base_dir",
-        help="Base directory, e.g. result_mag/40-4-8"
+        help="Base directory, e.g. result_mag/40-16-16"
     )
     parser.add_argument("--elem", default="graph_elem.dat", help="Input file name for elem (default: graph_elem.dat)")
     parser.add_argument("--nedelec", default="graph_nedelec_elem.dat", help="Input file name for nedelec (default: graph_nedelec_elem.dat)")
