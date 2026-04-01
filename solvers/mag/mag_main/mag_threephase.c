@@ -11,6 +11,8 @@
 #include "mag_dataset.h"
 #include "core_ROM.h"
 
+#include "3ph_tr_NR_JA.h"
+
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
 const int DVAL_NUM_IP_EACH_AXIS = 4;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
@@ -821,18 +823,29 @@ int main (
     */
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis), &(sys.monolis_mass));
 
+    ja_init_states_zero();
+    ja_allocate_states(sys.fe.total_num_elems, sys.basis.num_integ_points);
+
     for (step = step_hs; step <= nsteps; ++step) {
         t += sys.vals.dt;
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-        
-        
+  
+        solver_fom_NR_Aphi_JA(
+            &sys,
+            sys.vals.Aphi_time,
+            sys.vals.Aphi_time_curr,
+            sys.fe.total_num_nodes,
+            sys.vals.dt,
+            t);
+
+/*        
         solver_fom_NR_Aphi(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
-        
+*/    
 /*
         solver_fom_NR_Aphi_collect_snapmat(
             sys, t, count, 
@@ -840,7 +853,7 @@ int main (
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
 */
-        log_accuracy_metrics(
+        log_accuracy_metrics_JA(
             &sys, sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
       
