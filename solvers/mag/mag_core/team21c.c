@@ -8,7 +8,7 @@ const double Sigma_coil   = 5.7143e7;
 const double Sigma_shield = 5.7143e7;
 const double Sigma_steel  = 6.484e6;
 
-void get_sigmas_for_prop_team21c2(
+void get_sigmas_for_prop_team21c(
     int prop,
     double* sigma_mass_A,   /* used for (sigma/dt) * M_A in Jacobian */
     double* sigma_cpl,      /* used for coupling C and C^T/dt */
@@ -17,8 +17,8 @@ void get_sigmas_for_prop_team21c2(
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
         *sigma_mass_A = Sigma_coil;
-        *sigma_cpl    = Sigma_coil;
-        *sigma_phi    = Sigma_coil;
+        *sigma_cpl    = 0.0;
+        *sigma_phi    = 0.0;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
         *sigma_mass_A = Sigma_shield;
@@ -30,9 +30,9 @@ void get_sigmas_for_prop_team21c2(
         *sigma_phi    = Sigma_steel;
     } else if(prop == 5){
         /* air */
-        *sigma_mass_A = Sigma_steel*1.0;
+        *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
-        *sigma_phi    = Sigma_steel*1.0;
+        *sigma_phi    = 0.0;
     } else {
         *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
@@ -40,7 +40,7 @@ void get_sigmas_for_prop_team21c2(
     }
 }
 
-void get_sigmas_for_prop_team21c(
+void get_sigmas_for_prop_team21c2(
     int prop,
     double* sigma_mass_A,   /* used for (sigma/dt) * M_A in Jacobian */
     double* sigma_cpl,      /* used for coupling C and C^T/dt */
@@ -75,29 +75,195 @@ void get_sigmas_for_prop_team21c(
 
 static inline int get_coil_info_team21(int elem_prop, COIL_INFO* info) {
     info->axis[0] = 0.0;
-    info->axis[1] = 1.0;
-    info->axis[2] = 0.0;
+    info->axis[1] = 0.0;
+    info->axis[2] = 1.0;
     info->turns   = 300.0;
-    info->area    = 13.04 * (MM_TO_M * MM_TO_M);
+
+    /* FE coil-region equivalent cross-sectional area */
+    info->area    = (32900.0) * (MM_TO_M * MM_TO_M);
 
     {
-        const double cy = 30.0 * MM_TO_M;
-        const double cz = 20.0 * MM_TO_M;
+        const double cy = 0.0 * MM_TO_M;
+        const double cz = 0.0 * MM_TO_M;
 
         if (elem_prop == 1) {
-            info->center[0] = 2.5 * MM_TO_M;
+            info->center[0] = 0.0;
             info->center[1] = cy;
-            info->center[2] = cz;
+            info->center[2] = -120.5 * MM_TO_M; /* coil1 center z */
             return 1;
         }
         if (elem_prop == 2) {
-            info->center[0] = 35.0 * MM_TO_M;
+            info->center[0] = 0.0;
             info->center[1] = cy;
-            info->center[2] = cz;
+            info->center[2] =  120.5 * MM_TO_M; /* coil2 center z */
             return 1;
         }
     }
     return 0;
+}
+
+#include <float.h>
+
+/* ==========================================================
+ * TEAM 21c rounded-rectangle coil tangent model in local xy-plane
+ * Geometry must match the gmsh model:
+ *   outer 270 x 270 mm, corner radius 45 mm
+ *   inner 200 x 200 mm, corner radius 10 mm
+ *
+ * We use the FE coil region centerline approximation:
+ *   outer/inner の中間の角丸矩形を1本の閉ループとして扱い，
+ *   その接線方向を Js の方向に使う。
+ * ========================================================== */
+static int get_team21c_rectcoil_tangent(
+    const COIL_INFO* coil,
+    const double x_ip[3],
+    double tdir[3]
+){
+    const double MM = MM_TO_M;
+
+    /* ---- centerline geometry (midline of coil pack) ---- */
+    const double outerX = 270.0 * MM;
+    const double outerY = 270.0 * MM;
+    const double innerX = 200.0 * MM;
+    const double innerY = 200.0 * MM;
+    const double rOuter = 45.0 * MM;
+    const double rInner = 10.0 * MM;
+
+    /* centerline rounded rectangle */
+    const double a = 0.25 * (outerX + innerX);   /* half width  = 117.5 mm */
+    const double b = 0.25 * (outerY + innerY);   /* half height = 117.5 mm */
+    const double rc = 0.5  * (rOuter + rInner);  /* corner rad  = 27.5 mm */
+
+    /* straight-part limits of centerline */
+    const double xs = a - rc;  /* 90.0 mm */
+    const double ys = b - rc;  /* 90.0 mm */
+
+    /* local coordinates around coil center */
+    const double x = x_ip[0] - coil->center[0];
+    const double y = x_ip[1] - coil->center[1];
+
+    /* candidates: nearest point on 4 straight segments + 4 corner arcs */
+    double best_d2 = DBL_MAX;
+    double best_tx = 0.0, best_ty = 0.0;
+
+    /* utility macro */
+    #define UPDATE_BEST(px, py, tx_, ty_) do { \
+        double dx_ = x - (px); \
+        double dy_ = y - (py); \
+        double d2_ = dx_*dx_ + dy_*dy_; \
+        if(d2_ < best_d2){ \
+            best_d2 = d2_; \
+            best_tx = (tx_); \
+            best_ty = (ty_); \
+        } \
+    } while(0)
+
+    /* ---------------- 4 straight segments ----------------
+     * CCW tangent:
+     *   top    : (-1,  0)
+     *   left   : ( 0, -1)
+     *   bottom : ( 1,  0)
+     *   right  : ( 0,  1)
+     */
+
+    /* top: y = +b, x in [-xs, +xs] */
+    {
+        double px = fmax(-xs, fmin(xs, x));
+        double py = b;
+        UPDATE_BEST(px, py, -1.0,  0.0);
+    }
+
+    /* bottom: y = -b, x in [-xs, +xs] */
+    {
+        double px = fmax(-xs, fmin(xs, x));
+        double py = -b;
+        UPDATE_BEST(px, py,  1.0,  0.0);
+    }
+
+    /* right: x = +a, y in [-ys, +ys] */
+    {
+        double px = a;
+        double py = fmax(-ys, fmin(ys, y));
+        UPDATE_BEST(px, py,  0.0,  1.0);
+    }
+
+    /* left: x = -a, y in [-ys, +ys] */
+    {
+        double px = -a;
+        double py = fmax(-ys, fmin(ys, y));
+        UPDATE_BEST(px, py,  0.0, -1.0);
+    }
+
+    /* ---------------- 4 corner arcs ----------------
+     * Arc centers:
+     *   TR: (+xs, +ys)
+     *   TL: (-xs, +ys)
+     *   BL: (-xs, -ys)
+     *   BR: (+xs, -ys)
+     *
+     * For a CCW loop, tangent = (-uy, ux),
+     * where u = radial unit vector from arc center to closest point.
+     */
+
+    struct ArcInfo { double cx, cy; };
+    const struct ArcInfo arcs[4] = {
+        { +xs, +ys },  /* TR */
+        { -xs, +ys },  /* TL */
+        { -xs, -ys },  /* BL */
+        { +xs, -ys }   /* BR */
+    };
+
+    for(int k = 0; k < 4; ++k){
+        double cx = arcs[k].cx;
+        double cy = arcs[k].cy;
+
+        double vx = x - cx;
+        double vy = y - cy;
+        double vn = sqrt(vx*vx + vy*vy);
+
+        if(vn < 1.0e-20){
+            continue;
+        }
+
+        double ux = vx / vn;
+        double uy = vy / vn;
+
+        /* nearest point on full circle of radius rc */
+        double px = cx + rc * ux;
+        double py = cy + rc * uy;
+
+        /* keep only the quarter-arc belonging to each corner */
+        int ok = 0;
+        if(k == 0) ok = (ux >= 0.0 && uy >= 0.0); /* TR */
+        if(k == 1) ok = (ux <= 0.0 && uy >= 0.0); /* TL */
+        if(k == 2) ok = (ux <= 0.0 && uy <= 0.0); /* BL */
+        if(k == 3) ok = (ux >= 0.0 && uy <= 0.0); /* BR */
+
+        if(!ok) continue;
+
+        /* CCW tangent */
+        double tx = -uy;
+        double ty =  ux;
+
+        UPDATE_BEST(px, py, tx, ty);
+    }
+
+    #undef UPDATE_BEST
+
+    /* map local xy tangent back to global xyz
+       axis is z for this geometry */
+    double nt = sqrt(best_tx*best_tx + best_ty*best_ty);
+    if(nt < 1.0e-20){
+        tdir[0] = 0.0;
+        tdir[1] = 0.0;
+        tdir[2] = 0.0;
+        return 0;
+    }
+
+    tdir[0] = best_tx / nt;
+    tdir[1] = best_ty / nt;
+    tdir[2] = 0.0;
+    return 1;
 }
 
 /* --- Nonlinear Material Property (Brauer Law) --- */
@@ -327,6 +493,128 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
         }
     }
 
+
+    
+    int num_nodes = fe->total_num_nodes;
+    double* node_is_conductor = (double*)calloc(num_nodes, sizeof(double));
+    
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+        if(prop==3||prop == 4){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                node_is_conductor[gn] = 3;
+            }
+        }
+    }
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+
+        if(prop == 1){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                node_is_conductor[gn] = 1; 
+            }
+        }
+    }
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+
+        if(prop == 2){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                node_is_conductor[gn] = 2; 
+            }
+        }
+    }
+
+    /*
+    for (int i = 0; i < num_nodes; ++i){
+        if (node_is_conductor[i] == 5) {
+            monolis_set_Dirichlet_bc_R(
+                monolis, 
+                monolis->mat.R.B, 
+                i, 
+                0, 
+                0.0
+            );
+        }  
+    }
+    */
+
+/*
+    int count = 0;
+    if(monolis_mpi_get_global_my_rank()==0){
+        for (int i = 0; i < num_nodes; ++i){
+            if (node_is_conductor[i] == 1) {
+                count++;
+                if(count == 1){
+                    monolis_set_Dirichlet_bc_R(
+                    monolis, 
+                    monolis->mat.R.B, 
+                    i, 
+                    0, 
+                    0.0
+                );
+
+                printf("\n\n\n\n\nadd D_bc coil1\n\n\n\n\n");
+
+                }
+                else{
+                }
+            }
+        }
+    }
+
+    count = 0;
+    if(monolis_mpi_get_global_my_rank()==2){
+        for (int i = 0; i < num_nodes; ++i){
+            if (node_is_conductor[i] == 3) {
+                count++;
+                if(count == 1){
+                    monolis_set_Dirichlet_bc_R(
+                    monolis, 
+                    monolis->mat.R.B, 
+                    i, 
+                    0, 
+                    0.0
+                );
+
+                printf("\n\n\n\n\nadd D_bc shield\n\n\n\n\n");
+
+                }
+                else{
+                }
+            }
+        }
+    }
+
+    count = 0;
+    if(monolis_mpi_get_global_my_rank()==2){
+        for (int i = 0; i < num_nodes; ++i){
+            if (node_is_conductor[i] == 2) {
+                count++;
+                if(count == 1){
+                    monolis_set_Dirichlet_bc_R(
+                    monolis, 
+                    monolis->mat.R.B, 
+                    i, 
+                    0, 
+                    0.0
+                );
+
+                printf("\n\n\n\n\nadd D_bc coil2\n\n\n\n\n");
+
+                }
+                else{
+                }
+            }
+        }
+    }
+*/
+
     BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 }
 
@@ -337,11 +625,11 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
 static const double I_RMS = 10.0;   /* TEAM benchmark rated current [A rms] */
-static const double FREQ_HZ_team21 = 50.0; /* [Hz] */
+static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)
 {
-    const double omega = 2.0 * M_PI * FREQ_HZ_team21;
+    const double omega = 2.0 * M_PI * FREQ_HZ_team21c;
     const double Iamp  = sqrt(2.0) * I_RMS;  /* peak value */
 
     if(prop == 1){
@@ -408,32 +696,13 @@ void set_element_vec_NR_Aphi_team21c(
                     double x_ip[3];
                     get_interp_coords(e, p, fe, basis, x_ip);
 
-                    double d[3] = {
-                        x_ip[0] - coil.center[0],
-                        x_ip[1] - coil.center[1],
-                        x_ip[2] - coil.center[2]
-                    };
-                    double da = dot3(d, coil.axis);
-
-                    double r[3] = {
-                        d[0] - da * coil.axis[0],
-                        d[1] - da * coil.axis[1],
-                        d[2] - da * coil.axis[2]
-                    };
-
-                    double tdir[3] = {
-                        coil.axis[1] * r[2] - coil.axis[2] * r[1],
-                        coil.axis[2] * r[0] - coil.axis[0] * r[2],
-                        coil.axis[0] * r[1] - coil.axis[1] * r[0]
-                    };
-                    double n_tdir = norm3(tdir);
-
+                    double tdir[3];
                     double Js[3] = {0.0, 0.0, 0.0};
-                    if(n_tdir > eps_r){
-                        double inv_n = 1.0 / n_tdir;
-                        Js[0] = J_mag * tdir[0] * inv_n;
-                        Js[1] = J_mag * tdir[1] * inv_n;
-                        Js[2] = J_mag * tdir[2] * inv_n;
+
+                    if(get_team21c_rectcoil_tangent(&coil, x_ip, tdir)){
+                        Js[0] = J_mag * tdir[0];
+                        Js[1] = J_mag * tdir[1];
+                        Js[2] = J_mag * tdir[2];
                     }
 
                     val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
@@ -618,24 +887,26 @@ double calc_copper_shield_loss_EM1(
     NEDELEC*    ned   = &(sys->ned);
 
     const int np = basis->num_integ_points;
+    const double inv_dt = 1.0 / dt;
+
     double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
     double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
 
-    double loss = 0.0;
+    double loss_local = 0.0;
 
     for(int e = 0; e < fe->total_num_elems; ++e){
-        if(ned->elem_prop[e] != 3) continue; /* copper shield only */
+        if(ned->elem_prop[e] != 3) continue; /* shield only */
 
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
         for(int p = 0; p < np; ++p){
-            double dA_dt[3]   = {0.0, 0.0, 0.0};
-            double grad_phi[3]= {0.0, 0.0, 0.0};
+            double dA_dt[3]    = {0.0, 0.0, 0.0};
+            double grad_phi[3] = {0.0, 0.0, 0.0};
 
             for(int i = 0; i < ned->local_num_edges; ++i){
                 int gi = ned->nedelec_conn[e][i];
                 int si = ned->edge_sign[e][i];
-                double dai = (x_curr[gi] - x_prev[gi]) / dt;
+                double dai = (x_curr[gi] - x_prev[gi]) * inv_dt;
 
                 dA_dt[0] += (double)si * dai * ned->N_edge[e][p][i][0];
                 dA_dt[1] += (double)si * dai * ned->N_edge[e][p][i][1];
@@ -651,21 +922,274 @@ double calc_copper_shield_loss_EM1(
                 grad_phi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
             }
 
-            double E[3];
-            E[0] = -dA_dt[0] - grad_phi[0];
-            E[1] = -dA_dt[1] - grad_phi[1];
-            E[2] = -dA_dt[2] - grad_phi[2];
+            /* E = -dA/dt - grad(phi) */
+            double E0 = -dA_dt[0] - grad_phi[0];
+            double E1 = -dA_dt[1] - grad_phi[1];
+            double E2 = -dA_dt[2] - grad_phi[2];
 
-            double e2 = E[0]*E[0] + E[1]*E[1] + E[2]*E[2];
-            val_ip[p] = Sigma_shield * e2; /* J^2/sigma = sigma * E^2 */
+            double e2 = E0*E0 + E1*E1 + E2*E2;
+
+            /* p = J·E = sigma |E|^2 */
+            val_ip[p] = Sigma_shield * e2;
         }
 
-        loss += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+        loss_local += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
     }
 
     BB_std_free_1d_double(Jacobian_ip, np);
     BB_std_free_1d_double(val_ip, np);
 
-    return loss;
+    /* MPI sum */
+    double loss_global = loss_local;
+    monolis_allreduce_R(1, &loss_global, MONOLIS_MPI_SUM, sys->monolis_com.comm);
+
+    return loss_global;
 }
 
+void log_copper_shield_loss_EM1(
+    FE_SYSTEM* sys,
+    int step,
+    double t,
+    double dt,
+    double shield_loss_inst
+){
+    if(sys->monolis_com.my_rank != 0) return;
+
+    FILE* fp;
+    fp = BBFE_sys_write_add_fopen(fp, "team21c_em1_shield_loss.csv", sys->cond.directory);
+
+    if(step == 0){
+        fprintf(fp, "Step,Time,dt,I1,I2,ShieldLossInstant\n");
+    }
+
+    fprintf(fp, "%d,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+            step, t, dt,
+            get_coil_current_team21c(1, t),
+            get_coil_current_team21c(2, t),
+            shield_loss_inst);
+
+    fclose(fp);
+}
+
+
+void log_copper_shield_loss_EM1_cycle_average(
+    FE_SYSTEM* sys,
+    int step,
+    double t,
+    double dt,
+    double shield_loss_inst
+){
+    const double T_period = 1.0 / FREQ_HZ_team21c;
+
+    static double cycle_start_time = 0.0;
+    static double sum_loss_dt = 0.0;
+
+    sum_loss_dt += shield_loss_inst * dt;
+
+    if((t - cycle_start_time + dt) >= T_period - 1.0e-14){
+        double cycle_len = t - cycle_start_time + dt;
+        if(cycle_len < 1.0e-14) cycle_len = T_period;
+
+        double shield_loss_avg = sum_loss_dt / cycle_len;
+
+        if(sys->monolis_com.my_rank == 0){
+            FILE* fp;
+            fp = BBFE_sys_write_add_fopen(
+                fp, "team21c_em1_shield_loss_cycle.csv", sys->cond.directory
+            );
+
+            if(step == 0 || fabs(cycle_start_time) < 1.0e-14){
+                fprintf(fp, "CycleStart,CycleEnd,CycleLength,ShieldLossAvg\n");
+            }
+
+            fprintf(
+                fp,
+                "%.6e,%.6e,%.6e,%.6e\n",
+                cycle_start_time, t + dt, cycle_len, shield_loss_avg
+            );
+
+            fclose(fp);
+        }
+
+        cycle_start_time = t + dt;
+        sum_loss_dt = 0.0;
+    }
+}
+
+SHIELD_LOSS_DIAG calc_copper_shield_loss_EM1_diag(
+    FE_SYSTEM* sys,
+    const double* x_prev,
+    const double* x_curr,
+    double dt
+){
+    BBFE_DATA*  fe    = &(sys->fe);
+    BBFE_BASIS* basis = &(sys->basis);
+    NEDELEC*    ned   = &(sys->ned);
+
+    const int np = basis->num_integ_points;
+    const double inv_dt = 1.0 / dt;
+
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    SHIELD_LOSS_DIAG out;
+    memset(&out, 0, sizeof(SHIELD_LOSS_DIAG));
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        if(ned->elem_prop[e] != 3) continue; /* shield only */
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        double vol_elem = 0.0;
+        for(int p = 0; p < np; ++p){
+            val_ip[p] = 1.0;
+        }
+        vol_elem = BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+        out.vol_shield += vol_elem;
+
+        for(int p = 0; p < np; ++p){
+            double dA_dt[3]    = {0.0, 0.0, 0.0};
+            double grad_phi[3] = {0.0, 0.0, 0.0};
+
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+                double dai = (x_curr[gi] - x_prev[gi]) * inv_dt;
+
+                dA_dt[0] += (double)si * dai * ned->N_edge[e][p][i][0];
+                dA_dt[1] += (double)si * dai * ned->N_edge[e][p][i][1];
+                dA_dt[2] += (double)si * dai * ned->N_edge[e][p][i][2];
+            }
+
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                int gn = fe->conn[e][n];
+                double phi_n = x_curr[gn];
+
+                grad_phi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
+                grad_phi[1] += phi_n * fe->geo[e][p].grad_N[n][1];
+                grad_phi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
+            }
+
+            /* E = -dA/dt - grad(phi) */
+            double E0 = -dA_dt[0] - grad_phi[0];
+            double E1 = -dA_dt[1] - grad_phi[1];
+            double E2 = -dA_dt[2] - grad_phi[2];
+
+            double a2 = dA_dt[0]*dA_dt[0] + dA_dt[1]*dA_dt[1] + dA_dt[2]*dA_dt[2];
+            double p2 = grad_phi[0]*grad_phi[0] + grad_phi[1]*grad_phi[1] + grad_phi[2]*grad_phi[2];
+            double ep = dA_dt[0]*grad_phi[0] + dA_dt[1]*grad_phi[1] + dA_dt[2]*grad_phi[2];
+            double e2 = E0*E0 + E1*E1 + E2*E2;
+
+            double w = basis->integ_weight[p] * Jacobian_ip[p];
+
+            out.loss_A     += Sigma_shield * a2 * w;
+            out.loss_phi   += Sigma_shield * p2 * w;
+            out.loss_cross += Sigma_shield * 2.0 * ep * w;
+            out.loss_total += Sigma_shield * e2 * w;
+
+            out.rms_dA_dt    += a2 * w;
+            out.rms_grad_phi += p2 * w;
+            out.rms_E        += e2 * w;
+
+            double na = sqrt(a2);
+            double npg = sqrt(p2);
+            double ne = sqrt(e2);
+
+            if(na  > out.max_dA_dt)    out.max_dA_dt = na;
+            if(npg > out.max_grad_phi) out.max_grad_phi = npg;
+            if(ne  > out.max_E)        out.max_E = ne;
+        }
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+
+    /* MPI sum for additive quantities */
+    {
+        double sendbuf[8], recvbuf[8];
+        sendbuf[0] = out.loss_total;
+        sendbuf[1] = out.loss_A;
+        sendbuf[2] = out.loss_phi;
+        sendbuf[3] = out.loss_cross;
+        sendbuf[4] = out.vol_shield;
+        sendbuf[5] = out.rms_dA_dt;
+        sendbuf[6] = out.rms_grad_phi;
+        sendbuf[7] = out.rms_E;
+
+        memcpy(recvbuf, sendbuf, sizeof(sendbuf));
+        monolis_allreduce_R(8, recvbuf, MONOLIS_MPI_SUM, sys->monolis_com.comm);
+
+        out.loss_total   = recvbuf[0];
+        out.loss_A       = recvbuf[1];
+        out.loss_phi     = recvbuf[2];
+        out.loss_cross   = recvbuf[3];
+        out.vol_shield   = recvbuf[4];
+        out.rms_dA_dt    = recvbuf[5];
+        out.rms_grad_phi = recvbuf[6];
+        out.rms_E        = recvbuf[7];
+    }
+
+    /* MPI max for maxima */
+    {
+        double sendbuf[3], recvbuf[3];
+        sendbuf[0] = out.max_dA_dt;
+        sendbuf[1] = out.max_grad_phi;
+        sendbuf[2] = out.max_E;
+
+        memcpy(recvbuf, sendbuf, sizeof(sendbuf));
+        monolis_allreduce_R(3, recvbuf, MONOLIS_MPI_MAX, sys->monolis_com.comm);
+
+        out.max_dA_dt    = recvbuf[0];
+        out.max_grad_phi = recvbuf[1];
+        out.max_E        = recvbuf[2];
+    }
+
+    if(out.vol_shield > 1.0e-30){
+        out.rms_dA_dt    = sqrt(out.rms_dA_dt    / out.vol_shield);
+        out.rms_grad_phi = sqrt(out.rms_grad_phi / out.vol_shield);
+        out.rms_E        = sqrt(out.rms_E        / out.vol_shield);
+    } else {
+        out.rms_dA_dt = 0.0;
+        out.rms_grad_phi = 0.0;
+        out.rms_E = 0.0;
+    }
+
+    return out;
+}
+
+
+void log_copper_shield_loss_EM1_diag(
+    FE_SYSTEM* sys,
+    int step,
+    double t,
+    double dt,
+    const SHIELD_LOSS_DIAG* d
+){
+    if(sys->monolis_com.my_rank != 0) return;
+
+    FILE* fp;
+    fp = BBFE_sys_write_add_fopen(fp, "team21c_em1_shield_loss_diag.csv", sys->cond.directory);
+
+    if(step == 0){
+        fprintf(fp,
+            "Step,Time,dt,I1,I2,"
+            "LossTotal,LossA,LossPhi,LossCross,"
+            "VolShield,RMS_dA_dt,RMS_gradPhi,RMS_E,"
+            "Max_dA_dt,Max_gradPhi,Max_E\n");
+    }
+
+    fprintf(fp,
+        "%d,%.6e,%.6e,%.6e,%.6e,"
+        "%.6e,%.6e,%.6e,%.6e,"
+        "%.6e,%.6e,%.6e,%.6e,"
+        "%.6e,%.6e,%.6e\n",
+        step, t, dt,
+        get_coil_current_team21c(1, t),
+        get_coil_current_team21c(2, t),
+        d->loss_total, d->loss_A, d->loss_phi, d->loss_cross,
+        d->vol_shield, d->rms_dA_dt, d->rms_grad_phi, d->rms_E,
+        d->max_dA_dt, d->max_grad_phi, d->max_E
+    );
+
+    fclose(fp);
+}

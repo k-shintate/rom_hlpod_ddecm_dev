@@ -272,7 +272,7 @@ Field[2].DistMin = 12  * Scale;
 Field[2].DistMax = 100 * Scale;
 
 // --- local refinement only in the coil-shield gap ---
-lcGap = 2 * Scale;   // まずは 2 mm 程度から試す
+lcGap = 4 * Scale;   // まずは 2 mm 程度から試す
 
 gapPadY = 20 * Scale;
 gapPadZ = 20 * Scale;

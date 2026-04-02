@@ -530,6 +530,19 @@ void solver_fom_NR_Aphi_team21c(
 
         /* Newton update */
         update_Aphi_NR(x_curr, dx, n_dof_total, relaxation);
+/*
+        double shield_loss_inst = calc_copper_shield_loss_EM1(&sys, x_prev, x_curr, sys.vals.dt);
+
+        log_copper_shield_loss_EM1(&sys, step, t, sys.vals.dt, shield_loss_inst);
+        log_copper_shield_loss_EM1_cycle_average(&sys, step, t, sys.vals.dt, shield_loss_inst);
+*/
+
+        SHIELD_LOSS_DIAG diag;
+        diag = calc_copper_shield_loss_EM1_diag(&sys, x_prev, x_curr, sys.vals.dt);
+
+        log_copper_shield_loss_EM1(&sys, step, t, sys.vals.dt, diag.loss_total);
+        log_copper_shield_loss_EM1_diag(&sys, step, t, sys.vals.dt, &diag);
+        log_copper_shield_loss_EM1_cycle_average(&sys, step, t, sys.vals.dt, diag.loss_total);
 
         /* 残差ベクトルを保存（B = -F） */
         for(int i=0; i<n_dof_total; ++i){
@@ -643,6 +656,7 @@ void solver_fom_NR_Aphi_team21c(
         }
 
     }
+
 
     free(dx);
     free(rvec);

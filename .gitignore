@@ -16,9 +16,6 @@
 !install.sh
 !util_install.sh
 
-lib/
-include
-
 # allow some
 !utils/load_balancing/include/
 
