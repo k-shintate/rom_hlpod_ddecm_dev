@@ -12,6 +12,7 @@
 #include "core_ROM.h"
 
 #include "3ph_tr_NR_JA.h"
+#include "team21c.h"
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
 const int DVAL_NUM_IP_EACH_AXIS = 4;
@@ -682,7 +683,8 @@ int main (
     /*for ROM *****************************************/
 	
     /*for ROM input data*/
-	ROM_read_args(argc, argv, &(sys.rom_prm_p));
+
+    ROM_read_args(argc, argv, &(sys.rom_prm_p));
 	ROM_read_args(argc, argv, &(sys.rom_prm_v));
 
     ROM_set_param(
@@ -705,19 +707,13 @@ int main (
             sys.rom_prm_p.num_modes + sys.rom_prm_v.num_modes,
             sys.rom_prm_v.rom_epsilon,
             sys.rom_prm_v.solver_type);
-    /*
-	ROM_sys_hlpod_fe_set_bc_id(
-            (&sys.bc),
-            sys.fe.total_num_nodes,
-            1,
-            &(sys.rom_sups.rom_bc));
-*/
+
     const char* parted_file_name;
     parted_file_name = ROM_std_hlpod_get_parted_file_name(sys.rom_prm_v.solver_type);
 
     const char* metagraph_name;
     metagraph_name = ROM_std_hlpod_get_metagraph_name(sys.rom_prm_v.solver_type);
-
+/*
 	ROM_std_hlpod_pre(
             &(sys.rom_v),
 			sys.fe.total_num_nodes,
@@ -744,7 +740,8 @@ int main (
             metagraph_name,
             parted_file_name,
 			sys.cond.directory);
-    /******************/
+*/
+            /******************/
 
     /*for offline******/
     ROM_offline_read_calc_conditions(&(sys.vals), sys.cond.directory);
@@ -823,21 +820,19 @@ int main (
     */
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis), &(sys.monolis_mass));
 
-    ja_init_states_zero();
-    ja_allocate_states(sys.fe.total_num_elems, sys.basis.num_integ_points);
+    //ja_init_states_zero();
+    //ja_allocate_states(sys.fe.total_num_elems, sys.basis.num_integ_points);
 
     for (step = step_hs; step <= nsteps; ++step) {
         t += sys.vals.dt;
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
   
-        solver_fom_NR_Aphi_JA(
-            &sys,
+        solver_fom_NR_Aphi_team21c(
+            sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
-            sys.fe.total_num_nodes,
-            sys.vals.dt,
-            t);
+            sys.fe.total_num_nodes);
 
 /*        
         solver_fom_NR_Aphi(
