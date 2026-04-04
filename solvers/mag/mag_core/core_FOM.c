@@ -513,6 +513,8 @@ void solver_fom_NR_Aphi_team21c(
                                 x_prev, x_curr, sys.vals.dt, t);
         apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
+
+        
         /* 残差ベクトルを保存（B = -F） */
         if(it==0){
             for(int i=0; i<n_dof_total; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
@@ -543,6 +545,13 @@ void solver_fom_NR_Aphi_team21c(
         log_copper_shield_loss_EM1(&sys, step, t, sys.vals.dt, diag.loss_total);
         log_copper_shield_loss_EM1_diag(&sys, step, t, sys.vals.dt, &diag);
         log_copper_shield_loss_EM1_cycle_average(&sys, step, t, sys.vals.dt, diag.loss_total);
+
+        log_coil_ampere_turn_diag_team21c(&sys, step, t);
+
+        SHIELD_FIELD_INT_DIAG fint;
+        fint = calc_shield_field_integrals_EM1(&sys, x_prev, x_curr,  sys.vals.dt, 1);
+
+        log_shield_field_integrals_EM1(&sys, step, t,  sys.vals.dt, &fint);
 
         /* 残差ベクトルを保存（B = -F） */
         for(int i=0; i<n_dof_total; ++i){

@@ -99,7 +99,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop==5){
+            if(prop==4){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }
@@ -109,7 +109,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop!=5){
+            if(prop!=4){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }

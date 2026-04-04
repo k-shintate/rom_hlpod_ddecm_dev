@@ -16,18 +16,18 @@ void get_sigmas_for_prop_team21c(
 ){
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil;
+        *sigma_mass_A = Sigma_coil*1.0e-2;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
-        *sigma_mass_A = Sigma_shield;
-        *sigma_cpl    = Sigma_shield;
-        *sigma_phi    = Sigma_shield;
-    } else if(prop == 4){
         *sigma_mass_A = Sigma_steel;
         *sigma_cpl    = Sigma_steel;
         *sigma_phi    = Sigma_steel;
+    } else if(prop == 4){
+        *sigma_mass_A = 0.0;
+        *sigma_cpl    = 0.0;
+        *sigma_phi    = 0.0;
     } else if(prop == 5){
         /* air */
         *sigma_mass_A = 0.0;
@@ -40,31 +40,31 @@ void get_sigmas_for_prop_team21c(
     }
 }
 
-void get_sigmas_for_prop_team21c2(
+void get_sigmas_for_prop_team21a(
     int prop,
     double* sigma_mass_A,   /* used for (sigma/dt) * M_A in Jacobian */
     double* sigma_cpl,      /* used for coupling C and C^T/dt */
     double* sigma_phi       /* used for phi-phi Laplace term */
 ){
-    if(prop == 1 || prop == 2){
+    if(prop == 1  || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil;
+        *sigma_mass_A = Sigma_coil*1.0e-2;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
-        *sigma_mass_A = Sigma_shield;
+        *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 4){
-        *sigma_mass_A = Sigma_steel;
+        *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 5){
         /* air */
-        *sigma_mass_A = Sigma_steel*1.0;
+        *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
-        *sigma_phi    = Sigma_steel*1.0;
+        *sigma_phi    = 0.0;
     } else {
         *sigma_mass_A = 0.0;
         *sigma_cpl    = 0.0;
@@ -266,21 +266,100 @@ static int get_team21c_rectcoil_tangent(
     return 1;
 }
 
-/* --- Nonlinear Material Property (Brauer Law) --- */
-/* nu(B) = 100 + 10 * exp(2 * |B|^2) */
-void eval_nu_and_dnudB_team21c(double Bmag, double* nu, double* dnudB)
-{
-    const double B2_MAX = 6.25;   /* clamp: B <= 2.5 T 相当 */
-    double B2 = Bmag * Bmag;
+static const int BH_A3_N = 29;
 
-    if (B2 > B2_MAX) {
-        B2 = B2_MAX;
+static const double BH_A3_B[BH_A3_N] = {
+    0.049, 0.101, 0.150, 0.200, 0.299, 0.399, 0.499, 0.601, 0.700, 0.801,
+    0.899, 1.001, 1.099, 1.200, 1.300, 1.401, 1.449, 1.500, 1.550, 1.600,
+    1.639, 1.670, 1.701, 1.729, 1.760, 1.781, 1.800, 1.830, 1.850
+};
+
+static const double BH_A3_H[BH_A3_N] = {
+     115,  171,  196,  214,  245,  279,  316,  359,  405,  461,
+     528,  616,  732,  898, 1154, 1606, 1965, 2506, 3291, 4430,
+    5599, 6698, 7926, 9251, 10792, 11930, 13106, 14949, 16290
+};
+
+static void eval_nu_and_dnudB_team21c(double Bmag, double* nu, double* dnudB)
+{
+    const double mu0 = 4.0e-7 * M_PI;
+    const double eps = 1.0e-12;
+
+    if (Bmag <= BH_A3_B[0]) {
+        double H = BH_A3_H[0] * (Bmag / BH_A3_B[0]);   /* 原点-第1点の線形補間 */
+        double dH_dB = BH_A3_H[0] / BH_A3_B[0];
+
+        if (Bmag < eps) {
+            *nu = dH_dB;
+            *dnudB = 0.0;
+        } else {
+            *nu = H / Bmag;
+            *dnudB = 0.0;   /* この区間では一定勾配 */
+        }
+        return;
     }
 
-    const double exp_val = exp(2.0 * B2);
+    /* measured range: up to 1.85 T */
+    if (Bmag <= BH_A3_B[BH_A3_N - 1]) {
+        for (int k = 0; k < BH_A3_N - 1; ++k) {
+            double B0 = BH_A3_B[k];
+            double B1 = BH_A3_B[k + 1];
+            double H0 = BH_A3_H[k];
+            double H1 = BH_A3_H[k + 1];
 
-    *nu    = 100.0 + 10.0 * exp_val;
-    *dnudB = 40.0 * Bmag * exp_val;
+            if (Bmag >= B0 && Bmag <= B1) {
+                double t = (Bmag - B0) / (B1 - B0);
+                double H = H0 + t * (H1 - H0);
+                double dH_dB = (H1 - H0) / (B1 - B0);
+
+                *nu = H / Bmag;
+                *dnudB = (dH_dB * Bmag - H) / (Bmag * Bmag);
+                return;
+            }
+        }
+    }
+
+    /* extrapolation above 1.85 T from the benchmark document */
+    if (Bmag < 2.1) {
+        double H = BH_A3_H[BH_A3_N - 1];
+
+        for (int it = 0; it < 30; ++it) {
+            double f =
+                mu0 * H
+                - 1.9538e-10 * H * H
+                + 1.9043e-5 * H
+                + 1.5729
+                - Bmag;
+
+            double df =
+                mu0
+                - 2.0 * 1.9538e-10 * H
+                + 1.9043e-5;
+
+            double dH = -f / df;
+            H += dH;
+            if (fabs(dH) < 1.0e-10) break;
+        }
+
+        {
+            double dB_dH =
+                mu0
+                - 2.0 * 1.9538e-10 * H
+                + 1.9043e-5;
+            double dH_dB = 1.0 / dB_dH;
+
+            *nu = H / Bmag;
+            *dnudB = (dH_dB * Bmag - H) / (Bmag * Bmag);
+            return;
+        }
+    } else {
+        double H = (Bmag - 2.0368) / mu0;
+        double dH_dB = 1.0 / mu0;
+
+        *nu = H / Bmag;
+        *dnudB = (dH_dB * Bmag - H) / (Bmag * Bmag);
+        return;
+    }
 }
 
 double get_reluctivity_nu_team21c(double Bmag)
@@ -333,7 +412,8 @@ void set_element_mat_NR_Aphi_team21c(
         double sigma_mass_A, sigma_cpl, sigma_phi;
         get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
 
-        int nonlinear_mu = (prop == 4) ? 1 : 0;
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
         /* ========= [1] A-A : Curl-Curl (tangent stiffness) ========= */
@@ -388,17 +468,14 @@ void set_element_mat_NR_Aphi_team21c(
         }
 
         /* ========= [3] Phi-Phi : Laplace (sigma_phi * gradN·gradN) ========= */
-        double sigma_laplace = (sigma_cpl > 0.0) ? sigma_cpl : sigma_phi;
-
-        if(sigma_laplace > 0.0){
+        if(sigma_phi > 0.0){
             for(int i=0; i<fe->local_num_nodes; ++i){
                 int gi = fe->conn[e][i];
                 for(int j=0; j<fe->local_num_nodes; ++j){
                     int gj = fe->conn[e][j];
                     for(int p=0; p<np; ++p){
-                        /* sigma_phi -> sigma_laplace に変更 */
                         val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
-                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], sigma_laplace);
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], sigma_phi);
                     }
                     double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
                     monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, v);
@@ -438,7 +515,7 @@ void set_element_mat_NR_Aphi_team21c(
                             ned->N_edge[e][p][i], fe->geo[e][p].grad_N[n], sigma_cpl);
                     }
                     double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                    monolis_add_scalar_to_sparse_matrix_R(monolis, gn, gi, 0, 0, (double)si * v * inv_dt);
+                    monolis_add_scalar_to_sparse_matrix_R(monolis, gn, gi, 0, 0, (double)si * v * inv_dt );
                 }
             }
         }
@@ -544,7 +621,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
     }
     */
 
-/*
+
     int count = 0;
     if(monolis_mpi_get_global_my_rank()==0){
         for (int i = 0; i < num_nodes; ++i){
@@ -613,7 +690,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
             }
         }
     }
-*/
+
 
     BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 }
@@ -624,7 +701,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   prop==2 : Coil 2
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
-static const double I_RMS = 10.0;   /* TEAM benchmark rated current [A rms] */
+static const double I_RMS = 20.0;   /* TEAM benchmark rated current [A rms] */
 static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)
@@ -632,13 +709,50 @@ static inline double get_coil_current_team21c(int prop, double t)
     const double omega = 2.0 * M_PI * FREQ_HZ_team21c;
     const double Iamp  = sqrt(2.0) * I_RMS;  /* peak value */
 
+    /*
     if(prop == 1){
-        return  Iamp * sin(omega * t);   /* Coil 1 */
+        return  Iamp * sin(omega * t);   
     } else if(prop == 2){
-        return -Iamp * sin(omega * t);   /* Coil 2: opposite direction */
+        return  -Iamp * sin(omega * t); 
     }
+    */
+    
+
+    if(prop == 1){
+        return  Iamp;   
+    } else if(prop == 2){
+        return  -Iamp;   
+    }
+
     return 0.0;
 }
+
+static int get_team21c_simple_azimuthal_tangent(
+    const COIL_INFO* coil,
+    const double x_ip[3],
+    double tdir[3]
+){
+    const double x = x_ip[0] - coil->center[0];
+    const double y = x_ip[1] - coil->center[1];
+    const double r2 = x*x + y*y;
+    const double eps = 1.0e-20;
+
+    if (r2 < eps) {
+        tdir[0] = 0.0;
+        tdir[1] = 0.0;
+        tdir[2] = 0.0;
+        return 0;
+    }
+
+    /* z軸まわりの周方向 e_theta = (-y/r, x/r, 0) */
+    const double r = sqrt(r2);
+    tdir[0] = -y / r;
+    tdir[1] =  x / r;
+    tdir[2] =  0.0;
+    return 1;
+}
+
+static const int USE_SIMPLE_TDIR_TEST = 1;  /* 1: 簡易周方向, 0: 元の角丸矩形接線 */
 
 /* ============================================================
  * Residual Assembly (Newton) : B = -F(x)
@@ -671,7 +785,8 @@ void set_element_vec_NR_Aphi_team21c(
         double sigma_mass_A, sigma_cpl, sigma_phi;
         get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
 
-        int nonlinear_mu = (prop == 4) ? 1 : 0;
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
 
         /* coil info */
         COIL_INFO coil;
@@ -698,8 +813,15 @@ void set_element_vec_NR_Aphi_team21c(
 
                     double tdir[3];
                     double Js[3] = {0.0, 0.0, 0.0};
+                    int ok_tdir = 0;
 
-                    if(get_team21c_rectcoil_tangent(&coil, x_ip, tdir)){
+                    if (USE_SIMPLE_TDIR_TEST) {
+                        ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
+                    } else {
+                        ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
+                    }
+
+                    if (ok_tdir) {
                         Js[0] = J_mag * tdir[0];
                         Js[1] = J_mag * tdir[1];
                         Js[2] = J_mag * tdir[2];
@@ -817,7 +939,7 @@ void set_element_vec_NR_Aphi_team21c(
         }
 
         /* ==========================================================
-         * [5] Phi-equation
+         * [5] Phi-A-equation
          * ========================================================== */
         if(sigma_cpl > 0.0){
             for(int n = 0; n < fe->local_num_nodes; ++n){
@@ -845,8 +967,10 @@ void set_element_vec_NR_Aphi_team21c(
             }
         }
 
-        double sigma_laplace = (sigma_cpl > 0.0) ? sigma_cpl : sigma_phi;
-        if(sigma_laplace > 0.0){
+        /* ==========================================================
+         * [6] Phi-equation
+         * ========================================================== */
+        if(sigma_phi > 0.0){
             for(int n = 0; n < fe->local_num_nodes; ++n){
                 int gn = fe->conn[e][n];
 
@@ -859,7 +983,7 @@ void set_element_vec_NR_Aphi_team21c(
                         val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
                             fe->geo[e][p].grad_N[n],
                             fe->geo[e][p].grad_N[m],
-                            sigma_laplace
+                            sigma_phi
                         );
                     }
 
@@ -1189,6 +1313,307 @@ void log_copper_shield_loss_EM1_diag(
         d->loss_total, d->loss_A, d->loss_phi, d->loss_cross,
         d->vol_shield, d->rms_dA_dt, d->rms_grad_phi, d->rms_E,
         d->max_dA_dt, d->max_grad_phi, d->max_E
+    );
+
+    fclose(fp);
+}
+
+typedef struct {
+    double vol;              /* coil volume */
+    double int_J_dot_t_dV;   /* ∫_Omega J·t dV */
+    double NI_equiv;         /* (1/L) ∫_Omega J·t dV */
+    double NI_target;        /* turns * I(t) */
+    double rel_err;          /* (NI_equiv - NI_target)/NI_target */
+} COIL_AMPERE_TURN_DIAG;
+
+COIL_AMPERE_TURN_DIAG calc_coil_ampere_turn_diag_team21c(
+    FE_SYSTEM* sys,
+    int coil_prop,      /* 1 or 2 */
+    double current_time
+){
+    BBFE_DATA*  fe    = &(sys->fe);
+    BBFE_BASIS* basis = &(sys->basis);
+    NEDELEC*    ned   = &(sys->ned);
+
+    const int np = basis->num_integ_points;
+
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    COIL_AMPERE_TURN_DIAG out;
+    memset(&out, 0, sizeof(COIL_AMPERE_TURN_DIAG));
+
+    COIL_INFO coil;
+    if(!get_coil_info_team21(coil_prop, &coil)){
+        BB_std_free_1d_double(Jacobian_ip, np);
+        BB_std_free_1d_double(val_ip, np);
+        return out;
+    }
+
+    const double I_t   = get_coil_current_team21c(coil_prop, current_time);
+    const double J_mag = (coil.turns * I_t) / coil.area;
+
+    /* gmsh geometry: coil is extruded along z by 217 mm */
+    const double coil_length = 217.0 * MM_TO_M;
+
+    double vol_local = 0.0;
+    double int_local = 0.0;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        if(ned->elem_prop[e] != coil_prop) continue;
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* element volume */
+        for(int p = 0; p < np; ++p){
+            val_ip[p] = 1.0;
+        }
+        vol_local += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+
+        /* ∫ J·t dV */
+        for(int p = 0; p < np; ++p){
+            double x_ip[3];
+            double tdir[3] = {0.0, 0.0, 0.0};
+            double Js[3]   = {0.0, 0.0, 0.0};
+
+            get_interp_coords(e, p, fe, basis, x_ip);
+
+            if(get_team21c_rectcoil_tangent(&coil, x_ip, tdir)){
+                Js[0] = J_mag * tdir[0];
+                Js[1] = J_mag * tdir[1];
+                Js[2] = J_mag * tdir[2];
+            }
+
+            val_ip[p] = Js[0]*tdir[0] + Js[1]*tdir[1] + Js[2]*tdir[2];
+        }
+        int_local += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+
+    /* MPI sum */
+    {
+        double sendbuf[2], recvbuf[2];
+        sendbuf[0] = vol_local;
+        sendbuf[1] = int_local;
+        memcpy(recvbuf, sendbuf, sizeof(sendbuf));
+        monolis_allreduce_R(2, recvbuf, MONOLIS_MPI_SUM, sys->monolis_com.comm);
+
+        out.vol            = recvbuf[0];
+        out.int_J_dot_t_dV = recvbuf[1];
+    }
+
+    out.NI_target = coil.turns * I_t;
+    out.NI_equiv  = out.int_J_dot_t_dV / coil_length;
+
+    if(fabs(out.NI_target) > 1.0e-30){
+        out.rel_err = (out.NI_equiv - out.NI_target) / out.NI_target;
+    } else {
+        out.rel_err = 0.0;
+    }
+
+    return out;
+}
+
+void log_coil_ampere_turn_diag_team21c(
+    FE_SYSTEM* sys,
+    int step,
+    double current_time
+){
+    COIL_AMPERE_TURN_DIAG c1 =
+        calc_coil_ampere_turn_diag_team21c(sys, 1, current_time);
+    COIL_AMPERE_TURN_DIAG c2 =
+        calc_coil_ampere_turn_diag_team21c(sys, 2, current_time);
+
+    if(sys->monolis_com.my_rank != 0) return;
+
+    FILE* fp;
+    fp = BBFE_sys_write_add_fopen(fp, "team21c_coil_ampere_turn_diag.csv", sys->cond.directory);
+
+    if(step == 0){
+        fprintf(fp,
+            "Step,Time,"
+            "NI_target_1,NI_equiv_1,RelErr_1,Vol_1,IntJt_1,"
+            "NI_target_2,NI_equiv_2,RelErr_2,Vol_2,IntJt_2\n");
+    }
+
+    fprintf(fp,
+        "%d,%.6e,"
+        "%.6e,%.6e,%.6e,%.6e,%.6e,"
+        "%.6e,%.6e,%.6e,%.6e,%.6e\n",
+        step, current_time,
+        c1.NI_target, c1.NI_equiv, c1.rel_err, c1.vol, c1.int_J_dot_t_dV,
+        c2.NI_target, c2.NI_equiv, c2.rel_err, c2.vol, c2.int_J_dot_t_dV
+    );
+
+    fclose(fp);
+}
+
+SHIELD_FIELD_INT_DIAG calc_shield_field_integrals_EM1(
+    FE_SYSTEM* sys,
+    const double* x_prev,
+    const double* x_curr,
+    double dt,
+    int use_phi_in_shield   /* 1: grad phi を含める, 0: grad phi = 0 */
+){
+    BBFE_DATA*  fe    = &(sys->fe);
+    BBFE_BASIS* basis = &(sys->basis);
+    NEDELEC*    ned   = &(sys->ned);
+
+    const int np = basis->num_integ_points;
+    const double inv_dt = 1.0 / dt;
+
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    SHIELD_FIELD_INT_DIAG out;
+    memset(&out, 0, sizeof(SHIELD_FIELD_INT_DIAG));
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        if(ned->elem_prop[e] != 3) continue; /* shield only */
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* volume */
+        for(int p = 0; p < np; ++p){
+            val_ip[p] = 1.0;
+        }
+        out.vol_shield += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+
+        /* ∫ |dA/dt|^2 dV */
+        for(int p = 0; p < np; ++p){
+            double dA_dt[3] = {0.0, 0.0, 0.0};
+
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+                double dai = (x_curr[gi] - x_prev[gi]) * inv_dt;
+
+                dA_dt[0] += (double)si * dai * ned->N_edge[e][p][i][0];
+                dA_dt[1] += (double)si * dai * ned->N_edge[e][p][i][1];
+                dA_dt[2] += (double)si * dai * ned->N_edge[e][p][i][2];
+            }
+
+            val_ip[p] = dA_dt[0]*dA_dt[0] + dA_dt[1]*dA_dt[1] + dA_dt[2]*dA_dt[2];
+        }
+        out.int_dA2 += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+
+        /* ∫ |grad phi|^2 dV */
+        for(int p = 0; p < np; ++p){
+            double grad_phi[3] = {0.0, 0.0, 0.0};
+
+            if(use_phi_in_shield){
+                for(int n = 0; n < fe->local_num_nodes; ++n){
+                    int gn = fe->conn[e][n];
+                    double phi_n = x_curr[gn];
+
+                    grad_phi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
+                    grad_phi[1] += phi_n * fe->geo[e][p].grad_N[n][1];
+                    grad_phi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
+                }
+            }
+
+            val_ip[p] = grad_phi[0]*grad_phi[0]
+                      + grad_phi[1]*grad_phi[1]
+                      + grad_phi[2]*grad_phi[2];
+        }
+        out.int_gradphi2 += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+
+        /* ∫ (dA/dt · grad phi) dV */
+        for(int p = 0; p < np; ++p){
+            double dA_dt[3]    = {0.0, 0.0, 0.0};
+            double grad_phi[3] = {0.0, 0.0, 0.0};
+
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+                double dai = (x_curr[gi] - x_prev[gi]) * inv_dt;
+
+                dA_dt[0] += (double)si * dai * ned->N_edge[e][p][i][0];
+                dA_dt[1] += (double)si * dai * ned->N_edge[e][p][i][1];
+                dA_dt[2] += (double)si * dai * ned->N_edge[e][p][i][2];
+            }
+
+            if(use_phi_in_shield){
+                for(int n = 0; n < fe->local_num_nodes; ++n){
+                    int gn = fe->conn[e][n];
+                    double phi_n = x_curr[gn];
+
+                    grad_phi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
+                    grad_phi[1] += phi_n * fe->geo[e][p].grad_N[n][1];
+                    grad_phi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
+                }
+            }
+
+            val_ip[p] = dA_dt[0]*grad_phi[0]
+                      + dA_dt[1]*grad_phi[1]
+                      + dA_dt[2]*grad_phi[2];
+        }
+        out.int_cross += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+
+    /* MPI sum */
+    {
+        double sendbuf[4], recvbuf[4];
+        sendbuf[0] = out.int_dA2;
+        sendbuf[1] = out.int_gradphi2;
+        sendbuf[2] = out.int_cross;
+        sendbuf[3] = out.vol_shield;
+
+        memcpy(recvbuf, sendbuf, sizeof(sendbuf));
+        monolis_allreduce_R(4, recvbuf, MONOLIS_MPI_SUM, sys->monolis_com.comm);
+
+        out.int_dA2      = recvbuf[0];
+        out.int_gradphi2 = recvbuf[1];
+        out.int_cross    = recvbuf[2];
+        out.vol_shield   = recvbuf[3];
+    }
+
+    /* correlation coefficient */
+    {
+        const double denom = sqrt(out.int_dA2 * out.int_gradphi2);
+        if(denom > 1.0e-30){
+            out.rho = out.int_cross / denom;
+        } else {
+            out.rho = 0.0;
+        }
+    }
+
+    return out;
+}
+
+void log_shield_field_integrals_EM1(
+    FE_SYSTEM* sys,
+    int step,
+    double t,
+    double dt,
+    const SHIELD_FIELD_INT_DIAG* d
+){
+    if(sys->monolis_com.my_rank != 0) return;
+
+    FILE* fp;
+    fp = BBFE_sys_write_add_fopen(fp, "team21c_em1_shield_field_integrals.csv", sys->cond.directory);
+
+    if(step == 0){
+        fprintf(fp,
+            "Step,Time,dt,I1,I2,"
+            "Int_dA2,Int_gradPhi2,Int_cross,Rho,VolShield\n");
+    }
+
+    fprintf(fp,
+        "%d,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e,%.6e\n",
+        step, t, dt,
+        get_coil_current_team21c(1, t),
+        get_coil_current_team21c(2, t),
+        d->int_dA2,
+        d->int_gradphi2,
+        d->int_cross,
+        d->rho,
+        d->vol_shield
     );
 
     fclose(fp);

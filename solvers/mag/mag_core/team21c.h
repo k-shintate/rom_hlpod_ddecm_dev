@@ -79,3 +79,33 @@ void log_copper_shield_loss_EM1_diag(
     double t,
     double dt,
     const SHIELD_LOSS_DIAG* d);
+
+void log_coil_ampere_turn_diag_team21c(
+    FE_SYSTEM* sys,
+    int step,
+    double current_time);
+
+
+typedef struct {
+    double int_dA2;      /* ∫ |dA/dt|^2 dV */
+    double int_gradphi2; /* ∫ |grad phi|^2 dV */
+    double int_cross;    /* ∫ (dA/dt · grad phi) dV */
+    double vol_shield;   /* ∫ 1 dV */
+    double rho;          /* correlation coefficient */
+} SHIELD_FIELD_INT_DIAG;
+
+SHIELD_FIELD_INT_DIAG calc_shield_field_integrals_EM1(
+    FE_SYSTEM* sys,
+    const double* x_prev,
+    const double* x_curr,
+    double dt,
+    int use_phi_in_shield   /* 1: grad phi を含める, 0: grad phi = 0 */
+);
+
+void log_shield_field_integrals_EM1(
+    FE_SYSTEM* sys,
+    int step,
+    double t,
+    double dt,
+    const SHIELD_FIELD_INT_DIAG* d
+);

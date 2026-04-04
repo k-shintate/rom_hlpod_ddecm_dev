@@ -1,11 +1,19 @@
 SetFactory("OpenCASCADE");
 
 // =====================================================
-// TEAM Problem 21c mesh (geometry from Fig. A1-4)
-// Rounded coil corners added from the drawing:
-//   outer corner radius = R45
-//   inner window radius = R10
-// x-direction alignment corrected: coil cross-section centered at x = 0
+// TEAM Problem 21a-2 mesh
+//
+// P21a-2:
+//   - no shield
+//   - one non-magnetic steel plate
+//   - plate height = 820 mm
+//   - plate thickness = 10 mm
+//   - coil-to-plate gap = 12 mm
+//   - two slits in the plate
+//
+// Notes:
+//   - material constants should be assigned in solver input:
+//       NONMAG_PLATE: mu_r = 1, sigma = 1.3889e6 S/m
 // =====================================================
 
 Mesh.Algorithm3D = 1;
@@ -16,13 +24,11 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Parameters ----------------
-ShieldType = 1;  // 1: single shield plate (EM1/M1), 2: three-piece shield (EM2/M2)
-
 lcCoil  = 12 * Scale;
 lcPlate = 10 * Scale;
-lcShield = 2 * Scale;
 lcAir   = 30 * Scale;
 lcFar   = 60 * Scale;
+lcSlit  = 3  * Scale;
 
 // Coil pack cross-section (x-y plane)
 coilOuterX = 270 * Scale;
@@ -36,23 +42,28 @@ rInner = 10 * Scale;
 coilHeight = 217 * Scale;
 coilGapZ   = 24  * Scale;
 coilSpanZ  = 458 * Scale;
-plateHeightZ = 520 * Scale;
+plateHeightZ = 820 * Scale;
 
-// Plate and shield
+// Plate only
 plateThk = 10 * Scale;
-shieldThk = 6 * Scale;
-//coilToShieldGap = 6 * Scale;
-coilToShieldGap = 12 * Scale;
-// shieldWidthType1 = 360 * Scale;
-shieldWidthType1 = 270 * Scale;
-shieldStripW = 80 * Scale;
-shieldStripGap = 15 * Scale;
+coilToPlateGap = 12 * Scale;
 plateWidthY = 360 * Scale;
-shieldHeightZ = 458 * Scale;
 
+// Slits for P21a-2
+slitLenZ = 660 * Scale;
+slitWidthY = 10 * Scale;
+slitDepthX = 10 * Scale;   // equals plate thickness: through slit
+
+// Interpretation of "120 120" in Fig. A1-2(c):
+// two slit center positions at y = -60 mm and +60 mm
+slitCenter1Y = -60 * Scale;
+slitCenter2Y =  60 * Scale;
+
+// centered in z within the plate
+slitZ0 = -0.5 * slitLenZ;
+slitZ1 =  0.5 * slitLenZ;
 
 // ---------------- Coil cross-section placement ----------------
-// Center the coil at x = 0 and y = 0
 ox0 = -0.5 * coilOuterX;
 ox1 =  0.5 * coilOuterX;
 oy0 = -0.5 * coilOuterY;
@@ -63,21 +74,15 @@ ix1 =  0.5 * coilInnerX;
 iy0 = -0.5 * coilInnerY;
 iy1 =  0.5 * coilInnerY;
 
-// ---------------- Placement of shield and plate ----------------
-xShield0 = ox1 + coilToShieldGap;
-xShield1 = xShield0 + shieldThk;
-xPlate0  = xShield1;
+// ---------------- Placement of plate ----------------
+xPlate0  = ox1 + coilToPlateGap;
 xPlate1  = xPlate0 + plateThk;
 
 yPlate0 = -0.5 * plateWidthY;
 yPlate1 =  0.5 * plateWidthY;
-yShield1a0 = -0.5 * shieldWidthType1;
-yShield1a1 =  0.5 * shieldWidthType1;
 
 zPlate0 = -0.5 * plateHeightZ;
 zPlate1 =  0.5 * plateHeightZ;
-zShield0 = -0.5 * shieldHeightZ;
-zShield1 =  0.5 * shieldHeightZ;
 
 zCoil1_0 = -(coilGapZ/2 + coilHeight);
 zCoil1_1 = - coilGapZ/2;
@@ -144,6 +149,7 @@ coil1[] = {out1[1]};
 // ---------------- Coil 2 with rounded corners ----------------
 z0  = zCoil2_0;
 
+// Outer rounded rectangle
 p11 = newp; Point(p11) = {ox0+rOuter, oy0, z0, lcCoil};
 p12 = newp; Point(p12) = {ox1-rOuter, oy0, z0, lcCoil};
 p13 = newp; Point(p13) = {ox1, oy0+rOuter, z0, lcCoil};
@@ -168,6 +174,7 @@ l14 = newl; Line(l14) = {p17,p18};
 a14 = newl; Circle(a14) = {p18,cBL2,p11};
 clOut2 = newll; Curve Loop(clOut2) = {l11,a11,l12,a12,l13,a13,l14,a14};
 
+// Inner rounded rectangle (hole)
 q11 = newp; Point(q11) = {ix0+rInner, iy0, z0, lcCoil};
 q12 = newp; Point(q12) = {ix1-rInner, iy0, z0, lcCoil};
 q13 = newp; Point(q13) = {ix1, iy0+rInner, z0, lcCoil};
@@ -196,22 +203,21 @@ s2 = news; Plane Surface(s2) = {clOut2, clIn2};
 out2[] = Extrude {0,0,coilHeight} { Surface{s2}; };
 coil2[] = {out2[1]};
 
-// ---------------- Magnetic steel plate ----------------
+// ---------------- Plate and slits ----------------
 Box(10) = {xPlate0, yPlate0, zPlate0, plateThk, plateWidthY, plateHeightZ};
-plateVol[] = {10};
 
-// ---------------- Shields ----------------
-shieldVols[] = {};
-If (ShieldType == 1)
-  Box(20) = {xShield0, yShield1a0, zShield0, shieldThk, shieldWidthType1, shieldHeightZ};
-  shieldVols[] = {20};
-Else
-  yS0 = -0.5*(3*shieldStripW + 2*shieldStripGap);
-  Box(21) = {xShield0, yS0, zShield0, shieldThk, shieldStripW, shieldHeightZ};
-  Box(22) = {xShield0, yS0 + shieldStripW + shieldStripGap, zShield0, shieldThk, shieldStripW, shieldHeightZ};
-  Box(23) = {xShield0, yS0 + 2*(shieldStripW + shieldStripGap), zShield0, shieldThk, shieldStripW, shieldHeightZ};
-  shieldVols[] = {21,22,23};
-EndIf
+slit1Y0 = slitCenter1Y - 0.5 * slitWidthY;
+slit1Y1 = slitCenter1Y + 0.5 * slitWidthY;
+slit2Y0 = slitCenter2Y - 0.5 * slitWidthY;
+slit2Y1 = slitCenter2Y + 0.5 * slitWidthY;
+
+// two through-slits
+Box(11) = {xPlate0, slit1Y0, slitZ0, slitDepthX, slitWidthY, slitLenZ};
+Box(12) = {xPlate0, slit2Y0, slitZ0, slitDepthX, slitWidthY, slitLenZ};
+
+// subtract slits from plate
+plateCut[] = BooleanDifference{ Volume{10}; Delete; }{ Volume{11,12}; Delete; };
+plateVol[] = {plateCut[]};
 
 // ---------------- Air domain ----------------
 marginXneg = 220 * Scale;
@@ -221,14 +227,14 @@ marginZ    = 220 * Scale;
 
 xAir0 = ox0 - marginXneg;
 xAir1 = xPlate1 + marginXpos;
-yAir0 = Min(yShield1a0, yPlate0) - marginY;
-yAir1 = Max(yShield1a1, yPlate1) + marginY;
+yAir0 = yPlate0 - marginY;
+yAir1 = yPlate1 + marginY;
 zAir0 = zPlate0 - marginZ;
 zAir1 = zPlate1 + marginZ;
 
 Box(100) = {xAir0, yAir0, zAir0, xAir1-xAir0, yAir1-yAir0, zAir1-zAir0};
 
-allSolids[] = {coil1[], coil2[], plateVol[], shieldVols[]};
+allSolids[] = {coil1[], coil2[], plateVol[]};
 frag[] = BooleanFragments{ Volume{100}; Delete; }{ Volume{allSolids[]}; Delete; };
 Coherence;
 
@@ -242,25 +248,13 @@ volCoil2[] = Volume In BoundingBox{ox0-eps, oy0-eps, zCoil2_0-eps,
 volPlate[] = Volume In BoundingBox{xPlate0-eps, yPlate0-eps, zPlate0-eps,
                                    xPlate1+eps, yPlate1+eps, zPlate1+eps};
 
-If (ShieldType == 1)
-  volShield[] = Volume In BoundingBox{xShield0-eps, yShield1a0-eps, zShield0-eps,
-                                      xShield1+eps, yShield1a1+eps, zShield1+eps};
-Else
-  volShield1[] = Volume In BoundingBox{xShield0-eps, yS0-eps, zShield0-eps,
-                                       xShield1+eps, yS0+shieldStripW+eps, zShield1+eps};
-  volShield2[] = Volume In BoundingBox{xShield0-eps, yS0 + shieldStripW + shieldStripGap - eps, zShield0-eps,
-                                       xShield1+eps, yS0 + 2*shieldStripW + shieldStripGap + eps, zShield1+eps};
-  volShield3[] = Volume In BoundingBox{xShield0-eps, yS0 + 2*(shieldStripW + shieldStripGap) - eps, zShield0-eps,
-                                       xShield1+eps, yS0 + 3*shieldStripW + 2*shieldStripGap + eps, zShield1+eps};
-  volShield[] = {volShield1[], volShield2[], volShield3[]};
-EndIf
-
-volAllInside[] = {volCoil1[], volCoil2[], volPlate[], volShield[]};
+volAllInside[] = {volCoil1[], volCoil2[], volPlate[]};
 volAir[] = Volume{:};
 volAir[] -= {volAllInside[]};
 
 // ---------------- Mesh refinement ----------------
 solidBnd[] = Boundary{ Volume{volAllInside[]}; };
+
 Field[1] = Distance;
 Field[1].SurfacesList = {solidBnd[]};
 Field[1].Sampling = 100;
@@ -272,51 +266,37 @@ Field[2].LcMax = lcFar;
 Field[2].DistMin = 12  * Scale;
 Field[2].DistMax = 100 * Scale;
 
-// --- local refinement only in the coil-shield gap ---
-lcGap = 5 * Scale;   // まずは 2 mm 程度から試す
-
+// local refinement in the coil-plate gap
+lcGap = 5 * Scale;
 gapPadY = 20 * Scale;
 gapPadZ = 20 * Scale;
 gapPadX = 2  * Scale;
 
-// coil outer face ~ shield face の間を囲う Box
 Field[3] = Box;
 Field[3].VIn  = lcGap;
 Field[3].VOut = lcFar;
-
-// x方向: コイル右面からシールド厚みまで少し広めに囲う
 Field[3].XMin = ox1 - gapPadX;
-Field[3].XMax = xShield1 + gapPadX;
-
-// y方向: コイル断面付近を少し余裕を持って囲う
+Field[3].XMax = xPlate1 + gapPadX;
 Field[3].YMin = oy0 - gapPadY;
 Field[3].YMax = oy1 + gapPadY;
-
-// z方向: 2つのコイル高さ全体を少し余裕を持って囲う
 Field[3].ZMin = zCoil1_0 - gapPadZ;
 Field[3].ZMax = zCoil2_1 + gapPadZ;
 
+// extra local refinement around slit zone
+Field[5] = Box;
+Field[5].VIn  = lcSlit;
+Field[5].VOut = lcFar;
+Field[5].XMin = xPlate0 - 1 * Scale;
+Field[5].XMax = xPlate1 + 1 * Scale;
+Field[5].YMin = slitCenter1Y - 20 * Scale;
+Field[5].YMax = slitCenter2Y + 20 * Scale;
+Field[5].ZMin = slitZ0 - 10 * Scale;
+Field[5].ZMax = slitZ1 + 10 * Scale;
+
 MeshSize{ PointsOf{ Volume{volCoil1[], volCoil2[]}; } } = lcCoil;
 MeshSize{ PointsOf{ Volume{volPlate[]}; } } = lcPlate;
-MeshSize{ PointsOf{ Volume{volShield[]}; } } = lcShield;
 MeshSize{ PointsOf{ Volume{volAir[]}; } } = lcAir;
 
-lcShieldLocal = 2 * Scale;
-shieldPadX = 1 * Scale;
-shieldPadY = 5 * Scale;
-shieldPadZ = 5 * Scale;
-
-Field[5] = Box;
-Field[5].VIn  = lcShieldLocal;
-Field[5].VOut = lcFar;
-Field[5].XMin = xShield0 - shieldPadX;
-Field[5].XMax = xShield1 + shieldPadX;
-Field[5].YMin = yShield1a0 - shieldPadY;
-Field[5].YMax = yShield1a1 + shieldPadY;
-Field[5].ZMin = zShield0 - shieldPadZ;
-Field[5].ZMax = zShield1 + shieldPadZ;
-
-// 最小メッシュサイズを採用
 Field[4] = Min;
 Field[4].FieldsList = {2, 3, 5};
 
@@ -326,9 +306,8 @@ Background Field = 4;
 Physical Volume("DOMAIN") = {volAir[]};
 Physical Volume("COIL_1") = {volCoil1[]};
 Physical Volume("COIL_2") = {volCoil2[]};
-Physical Volume("MAGNETIC_STEEL") = {volPlate[]};
-Physical Volume("SHIELD") = {volShield[]};
-Physical Volume("All") = {volAir[], volCoil1[], volCoil2[], volPlate[], volShield[]};
+Physical Volume("NONMAG_PLATE") = {volPlate[]};
+Physical Volume("All") = {volAir[], volCoil1[], volCoil2[], volPlate[]};
 
 sXmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir0+eps, yAir1+eps, zAir1+eps};
 sXmax[] = Surface In BoundingBox{xAir1-eps, yAir0-eps, zAir0-eps, xAir1+eps, yAir1+eps, zAir1+eps};

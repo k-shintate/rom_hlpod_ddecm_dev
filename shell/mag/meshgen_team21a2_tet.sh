@@ -24,7 +24,7 @@ cd $directory
 
 # 1. 直接 MSH2 形式でメッシュ生成 (-format msh2 を追加)
 gmsh -3 -format msh2 ../../solvers/mag/threephase_transformer/gmsh/team21a.geo -o sphere2.msh
-gmsh sphere2.msh
+#gmsh sphere2.msh
 
 # 2. Python スクリプトを実行
 python3 ../../solvers/mag/threephase_transformer/mesh_io/save_physical_groups.py sphere2.msh
@@ -38,8 +38,8 @@ python3 ../../solvers/mag/threephase_transformer/mesh_io/elem_to_node.py ./mesh_
 mv ./mesh_tmp/All_node_coordinates.dat ./node.dat
 mv ./mesh_tmp/All_tetra_connectivity.dat ./elem.dat
 mv ./mesh_tmp/DOMAIN_tetra_connectivity.dat ./elem_air.dat
-mv ./mesh_tmp/MAGNETIC_STEEL_tetra_connectivity.dat ./elem_iron.dat
-mv ./mesh_tmp/SHIELD_tetra_connectivity.dat ./elem_shield.dat
+mv ./mesh_tmp/NONMAG_PLATE_tetra_connectivity.dat ./elem_iron.dat
+#mv ./mesh_tmp/SHIELD_tetra_connectivity.dat ./elem_shield.dat
 
 mv ./mesh_tmp/COIL_1_tetra_connectivity.dat ./elem_widing1.dat
 mv ./mesh_tmp/COIL_2_tetra_connectivity.dat ./elem_widing2.dat

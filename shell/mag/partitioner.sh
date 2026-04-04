@@ -26,11 +26,12 @@ rm -r cond.dat
 ./../../../../test_thermal/bin/cmd2cond "#snapshot_interval" int 1 1 "#rom_finish_time" double 1 4.0 "#rom_output_interval" int 1 10
 mv cond.dat rom_cond.dat
 
-./../../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.000001 "#output_interval" int 1 1000  "#finish_time" double 1 2.0
+./../../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.0001 "#output_interval" int 1 1  "#finish_time" double 1 2.0
 
 
 python3 ./../../shell/mag/node2bc.py ./node.dat > node_bc.dat
-python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat 1015487
+python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat 1662855
+
 #python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat 1602391
 
 #python3 ./../../shell/mag/node2bc.py ./nedelec_node.dat > nedelec_node_bc.dat

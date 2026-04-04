@@ -1,3 +1,3 @@
-run ./ -nd 32 -nm 1 -pa 0 -st 3
+run ./ -nd 32 -nm 5 -pa 0 -st 3
 backtrace
 exit
