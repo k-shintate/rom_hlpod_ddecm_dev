@@ -6,7 +6,7 @@ static const double AIR_A_MASS_SIGMA_FACTOR = 0.0; /* keep A-mass disabled in ai
 
 const double Sigma_coil   = 5.7143e7;
 const double Sigma_shield = 5.7143e7;
-const double Sigma_steel  = 6.484e6;
+const double Sigma_steel  = 1.3889e6;
 
 void get_sigmas_for_prop_team21c(
     int prop,
@@ -16,7 +16,7 @@ void get_sigmas_for_prop_team21c(
 ){
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil*1.0e-2;
+        *sigma_mass_A = Sigma_coil* 0.119;
         *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 3){
@@ -80,7 +80,8 @@ static inline int get_coil_info_team21(int elem_prop, COIL_INFO* info) {
     info->turns   = 300.0;
 
     /* FE coil-region equivalent cross-sectional area */
-    info->area    = (32900.0) * (MM_TO_M * MM_TO_M);
+    info->area    = (32900.0) * (MM_TO_M * MM_TO_M) * 0.119;
+    //info->area    = (32900.0) * (MM_TO_M * MM_TO_M);
 
     {
         const double cy = 0.0 * MM_TO_M;
@@ -701,7 +702,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   prop==2 : Coil 2
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
-static const double I_RMS = 20.0;   /* TEAM benchmark rated current [A rms] */
+static const double I_RMS = 100.0;   /* TEAM benchmark rated current [A rms] */
 static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)
@@ -1777,9 +1778,9 @@ static inline double get_coil_current_team21a2(int prop, double t)
     const double Iamp  = sqrt(2.0) * I_RMS_team21a2;  /* peak value */    
 
     if(prop == 1){
-        return  Iamp;   
-    } else if(prop == 2){
         return  -Iamp;   
+    } else if(prop == 2){
+        return  Iamp;   
     }
 
     return 0.0;
@@ -1844,6 +1845,9 @@ void set_element_vec_nedelec_Aphi_team21a2(
                     } else {
                         ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
                     }
+
+                    //printf("tdir_x = %lf tdir_x = %lf tdir_x = %lf\n", tdir[0], tdir[1], tdir[2]);
+                    //単位ベクトルの確認済
 
                     if (ok_tdir) {
                         Js[0] = J_mag * tdir[0];
@@ -1915,7 +1919,18 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
     
     int num_nodes = fe->total_num_nodes;
     double* node_is_conductor = (double*)calloc(num_nodes, sizeof(double));
-    
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+
+        if(prop == 4){
+            for(int k=0; k<fe->local_num_nodes; ++k){
+                int gn = fe->conn[e][k];
+                node_is_conductor[gn] = 4; 
+            }
+        }
+    }
+
     for(int e=0; e<fe->total_num_elems; ++e){
         int prop = ned->elem_prop[e];
         if(prop==1){
@@ -1937,16 +1952,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
         }
     }
 
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
 
-        if(prop == 4){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 4; 
-            }
-        }
-    }
 
     for(int e=0; e<fe->total_num_elems; ++e){
         int prop = ned->elem_prop[e];
@@ -1961,7 +1967,9 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
 
 
     for (int i = 0; i < num_nodes; ++i){
+        //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4||node_is_conductor[i] == 3) {
         if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4) {
+        //if (node_is_conductor[i] == 4) {
             monolis_set_Dirichlet_bc_C(
                 monolis, 
                 monolis->mat.C.B, 

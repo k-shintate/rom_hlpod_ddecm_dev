@@ -744,6 +744,7 @@ int main (
             /******************/
 
     /*for offline******/
+    /*
     ROM_offline_read_calc_conditions(&(sys.vals), sys.cond.directory);
 
     ROM_std_hlpod_offline_set_num_snapmat(
@@ -761,7 +762,8 @@ int main (
         sys.vals.dt,
         sys.vals.snapshot_interval,
         1);
-/*
+*/
+        /*
     ROM_std_hlpod_offline_set_num_snapmat(
         &(sys.rom_sups),
         //sys.vals.finish_time,

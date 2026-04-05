@@ -2328,3 +2328,360 @@ void solver_rom_NR6(
     BB_std_free_1d_double(rvec_c,     sys->fe.total_num_nodes*4);
     BB_std_free_1d_double(rvec_c_old, sys->fe.total_num_nodes*4);
 }
+
+
+
+void solver_rom_NR3(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    if(monolis_mpi_get_global_my_rank()==0){
+        printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
+    }
+
+    double* rvec_m     = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_m_old = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_c     = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_c_old = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+
+    /*
+    monolis_clear_mat_value_R(&(sys->monolis));
+    monolis_clear_mat_value_R(&(sys->monolis_rom));
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    if(monolis_mpi_get_global_comm_size() == 1){
+    }
+    else{
+        monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
+    }
+    */
+
+    const double rel_tol_v = 1.0e-6;
+    const double abs_tol_v = 1.0e-12;
+    const double rel_tol_p = 1.0e-6;
+    const double abs_tol_p = 1.0e-12;
+    const double tiny      = 1.0e-30;
+    int max_iter_NR = 3;
+
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    for(int it = 0; it < max_iter_NR; it++){
+        if(monolis_mpi_get_global_my_rank()==0){
+            printf("\n%s ----------------- ROM Time step %d : NR step %d ----------------\n", CODENAME, step, it);
+        }
+
+        monolis_clear_mat_value_R(&(sys->monolis));
+        monolis_clear_mat_value_R(&(sys->monolis_rom));
+        //monolis_clear_mat_value_R(&(sys->monolis_rom0));
+        monolis_clear_mat_value_rhs_R(&(sys->monolis_rom0));
+        monolis_com_initialize_by_self(&(sys->mono_com0));
+/*
+        ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+            &(sys->monolis_rom0),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom_sups.hlpod_mat),
+            sys->rom_sups.hlpod_mat.mode_coef,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains);
+*/
+        monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
+
+/*
+        set_element_mat_NR_linear(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+*/
+        set_element_mat_NR_nonlinear(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+
+        set_element_vec_NR_linear_nonlinear(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+
+/*
+        set_element_vec_NR_nonlinear(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+*/
+        BBFE_sys_monowrap_set_Dirichlet_bc(
+            &(sys->monolis),
+            sys->fe.total_num_nodes,
+            4,
+            &(sys->bc_NR),
+            sys->monolis.mat.R.B);
+
+        /* 残差ベクトルを保存（B = -F） */
+        if(it==0){
+            for(int i=0; i<sys->fe.total_num_nodes; ++i){
+                for(int j=0; j<3; j++){
+                    rvec_m_old[i*4 + j] = sys->monolis.mat.R.B[i*4 + j];
+                }
+                rvec_c_old[i*3] = sys->monolis.mat.R.B[i*3];
+            }
+        }
+
+        //monolis_show_timelog(&(sys->monolis_rom), true);
+        //monolis_show_iterlog(&(sys->monolis_rom), true);
+
+        
+        ROM_std_hlpod_calc_reduced_mat(
+            &(sys->monolis),
+            &(sys->monolis_rom),
+            &(sys->mono_com),
+            &(sys->mono_com0),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom_sups),
+            sys->fe.total_num_nodes,
+            4);
+
+        ROM_std_hlpod_solve_ROM(
+            &(sys->monolis),
+            &(sys->monolis_rom),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom_sups),
+            sys->fe.total_num_nodes,
+            4,
+            sys->vals.mat_max_iter,
+            sys->vals.mat_epsilon,
+            MONOLIS_ITER_BICGSTAB,
+            MONOLIS_PREC_DIAG);
+
+        int index = 0;
+        for(int k = 0; k < sys->rom_sups.hlpod_vals.num_2nd_subdomains; k++){
+            for(int i = 0; i < sys->rom_sups.hlpod_mat.num_modes_internal[k]; i++){
+            sys->rom_sups.hlpod_mat.mode_coef_old[index + i] = sys->rom_sups.hlpod_mat.mode_coef[index + i];
+                //printf("mode_coeff_old = %e", sys->rom_sups.hlpod_mat.mode_coef_old[index + i]);
+            }
+            index += sys->rom_sups.hlpod_mat.num_modes_internal[k];
+        }
+
+    
+        //if(step_hrom%2==0 && it == max_iter_NR - 1){
+        if(step_hrom%2==0){
+            HROM_get_neib_coordinates(
+                &(sys->mono_com_rom),
+                &(sys->rom_sups.hlpod_vals),
+                &(sys->rom_sups.hlpod_mat),
+                1 + sys->mono_com_rom_solv.recv_n_neib,
+                sys->rom_sups.hlpod_vals.num_modes_max,
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                sys->rom_sups.hlpod_vals.num_modes_pre);
+
+            HROM_ddecm_set_residuals_NR_blas(
+                &(sys->fe),
+                &(sys->basis),
+                &(sys->vals),
+                &(sys->bc),
+                &(sys->rom_sups.hlpod_mat),
+                &(sys->rom_sups.hlpod_vals),
+                &(sys->hrom_p.hlpod_ddhr),
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                step_hrom -1 ,   //index 0 start
+                sys->rom_sups.hlpod_vals.num_snapshot,
+                1 + sys->mono_com.recv_n_neib,
+                sys->vals.dt,
+                t);
+
+            HROM_ddecm_set_residuals_NR_blas(
+                &(sys->fe),
+                &(sys->basis),
+                &(sys->vals),
+                &(sys->bc),
+                &(sys->rom_sups.hlpod_mat),
+                &(sys->rom_sups.hlpod_vals),
+                &(sys->hrom_v.hlpod_ddhr),
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                step_hrom -1 ,   //index 0 start
+                sys->rom_sups.hlpod_vals.num_snapshot,
+                1 + sys->mono_com.recv_n_neib,
+                sys->vals.dt,
+                t);
+
+	    }
+
+        monolis_mpi_update_R(
+            &(sys->mono_com),
+            sys->fe.total_num_nodes,
+            4,
+            sys->rom_sups.hlpod_vals.sol_vec);
+
+        BBFE_fluid_sups_renew_velocity(
+            sys->vals_rom.delta_v,
+            sys->rom_sups.hlpod_vals.sol_vec,
+            sys->fe.total_num_nodes);
+
+        BBFE_fluid_sups_renew_pressure(
+            sys->vals_rom.delta_p,
+            sys->rom_sups.hlpod_vals.sol_vec,
+            sys->fe.total_num_nodes);
+
+        update_velocity_pressure_NR(
+            sys->vals_rom.v,
+            sys->vals_rom.delta_v,
+            sys->vals_rom.p,
+            sys->vals_rom.delta_p,
+            sys->fe.total_num_nodes);
+
+        monolis_clear_mat_value_R(&(sys->monolis));
+
+        for(int i=0; i<sys->fe.total_num_nodes*4; ++i){
+            sys->monolis.mat.R.B[i] = 0.0;
+            sys->monolis.mat.R.X[i] = 0.0;
+        }
+
+        set_element_mat_NR_Tezuer(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+
+        BBFE_sys_monowrap_set_Dirichlet_bc(
+            &(sys->monolis),
+            sys->fe.total_num_nodes,
+            4,
+            &(sys->bc_NR),
+            sys->monolis.mat.R.B);
+
+        for(int i=0; i<sys->fe.total_num_nodes; ++i){
+            for(int j=0; j<3; j++){
+                rvec_m[i*4 + j] = sys->monolis.mat.R.B[i*4 + j];
+            }
+            rvec_c[i*3] = sys->monolis.mat.R.B[i*3];
+        }
+
+        double norm_r_m_old = calc_internal_norm_1d(
+            rvec_m_old,
+            sys->mono_com.n_internal_vertex*4,
+            1);
+
+        double norm_r_m = calc_internal_norm_1d(
+            rvec_m,
+            sys->mono_com.n_internal_vertex*4,
+            1);
+
+        double norm_r_c_old = calc_internal_norm_1d(
+            rvec_c_old,
+            sys->mono_com.n_internal_vertex*4,
+            1);
+
+        double norm_r_c = calc_internal_norm_1d(
+            rvec_c,
+            sys->mono_com.n_internal_vertex*4,
+            1);
+
+        double norm_v = calc_internal_norm_2d(
+            sys->vals_rom.v,
+            sys->mono_com.n_internal_vertex,
+            3);
+
+        double norm_delta_v = calc_internal_norm_2d(
+            sys->vals_rom.delta_v,
+            sys->mono_com.n_internal_vertex,
+            3);
+
+        /* 圧力の L2 ノルム（内部自由度のみ） */
+        double norm_p = 0.0, norm_delta_p = 0.0;
+        for (int ii = 0; ii < sys->mono_com.n_internal_vertex; ++ii) {
+            double pv  = sys->vals_rom.p[ii];
+            double dpv = sys->vals_rom.delta_p[ii];
+            norm_p       += pv  * pv;
+            norm_delta_p += dpv * dpv;
+        }
+
+        /* L∞（最大変化量）：速度は3成分、圧力は1成分 */
+        double linf_delta_v_local = 0.0;
+        double linf_delta_p_local = 0.0;
+        for (int i_node = 0; i_node < sys->mono_com.n_internal_vertex; ++i_node) {
+            for (int d = 0; d < 3; ++d) {
+                double av = fabs(sys->vals_rom.delta_v[i_node][d]);
+                if (av > linf_delta_v_local) linf_delta_v_local = av;
+            }
+            double ap = fabs(sys->vals_rom.delta_p[i_node]);
+            if (ap > linf_delta_p_local) linf_delta_p_local = ap;
+        }
+
+        /* MPI で集約（L2 和：SUM、L∞：MAX） */
+        monolis_allreduce_R(1, &norm_v,         MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_delta_v,   MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_p,         MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_delta_p,   MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_r_m,       MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_r_m_old,   MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_r_c,       MONOLIS_MPI_SUM, sys->mono_com.comm);
+        monolis_allreduce_R(1, &norm_r_c_old,   MONOLIS_MPI_SUM, sys->mono_com.comm);
+
+        /* L∞は MAX で集約 */
+        double linf_delta_v = linf_delta_v_local;
+        double linf_delta_p = linf_delta_p_local;
+        monolis_allreduce_R(1, &linf_delta_v, MONOLIS_MPI_MAX, sys->mono_com.comm);
+        monolis_allreduce_R(1, &linf_delta_p, MONOLIS_MPI_MAX, sys->mono_com.comm);
+
+        /* ルートを取って実ノルムに */
+        double nrm_v        = sqrt(norm_v);
+        double nrm_dv       = sqrt(norm_delta_v);
+        double nrm_p        = sqrt(norm_p);
+        double nrm_dp       = sqrt(norm_delta_p);
+        double nrm_r_m      = sqrt(norm_r_m);
+        double nrm_r_m_old  = sqrt(norm_r_m_old);
+        double nrm_r_c      = sqrt(norm_r_c);
+        double nrm_r_c_old  = sqrt(norm_r_c_old);
+
+        /* 相対＋絶対の複合判定（ゼロ割回避） */
+        double denom_v = fmax(nrm_v, tiny);
+        double denom_p = fmax(nrm_p, tiny);
+
+        int conv_v = (nrm_dv <= abs_tol_v) || (nrm_dv/denom_v <= rel_tol_v) || (linf_delta_v <= abs_tol_v);
+        int conv_p = (nrm_dp <= abs_tol_p) || (nrm_dp/denom_p <= rel_tol_p) || (linf_delta_p <= abs_tol_p);
+
+        /* ログ出力を見やすく */
+        if(monolis_mpi_get_global_my_rank()==0){
+            printf("ROM : [NR %2d] ||dv||2=%.3e  ||v||2=%.3e  rel=%.3e  Linf(dv)=%.3e\n",
+                   it, nrm_dv, nrm_v, nrm_dv/denom_v, linf_delta_v);
+
+            printf("ROM : [NR %2d] ||dp||2=%.3e  ||p||2=%.3e  rel=%.3e  Linf(dp)=%.3e |rm_old| = %.8e |rm| = %.8e  |rm|/|rm_old| = %.8e |rc_old| = %.8e |rc| = %.8e  |rc|/|rc_old| = %.8e\n",
+                   it, nrm_dp, nrm_p, nrm_dp/denom_p, linf_delta_p,
+                   nrm_r_m_old, nrm_r_m, nrm_r_m / nrm_r_m_old,
+                   nrm_r_c_old, nrm_r_c, nrm_r_c / nrm_r_c_old);
+        }
+
+        /* 収束したら後処理 */
+        //if (conv_v && conv_p) {
+        if(it == max_iter_NR - 1){
+            /* ——— タイムステップ n+1 の NR 収束直後のレポート ——— */
+            double max_du = 0.0;
+            for (int ii = 0; ii < sys->fe.total_num_nodes; ++ii) {
+                for (int d = 0; d < 3; ++d) {
+                    double du = fabs(sys->vals_rom.v[ii][d] - sys->vals_rom.v_old[ii][d]);
+                    if (du > max_du) max_du = du;
+                }
+            }
+            if(monolis_mpi_get_global_my_rank()==0){
+                printf("ROM : [step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
+            }
+
+            ROM_BB_vec_copy_2d(
+                sys->vals_rom.v,
+                sys->vals_rom.v_old,
+                sys->fe.total_num_nodes,
+                3);
+
+            break;
+        }
+    }
+
+    BB_std_free_1d_double(rvec_m,     sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_m_old, sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_c,     sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_c_old, sys->fe.total_num_nodes*4);
+    
+}
