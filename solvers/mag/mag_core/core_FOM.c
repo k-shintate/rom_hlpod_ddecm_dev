@@ -670,3 +670,41 @@ void solver_fom_NR_Aphi_team21c(
     free(dx);
     free(rvec);
 }
+
+
+void solver_fom_NR_Aphi_team21a2(
+    FE_SYSTEM sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total)
+{
+    //double* dx   = (double*)calloc((size_t)n_dof_total, sizeof(double));
+    double _Complex * Aphi = (double _Complex *)calloc(sys.fe.total_num_nodes, sizeof(double _Complex));
+    double* A   = BB_std_calloc_1d_double(A,   sys.fe.total_num_nodes);
+    double* phi = BB_std_calloc_1d_double(phi, sys.fe.total_num_nodes);
+
+    set_element_mat_nedelec_Aphi_team21a2(&(sys.monolis), &(sys.fe), &(sys.basis),
+                            &(sys.bc), &(sys.ned));
+    set_element_vec_nedelec_Aphi_team21a2(&(sys.monolis), &(sys.fe), &(sys.basis),
+                            &(sys.bc), &(sys.ned));
+
+    //double val = Bz_of_time(t);
+    apply_dirichlet_bc_for_A_and_phi_team21a2(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+
+    monowrap_solve_C(
+        &(sys.monolis),
+        &(sys.monolis_com),
+        Aphi,
+        MONOLIS_ITER_COCG,
+        MONOLIS_PREC_DIAG,
+        sys.vals.mat_max_iter,
+        sys.vals.mat_epsilon);
+
+    for(int i = 0; i < sys.fe.total_num_nodes; i++){
+        x_prev[i] = creal(Aphi[i]);
+        x_curr[i] = cimag(Aphi[i]);
+    }
+
+}

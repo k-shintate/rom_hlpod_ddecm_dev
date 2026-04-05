@@ -30,3 +30,11 @@ void solver_fom_NR_Aphi_team21c(
     double* x_prev,
     double* x_curr,
     int n_dof_total);
+
+void solver_fom_NR_Aphi_team21a2(
+    FE_SYSTEM sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total);

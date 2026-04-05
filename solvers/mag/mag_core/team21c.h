@@ -109,3 +109,10 @@ void log_shield_field_integrals_EM1(
     double dt,
     const SHIELD_FIELD_INT_DIAG* d
 );
+
+
+void apply_dirichlet_bc_for_A_and_phi_team21a2(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BC* bc,
+    NEDELEC* ned);

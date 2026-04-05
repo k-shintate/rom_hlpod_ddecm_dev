@@ -178,3 +178,34 @@ void BBFE_mag_pre(
 		int           num_integ_points_each_axis,
 		bool          manufactured_solution);
 
+void set_element_mat_nedelec_Aphi_team21a2(
+        MONOLIS*     monolis,
+        BBFE_DATA*   fe,
+        BBFE_BASIS*  basis,
+        BBFE_BC*     bc,
+        NEDELEC*     ned);
+
+void set_element_vec_nedelec_Aphi_team21a2(
+        MONOLIS*     monolis,
+        BBFE_DATA*   fe,
+        BBFE_BASIS*  basis,
+        BBFE_BC*     bc,
+        NEDELEC*     ned);
+
+void ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
+        MONOLIS*     	monolis,
+        const char*     label,
+        const char*		directory);
+
+void BBFE_mag_pre_C(
+		BBFE_DATA*    fe,
+		BBFE_BASIS*   basis,
+        NEDELEC*      ned,
+		BBFE_BC*      bc,
+		MONOLIS*      monolis,
+		MONOLIS_COM*  monolis_com,
+		int           argc,
+		char*         argv[],
+		const char*   directory,
+		int           num_integ_points_each_axis,
+		bool          manufactured_solution);
