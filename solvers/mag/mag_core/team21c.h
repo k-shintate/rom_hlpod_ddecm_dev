@@ -116,3 +116,9 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
     BBFE_DATA* fe,
     BBFE_BC* bc,
     NEDELEC* ned);
+
+
+double calc_copper_shield_loss_EM1_freq(
+    FE_SYSTEM* sys,
+    const double _Complex* x_c,
+    double freq_hz);

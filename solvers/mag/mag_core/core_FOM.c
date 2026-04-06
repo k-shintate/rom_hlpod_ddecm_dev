@@ -701,6 +701,13 @@ void solver_fom_NR_Aphi_team21a2(
         MONOLIS_PREC_DIAG,
         sys.vals.mat_max_iter,
         sys.vals.mat_epsilon);
+    
+    double loss =  calc_copper_shield_loss_EM1_freq(
+        &sys,
+        Aphi,
+        50);
+    
+    printf("loss = %lf", loss);
 
     for(int i = 0; i < sys.fe.total_num_nodes; i++){
         x_prev[i] = creal(Aphi[i]);
