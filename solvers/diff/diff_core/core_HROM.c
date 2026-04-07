@@ -347,7 +347,7 @@ void HROM_std_hlpod_online_pre(
 }
 
 
-void HROM_pre_offline_decoupled(
+void HROM_pre_offline_de(
 		FE_SYSTEM* sys,
         ROM*            rom,
         HROM*           hrom,

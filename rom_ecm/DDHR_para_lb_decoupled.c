@@ -14,6 +14,7 @@ static const char* OUTPUT_FILENAME_ECM_ELEM_VTK = "ECM_elem.vtk";
 //内部要素とオーバーラップ要素の出力
 void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 	HLPOD_DDHR*     hlpod_ddhr,
+    const char*     fphs,
 	const char*     directory)
 {
 	double t = monolis_get_time_global_sync();
@@ -77,13 +78,13 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 		fclose(fp);
 
 		/*自領域*/
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[n]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[n]);
 		fp1 = BBFE_sys_read_fopen(fp1, fname1, directory);
 
 		fscanf(fp1, "%d", &(val));
 		num_selected_elems += val;
 		fclose(fp1);
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[n]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, subdomain_id[n]);
 		fp2 = BBFE_sys_read_fopen(fp2, fname2, directory);
 
 		fscanf(fp2, "%d", &(val));
@@ -92,7 +93,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 
 		/*隣接領域*/
 		for (int m = 0; m < meta_n_neib; m++) {
-			snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", meta_list_neib[m]);
+			snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, meta_list_neib[m]);
 			fp1 = BBFE_sys_read_fopen(fp1, fname1, directory);
 
 			fscanf(fp1, "%d", &(val));
@@ -101,7 +102,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 		}
 
 		for (int m = 0; m < meta_n_neib; m++) {
-			snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", meta_list_neib[m]);
+			snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, meta_list_neib[m]);
 			fp2 = BBFE_sys_read_fopen(fp2, fname2, directory);
 
 			fscanf(fp2, "%d", &(val));
@@ -119,7 +120,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 		int index = 0;
 
 		/*自領域*/
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[n]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[n]);
 		fp1 = BBFE_sys_read_fopen(fp1, fname1, directory);
 		fscanf(fp1, "%d", &(val));
 		for (int j = 0; j < val; j++) {
@@ -131,7 +132,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 
 		/*隣接領域*/
 		for (int m = 0; m < meta_n_neib; m++) {
-			snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", meta_list_neib[m]);
+			snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, meta_list_neib[m]);
 			fp1 = BBFE_sys_read_fopen(fp1, fname1, directory);
 			fscanf(fp1, "%d", &(val));
 			for (int j = 0; j < val; j++) {
@@ -143,7 +144,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 
 		index = 0;
 		/*自領域*/
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[n]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, subdomain_id[n]);
 		fp2 = BBFE_sys_read_fopen(fp2, fname2, directory);
 		fscanf(fp2, "%d", &(val));
 		for (int j = 0; j < val; j++) {
@@ -154,7 +155,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 
 		/*隣接領域*/
 		for (int m = 0; m < meta_n_neib; m++) {
-			snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", meta_list_neib[m]);
+			snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, meta_list_neib[m]);
 			fp2 = BBFE_sys_read_fopen(fp2, fname2, directory);
 			fscanf(fp2, "%d", &(val));
 			for (int j = 0; j < val; j++) {
@@ -217,7 +218,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 			}
 		}
 
-		snprintf(fname1, BUFFER_SIZE, "DDECM/selected_elem_overlap.%d.txt", subdomain_id[n]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/selected_elem_overlap.%d.txt", fphs, subdomain_id[n]);
 		fp1 = BBFE_sys_write_fopen(fp1, fname1, directory);
 
 		index1 = 0;
@@ -309,7 +310,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 			}
 		}
 
-		snprintf(fname1, BUFFER_SIZE, "DDECM/num_selected_node.%d.txt", subdomain_id[n]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/num_selected_node.%d.txt", fphs, subdomain_id[n]);
 		fp1 = BBFE_sys_write_fopen(fp1, fname1, directory);
 		fprintf(fp1, "%d\n", num_selected_nodes);
 		fclose(fp1);
@@ -347,7 +348,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 			}
 		}
 
-		snprintf(fname1, BUFFER_SIZE, "DDECM/selected_elem_internal.%d.txt", subdomain_id[n]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/selected_elem_internal.%d.txt", fphs, subdomain_id[n]);
 
 		fp1 = BBFE_sys_write_fopen(fp1, fname1, directory);
 
@@ -403,6 +404,7 @@ void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 
 void HROM_ddecm_read_selected_elems_para_decoupled(
 	const int num_subdomains,
+    const char*     fphs,
 	const char* directory)
 {
 	const int myrank = monolis_mpi_get_global_my_rank();
@@ -437,8 +439,8 @@ void HROM_ddecm_read_selected_elems_para_decoupled(
 	char fname3[BUFFER_SIZE];
 	char fname4[BUFFER_SIZE];
 
-	snprintf(fname3, BUFFER_SIZE, "DDECM/selected_elem_D_bc.%d.txt", monolis_mpi_get_global_my_rank());
-	snprintf(fname4, BUFFER_SIZE, "DDECM/selected_elem.%d.txt", monolis_mpi_get_global_my_rank());
+	snprintf(fname3, BUFFER_SIZE, "DDECM_%s/selected_elem_D_bc.%d.txt", fphs, monolis_mpi_get_global_my_rank());
+	snprintf(fname4, BUFFER_SIZE, "DDECM_%s/selected_elem.%d.txt", fphs, monolis_mpi_get_global_my_rank());
 
 	fp3 = ROM_BB_write_fopen(fp3, fname3, directory);
 	fp4 = ROM_BB_write_fopen(fp4, fname4, directory);
@@ -453,8 +455,8 @@ void HROM_ddecm_read_selected_elems_para_decoupled(
 	int num_selected_elems_D_bc;
 
 	for (int m = 0; m < num_subdomains; m++) {
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[m]);
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[m]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs,  subdomain_id[m]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[m]);
 
 		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
 		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
@@ -472,8 +474,8 @@ void HROM_ddecm_read_selected_elems_para_decoupled(
 	fprintf(fp4, "%d\n", Index2);
 
 	for (int m = 0; m < num_subdomains; m++) {
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[m]);
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[m]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, subdomain_id[m]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[m]);
 
 		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
 		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
@@ -518,6 +520,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 	const int       max_iter, //NNLS
 	const double    tol,      //NNLS
     const int       dof,
+    const char*     fphs,
 	const char*		directory)
 {
 	const int myrank = monolis_mpi_get_global_my_rank();
@@ -732,8 +735,8 @@ printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 		char fname1[BUFFER_SIZE];
 		char fname2[BUFFER_SIZE];
 
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[m]);
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[m]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, subdomain_id[m]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[m]);
 
 		fp1 = ROM_BB_write_fopen(fp1, fname1, directory);
 		fp2 = ROM_BB_write_fopen(fp2, fname2, directory);
@@ -790,6 +793,7 @@ void HROM_ddecm_set_neib_decoupled(
 		HLPOD_META*		hlpod_meta,
 		const int 		num_subdomains,
 		const int       num_snapshots,
+        const char*     fphs,
 		const char*     directory)
 {
 	const int myrank = monolis_mpi_get_global_my_rank();
@@ -828,7 +832,7 @@ void HROM_ddecm_set_neib_decoupled(
 	char filename[BUFFER_SIZE];
 
 	//1stddの基底本数の共有
-	snprintf(filename, BUFFER_SIZE,"DDECM/n_modes_internal.%d.txt", myrank);
+	snprintf(filename, BUFFER_SIZE,"DDECM_%s/n_modes_internal.%d.txt", fphs, myrank);
 	fp = ROM_BB_write_fopen(fp, filename, directory);
 
 	fprintf(fp, "%d\n", monolis_com->n_internal_vertex);
@@ -842,7 +846,7 @@ void HROM_ddecm_set_neib_decoupled(
 
 	hlpod_ddhr->num_neib_modes_1stdd = BB_std_calloc_1d_int(hlpod_ddhr->num_neib_modes_1stdd, hlpod_meta->n_internal_sum + monolis_com->n_internal_vertex);
 
-	snprintf(filename, BUFFER_SIZE, "DDECM/n_modes_internal.%d.txt", monolis_mpi_get_global_my_rank());
+	snprintf(filename, BUFFER_SIZE, "DDECM_%s/n_modes_internal.%d.txt", fphs, monolis_mpi_get_global_my_rank());
 	fp = ROM_BB_read_fopen(fp, filename, directory);
 
 	int index_internal = 0;
@@ -854,7 +858,7 @@ void HROM_ddecm_set_neib_decoupled(
 	fclose(fp);
 
 	for (int m = 0; m < hlpod_meta->num_neib; m++){
-		snprintf(filename, BUFFER_SIZE, "DDECM/n_modes_internal.%d.txt", hlpod_meta->neib_id[m]);
+		snprintf(filename, BUFFER_SIZE, "DDECM_%s/n_modes_internal.%d.txt", fphs, hlpod_meta->neib_id[m]);
 		fp = ROM_BB_read_fopen(fp, filename, directory);
 
 		fscanf(fp, "%d",&(tmp));
@@ -919,6 +923,7 @@ void HROM_ddecm_set_neib_decoupled(
 void HROM_ddecm_get_selected_elema_add_decoupled(
 	HLPOD_DDHR*     hlpod_ddhr,
 	const int       num_parallel_subdomains,
+    const char*     fphs,
 	const char*     directory)
 {
 	double t = monolis_get_time_global_sync();
@@ -940,7 +945,7 @@ void HROM_ddecm_get_selected_elema_add_decoupled(
 	int num_selected_elems_D_bc = 0;
 
 	for(int m = 0; m < num_parallel_subdomains; m++){
-		snprintf(fname1, BUFFER_SIZE,"DDECM/selected_elem.%d.txt", m);
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
 		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
 
 		fscanf(fp1, "%d", &(val));
@@ -949,7 +954,7 @@ void HROM_ddecm_get_selected_elema_add_decoupled(
 	}
 
 	for(int m = 0; m < num_parallel_subdomains; m++){
-		snprintf(fname2, BUFFER_SIZE,"DDECM/selected_elem_D_bc.%d.txt", m);
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
 		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
 
 		fscanf(fp2, "%d", &(val));
@@ -965,7 +970,7 @@ void HROM_ddecm_get_selected_elema_add_decoupled(
 	int index = 0;
 
 	for(int m = 0; m < num_parallel_subdomains; m++){
-		snprintf(fname1, BUFFER_SIZE,"DDECM/selected_elem.%d.txt", m);
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
 		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
 
 		fscanf(fp1, "%d", &(val));
@@ -981,7 +986,7 @@ void HROM_ddecm_get_selected_elema_add_decoupled(
 
 	index = 0;
 	for(int m = 0; m < num_parallel_subdomains; m++){
-		snprintf(fname2, BUFFER_SIZE,"DDECM/selected_elem_D_bc.%d.txt", m);
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
 		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
 
 		fscanf(fp2, "%d", &(val));
@@ -1077,6 +1082,7 @@ void ddhr_lb_set_selected_elems_para_decoupled(
 		HLPOD_DDHR*     hlpod_ddhr,
 		const int		total_num_nodes,
 		const int		num_subdomains,
+        const char*     fphs,
 		const char*     directory)
 {
 	int nl = fe->local_num_nodes;
@@ -1112,7 +1118,7 @@ void ddhr_lb_set_selected_elems_para_decoupled(
 
 	char fname[BUFFER_SIZE];
 
-	snprintf(fname, BUFFER_SIZE,"DDECM/%s", OUTPUT_FILENAME_ECM_ELEM_VTK);
+	snprintf(fname, BUFFER_SIZE,"DDECM_%s/%s", fphs, OUTPUT_FILENAME_ECM_ELEM_VTK);
 	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname);
 
 	FILE* fp;
@@ -1158,6 +1164,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 	const int       max_iter, //NNLS
 	const double    tol,      //NNLS
     const int       dof,
+    const char*     fphs,
 	const char*		directory)
 {
 	const int myrank = monolis_mpi_get_global_my_rank();
@@ -1447,8 +1454,8 @@ printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 		char fname1[BUFFER_SIZE];
 		char fname2[BUFFER_SIZE];
 
-		snprintf(fname1, BUFFER_SIZE, "DDECM/lb_selected_elem_D_bc.%d.txt", subdomain_id[m]);
-		snprintf(fname2, BUFFER_SIZE, "DDECM/lb_selected_elem.%d.txt", subdomain_id[m]);
+		snprintf(fname1, BUFFER_SIZE, "DDECM_%s/lb_selected_elem_D_bc.%d.txt", fphs, subdomain_id[m]);
+		snprintf(fname2, BUFFER_SIZE, "DDECM_%s/lb_selected_elem.%d.txt", fphs, subdomain_id[m]);
 
 		fp1 = ROM_BB_write_fopen(fp1, fname1, directory);
 		fp2 = ROM_BB_write_fopen(fp2, fname2, directory);
