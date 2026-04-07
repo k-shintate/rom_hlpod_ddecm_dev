@@ -2,7 +2,7 @@
 #include "hlpod_pre.h"
     
 static const int BUFFER_SIZE = 10000;
-static const char* INPUT_FILENAME_NODE        = "graph.dat"; //for mag
+static const char* INPUT_FILENAME_NODE        = "node.dat"; //for mag
 
 void ROM_std_hlpod_get_meta_neib(
     MONOLIS_COM*  	monolis_com,

@@ -9,13 +9,13 @@ ep=1
 #podモード数
 num_modes=(20)
 #POD計算領域数
-num_1stdd=(1)
+num_1stdd=(48)
 #並列計算領域数 (=並列数)
-num_parallel=(1)
+num_parallel=(16)
 #基底本数可変の閾値 1.0E-{pa}
 pa=0
 #solver type
-st=1
+st=3
 
 for nm in "${num_modes[@]}"
 do

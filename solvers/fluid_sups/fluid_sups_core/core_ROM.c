@@ -2331,7 +2331,7 @@ void solver_rom_NR6(
 
 
 
-void solver_rom_NR3(
+void solver_rom_NR3_decoupled(
     FE_SYSTEM *  sys,
     double      t,
     const int   step,
@@ -2484,7 +2484,7 @@ void solver_rom_NR3(
                 &(sys->bc),
                 &(sys->rom_sups.hlpod_mat),
                 &(sys->rom_sups.hlpod_vals),
-                &(sys->hrom_p.hlpod_ddhr),
+                &(sys->hrom_sups.hlpod_ddhr),
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains,
                 step_hrom -1 ,   //index 0 start
                 sys->rom_sups.hlpod_vals.num_snapshot,
@@ -2499,7 +2499,7 @@ void solver_rom_NR3(
                 &(sys->bc),
                 &(sys->rom_sups.hlpod_mat),
                 &(sys->rom_sups.hlpod_vals),
-                &(sys->hrom_v.hlpod_ddhr),
+                &(sys->hrom_sups.hlpod_ddhr),
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains,
                 step_hrom -1 ,   //index 0 start
                 sys->rom_sups.hlpod_vals.num_snapshot,

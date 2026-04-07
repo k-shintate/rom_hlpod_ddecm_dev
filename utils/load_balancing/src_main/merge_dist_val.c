@@ -55,7 +55,6 @@ void merge_dist_val(
 
     snprintf(path, BUFFER_SIZE, "node.dat");
     fp = BBFE_sys_read_fopen(fp, path, directory);
-    fscanf(fp, "%s", token);
     fscanf(fp, "%d", &total_num_nodes);
     fclose(fp);
 

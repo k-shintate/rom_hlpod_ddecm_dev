@@ -16,7 +16,7 @@ void get_sigmas_for_prop_team21c(
 ){
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil * 0.1256/3;
+        *sigma_mass_A = Sigma_coil * 0.1256/3.2;
         //*sigma_cpl    = Sigma_coil* 0.119;
         //*sigma_phi    = Sigma_coil* 0.119;
 	*sigma_cpl    = 0.0;

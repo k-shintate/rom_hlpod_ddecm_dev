@@ -1562,3 +1562,118 @@ void ROM_std_hlpod_solve_ROM_NR(
     }
 }
 
+
+
+
+void ROM_std_hlpod_read_pod_modes_diag_decoupled(
+        ROM* 		rom_v,
+        ROM* 		rom_p,
+        ROM* 		rom_sups,
+        const int 	total_num_nodes,
+        const int 	n_internal_vertex,
+        const int 	ndof1,
+        const int 	ndof2,
+        const char* label1,
+        const char* label2,
+        const char* directory)
+{
+
+    ROM_std_hlpod_read_podmodes_local_para(
+            &(rom_v->hlpod_vals),
+            &(rom_v->hlpod_mat),
+            &(rom_sups->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_vals.num_modes_pre,
+            rom_v->hlpod_vals.num_snapshot,
+            rom_sups->hlpod_vals.num_2nd_subdomains,
+            ndof1,
+            rom_v->hlpod_vals.rom_epsilon,
+            label1,
+            directory);
+    
+    ROM_std_hlpod_read_podmodes_local_para(
+            &(rom_p->hlpod_vals),
+            &(rom_p->hlpod_mat),
+            &(rom_sups->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_p->hlpod_vals.num_modes_pre,
+            rom_p->hlpod_vals.num_snapshot,
+            rom_sups->hlpod_vals.num_2nd_subdomains,
+            ndof2,
+            rom_p->hlpod_vals.rom_epsilon,
+            label2,
+            directory);
+    
+    ROM_std_hlpod_set_podmodes_local_para_diag(
+            &(rom_sups->hlpod_vals),
+            &(rom_sups->hlpod_mat),
+            &(rom_sups->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_mat.pod_modes,
+            rom_p->hlpod_mat.pod_modes,
+            rom_v->hlpod_mat.num_modes_internal,
+            rom_p->hlpod_mat.num_modes_internal,
+            rom_v->hlpod_vals.num_modes,
+            rom_p->hlpod_vals.num_modes,
+            ndof1,
+            ndof2,
+            rom_sups->hlpod_vals.num_2nd_subdomains,
+            directory);
+    /*
+    ROM_std_hlpod_set_podmodes_local_para_diag_v(
+            &(rom_sups_v->hlpod_vals),
+            &(rom_sups_v->hlpod_mat),
+            &(rom_sups_v->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_mat.pod_modes,
+            rom_p->hlpod_mat.pod_modes,
+            rom_v->hlpod_mat.num_modes_internal,
+            rom_p->hlpod_mat.num_modes_internal,
+            rom_v->hlpod_vals.num_modes,
+            rom_p->hlpod_vals.num_modes,
+            ndof1,
+            ndof2,
+            rom_sups_v->hlpod_vals.num_2nd_subdomains,
+            directory);
+        
+    ROM_std_hlpod_set_podmodes_local_para_diag_p(
+            &(rom_sups_p->hlpod_vals),
+            &(rom_sups_p->hlpod_mat),
+            &(rom_sups_p->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_mat.pod_modes,
+            rom_p->hlpod_mat.pod_modes,
+            rom_v->hlpod_mat.num_modes_internal,
+            rom_p->hlpod_mat.num_modes_internal,
+            rom_v->hlpod_vals.num_modes,
+            rom_p->hlpod_vals.num_modes,
+            ndof1,
+            ndof2,
+            rom_sups_p->hlpod_vals.num_2nd_subdomains,
+            directory);
+    */
+   
+    rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
+
+    ROM_std_hlpod_free_local_podmodes_para(
+            &(rom_v->hlpod_mat),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_vals.num_modes_pre,
+            rom_v->hlpod_vals.num_2nd_subdomains,
+            ndof1);
+    
+    ROM_std_hlpod_free_local_podmodes_para(
+            &(rom_p->hlpod_mat),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_p->hlpod_vals.num_modes_pre,
+            rom_p->hlpod_vals.num_2nd_subdomains,
+            ndof2);
+    
+}

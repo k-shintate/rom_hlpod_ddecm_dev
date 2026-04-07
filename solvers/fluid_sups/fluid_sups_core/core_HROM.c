@@ -1125,9 +1125,6 @@ void HROM_std_hlpod_online_pre(
     }
 }
 
-
-
-
 void HROM_pre_offline_inc_svd1(
 		FE_SYSTEM* sys,
         ROM*            rom,

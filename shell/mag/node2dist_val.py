@@ -12,24 +12,48 @@ def is_int_single_token(line: str) -> bool:
     except ValueError:
         return False
 
+def read_n_from_file(path: str) -> int:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            first_line = f.readline().strip()
+    except OSError as e:
+        print(f"Error: failed to read N file '{path}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not first_line:
+        print(f"Error: N file '{path}' is empty", file=sys.stderr)
+        sys.exit(1)
+
+    parts = first_line.split()
+    if len(parts) != 1:
+        print(f"Error: first line of N file must contain exactly one integer: '{first_line}'",
+              file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        n = int(parts[0])
+    except ValueError:
+        print(f"Error: first line of N file is not an integer: '{first_line}'",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if n < 0:
+        print("Error: N must be non-negative", file=sys.stderr)
+        sys.exit(1)
+
+    return n
+
 def main():
     if len(sys.argv) != 4:
-        print(f"Usage: {sys.argv[0]} input.txt output.txt N", file=sys.stderr)
-        print(f"Example: {sys.argv[0]} data.txt dist_val.txt 19866", file=sys.stderr)
+        print(f"Usage: {sys.argv[0]} input.txt output.txt n_file.txt", file=sys.stderr)
+        print(f"Example: {sys.argv[0]} data.txt dist_val.txt n.txt", file=sys.stderr)
         sys.exit(1)
 
     input_path = sys.argv[1]
     output_path = sys.argv[2]
+    n_file_path = sys.argv[3]
 
-    try:
-        N = int(sys.argv[3])
-    except ValueError:
-        print("Error: N must be an integer", file=sys.stderr)
-        sys.exit(1)
-
-    if N < 0:
-        print("Error: N must be non-negative", file=sys.stderr)
-        sys.exit(1)
+    N = read_n_from_file(n_file_path)
 
     with open(input_path, "r", encoding="utf-8") as f:
         lines = [ln.strip() for ln in f if ln.strip()]

@@ -347,7 +347,7 @@ void HROM_std_hlpod_online_pre(
 }
 
 
-void HROM_pre_offline(
+void HROM_pre_offline_decoupled(
 		FE_SYSTEM* sys,
         ROM*            rom,
         HROM*           hrom,
@@ -398,7 +398,7 @@ void HROM_pre_offline(
 		&(rom->hlpod_meta),
 		sys->cond.directory);
 
-	HROM_ddecm_set_neib(
+	HROM_ddecm_set_neib_decoupled(
 		&(sys->mono_com_rom_solv),
 		&(rom->hlpod_mat),
 		&(hrom->hlpod_ddhr),

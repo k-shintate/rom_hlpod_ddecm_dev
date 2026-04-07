@@ -92,10 +92,13 @@ typedef struct
 	ROM		  	 rom_v;		        //v の snapshot matrix 用関数
 	ROM		  	 rom_sups;	        //p+v　の行列演算関連
 
+    ROM		  	 rom_sups_p;	        // for decoupled
+    ROM		  	 rom_sups_v;	        // for decoupled
+    
     VALUES       vals_hrom;
 
-	HROM		 hrom_p;		    //p の snapshot matrix 用関数
-	HROM		 hrom_v;		    //v の snapshot matrix 用関数
+	HROM		 hrom_sups_p;		    //p の snapshot matrix 用関数
+	HROM		 hrom_sups_v;		    //v の snapshot matrix 用関数
 	HROM		 hrom_sups;	        //p+v　の行列演算関連
 
 	MONOLIS      monolis_hr;

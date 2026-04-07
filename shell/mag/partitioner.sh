@@ -30,7 +30,7 @@ mv cond.dat rom_cond.dat
 
 
 python3 ./../../shell/mag/node2bc.py ./node.dat > node_bc.dat
-python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat 1662855
+python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat ./graph.dat
 
 #python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat 1602391
 

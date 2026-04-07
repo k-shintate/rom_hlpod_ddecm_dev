@@ -644,10 +644,10 @@ if(sys.rom_prm_p.hot_start == 1) {
             if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
                 solver_rom_NR3(&(sys), t, step_rom, step_hrom);
 
-		if(step_rom%2==0){
-			step_hrom++;
-		}
-		    //solver_rom(&(sys), step_rom, 0, t);
+                if(step_rom%2==0){
+                    step_hrom++;
+                }
+                //solver_rom(&(sys), step_rom, 0, t);
                 //if(step_rom==1){
                 //    solver_rom_NR3(&(sys), t, step_rom, 0);
                 //}
@@ -695,7 +695,7 @@ if(sys.rom_prm_p.hot_start == 1) {
         }
     }
 
-    HROM_pre_offline3(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    HROM_pre_offline3_decoupled(&sys, &(sys.rom_sups), &(sys.hrom_sups));
 
 	BBFE_fluid_finalize(&(sys.fe), &(sys.basis));
 	BBFE_sys_memory_free_Dirichlet_bc(&(sys.bc), sys.fe.total_num_nodes, 4);
