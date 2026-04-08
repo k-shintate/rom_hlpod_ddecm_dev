@@ -8,10 +8,12 @@
 
 void HROM_ddecm_get_selected_elems_int_ovl_decoupled(
 	HLPOD_DDHR*     hlpod_ddhr,
+    const char*     fphs,
 	const char*     directory);
 
 void HROM_ddecm_read_selected_elems_para_decoupled(
 	const int num_subdomains,
+    const char*     fphs,
 	const char* directory);
 
 void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
@@ -29,6 +31,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 	const int       max_iter, //NNLS
 	const double    tol,      //NNLS
     const int       dof,
+    const char*     fphs,
 	const char*		directory);
 
 void HROM_ddecm_set_neib_decoupled(
@@ -38,11 +41,13 @@ void HROM_ddecm_set_neib_decoupled(
 		HLPOD_META*		hlpod_meta,
 		const int 		num_subdomains,
 		const int       num_snapshots,
+        const char*     fphs,
 		const char*     directory);
 
 void HROM_ddecm_get_selected_elema_add_decoupled(
 	HLPOD_DDHR*     hlpod_ddhr,
 	const int       num_parallel_subdomains,
+    const char*     fphs,
 	const char*     directory);
 
 void ddhr_lb_set_selected_elems_para_decoupled(
@@ -50,7 +55,8 @@ void ddhr_lb_set_selected_elems_para_decoupled(
 		HLPOD_DDHR*     hlpod_ddhr,
 		const int		total_num_nodes,
 		const int		num_subdomains,
-		const char*     directory);
+        const char*     fphs,        
+        const char*     directory);
 
 void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 	MONOLIS_COM*  	monolis_com,
@@ -67,5 +73,6 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 	const int       max_iter, //NNLS
 	const double    tol,      //NNLS
     const int       dof,
+    const char*     fphs,
 	const char*		directory);
 

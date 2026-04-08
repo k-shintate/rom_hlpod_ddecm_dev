@@ -2,6 +2,8 @@
 #include "core_ROM.h"
 #include "core_HROM.h"
 
+#include "core_HROM_decoupled.h"
+
 static const char* OPTION_NUM_MODES     = "-nm";
 static const char* OPTION_NUM_1STDD     = "-nd";
 static const char* OPTION_PADAPTIVE     = "-pa";

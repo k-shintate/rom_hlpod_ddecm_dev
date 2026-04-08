@@ -118,3 +118,9 @@ void solver_rom_NR6(
     double      t,
     const int   step,
     const int   step_hrom);
+
+void solver_rom_NR3_decoupled(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);

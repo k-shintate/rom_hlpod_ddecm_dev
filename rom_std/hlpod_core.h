@@ -175,3 +175,17 @@ void ROM_std_hlpod_solve_ROM_NR(
     const double mat_epsilon,
     const int 	 label_solver,
     const int	 label_prec);
+
+
+void ROM_std_hlpod_read_pod_modes_diag_decoupled(
+        ROM* 		rom_v,
+        ROM* 		rom_p,
+        ROM* 		rom_sups,
+        const int 	total_num_nodes,
+        const int 	n_internal_vertex,
+        const int 	ndof1,
+        const int 	ndof2,
+        const char* label1,
+        const char* label2,
+        const char* directory);
+

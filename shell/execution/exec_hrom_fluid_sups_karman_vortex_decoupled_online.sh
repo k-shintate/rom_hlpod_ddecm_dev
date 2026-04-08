@@ -24,8 +24,9 @@ do
     	for np in "${num_parallel[@]}"
     	do
 	
-	    . shell/fluid_sups_hrom_karman_vortex/execution_online.sh $e $ep $nm $nd $np $pa $st
+	    . shell/fluid_sups_hrom_karman_vortex/execution_online_decoupled.sh $e $ep $nm $nd $np $pa $st
 
         done
 	done
 done
+

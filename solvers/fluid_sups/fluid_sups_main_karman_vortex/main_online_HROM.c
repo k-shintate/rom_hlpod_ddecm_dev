@@ -558,9 +558,9 @@ if(sys.rom_prm_p.hot_start == 1) {
             BB_std_free_1d_double(val, 4 * sys.fe.total_num_nodes);
         }
 
-while (t < sys.vals.rom_finish_time) {
-                t += sys.vals.dt;
-                step_rom += 1;
+    while (t < sys.vals.rom_finish_time) {
+        t += sys.vals.dt;
+        step_rom += 1;
 		printf("\n%s ----------------- step-ROM %d ----------------\n", CODENAME, step_rom);
 
 		/***************FEM***************/

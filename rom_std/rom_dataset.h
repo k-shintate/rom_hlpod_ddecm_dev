@@ -48,6 +48,13 @@ typedef struct
                                             
     double** neib_vec;               //pod_modes updated based on 2nd subdomains comm
 
+    double** pod_modes_decoupled_v;             //pod modes
+    double** neib_vec_decoupled_v;               //pod_modes updated based on 2nd subdomains comm
+    double** pod_modes_decoupled_p;             //pod modes
+    double** neib_vec_decoupled_p;               //pod_modes updated based on 2nd subdomains comm
+    double** pod_basis_hr_decoupled_v;
+    double** pod_basis_hr_decoupled_p;
+
     int* n_internal_vertex_subd;     //n_internal_vertex for 1st subdomains
     int* node_id;                    //node id for 1st subdomains
     int* num_modes_internal;         //number of pod modes in internal subdomains

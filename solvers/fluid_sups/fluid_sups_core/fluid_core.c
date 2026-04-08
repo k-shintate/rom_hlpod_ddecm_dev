@@ -136,6 +136,22 @@ void BBFE_fluid_sups_renew_pressure(
 	}
 }
 
+void BBFE_fluid_sups_update_vec(
+		double**  v,
+        double*  p,
+		double*   ans_vec,
+		const int total_num_nodes)
+{
+	for(int i=0; i<total_num_nodes; i++) {
+		for(int d=0; d<3; d++) {
+			ans_vec[ 4*i + d ] = v[i][d];
+		}
+	}
+
+	for(int i=0; i<total_num_nodes; i++) {
+		ans_vec[ 4*i + 3 ] = p[i];
+	}
+}
 
 void BBFE_fluid_finalize(
 		BBFE_DATA*   fe,
@@ -147,3 +163,4 @@ void BBFE_fluid_finalize(
 	BBFE_sys_memory_free_node(fe, 3);
 	BBFE_sys_memory_free_elem(fe, basis->num_integ_points, 3);
 }
+

@@ -508,6 +508,7 @@ printf("\n\nn_basis=%d rom_epsilon = %lf\n", n_basis, rom_epsilon);
 }
 */
 
+/*
 void ROM_std_hlpod_read_podmodes_local_para(
     HLPOD_VALUES*       hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
@@ -600,9 +601,9 @@ printf("\n\nn_basis=%d rom_epsilon = %lf\n", n_basis, rom_epsilon);
     hlpod_vals->num_modes = index_column;
 
 }
+*/
 
 
-/*
 void ROM_std_hlpod_read_podmodes_local_para(
     HLPOD_VALUES*       hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
@@ -648,7 +649,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
             label,
             directory);
 
-	n_basis = 10;
+    	n_basis = 5;
 
         hlpod_mat->num_modes_internal[m] = n_basis;
 
@@ -680,7 +681,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
     hlpod_vals->num_modes = index_column;
 
 }
-*/
+
 
 
 void ROM_std_hlpod_set_podmodes_global_para(
@@ -975,7 +976,7 @@ void ROM_std_hlpod_set_podmodes_local_para_diag(
 
 }
 
-void ROM_std_hlpod_set_podmodes_local_para_diag_v(
+void ROM_std_hlpod_set_podmodes_local_para_diag_decoupled(
     HLPOD_VALUES*	hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
     HLPOD_META*    	hlpod_meta,
@@ -1000,89 +1001,11 @@ void ROM_std_hlpod_set_podmodes_local_para_diag_v(
     int* node_id_local;
     int n_internal_vertex_1stdd;
 
-    hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
-    hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
+    hlpod_mat->pod_modes_decoupled_p = BB_std_calloc_2d_double(hlpod_mat->pod_modes_decoupled_p, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
+    hlpod_mat->pod_modes_decoupled_v = BB_std_calloc_2d_double(hlpod_mat->pod_modes_decoupled_v, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
+    //hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
 	//for arbit dof ddecm
-	hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
-	/**/
-    
-    int index = 0;
-    int index_row = 0;
-    int index_column = 0;
-    int index_column_v = 0;
-    int index_column_p = 0;
-
-    for(int m = 0; m < num_2nd_subdomains; m++){
-        int subdomain_id = hlpod_meta->subdomain_id[m];
-        n_internal_vertex_1stdd = hlpod_mat->n_internal_vertex_subd[m];
-
-        for(int j = 0; j < num_modes_v[m]; j++){
-            for(int i = 0; i < n_internal_vertex_1stdd; i++){
-                for(int k = 0; k < 3; k++){
-                    hlpod_mat->pod_modes[index_row*4 + i*4 + k][index_column + j] = v[index_row*3 + i*3 + k][index_column_v + j];
-                }
-            }
-        }
-    
-        index_column_v += num_modes_v[m];
-        index_column += num_modes_v[m];
-
-        hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
-
-        /*
-        for(int j = 0; j < num_modes_p[m]; j++){
-            for(int i = 0; i < n_internal_vertex_1stdd; i++){
-                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
-            }
-        }
-        */
-
-        for(int i = 0; i < n_internal_vertex_1stdd; i++){
-            hlpod_mat->node_id[index] = index;
-            hlpod_mat->subdomain_id_in_nodes_internal[index][m] = m + 1;
-            index++;
-        }
-        hlpod_mat->n_internal_vertex_subd[m] = n_internal_vertex_1stdd;
-
-        index_row += n_internal_vertex_1stdd;
-        index_column_p += num_modes_p[m];
-        index_column += num_modes_p[m];
-    }
-
-    hlpod_vals->num_modes = index_column;
-
-}
-
-
-void ROM_std_hlpod_set_podmodes_local_para_diag_p(
-    HLPOD_VALUES*	hlpod_vals,
-    HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*    	hlpod_meta,
-    const int		total_num_nodes,
-    const int 		n_internal_vertex,
-    double** 		v,
-    double** 		p,
-    int* 			num_modes_v,
-    int* 			num_modes_p,
-    const int       num_modes_max_1,
-    const int       num_modes_max_2,
-    const int 		dof_1,
-    const int 		dof_2,
-    const int		num_2nd_subdomains,
-    const char*     directory)
-{
-    FILE* fp;
-    char fname[BUFFER_SIZE];
-    char id[BUFFER_SIZE];
-
-    double** snapmat_local;
-    int* node_id_local;
-    int n_internal_vertex_1stdd;
-
-    hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
-    hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
-	//for arbit dof ddecm
-	hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
+	//hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
 	/**/
     
     int index = 0;
@@ -1108,27 +1031,71 @@ void ROM_std_hlpod_set_podmodes_local_para_diag_p(
         index_column_v += num_modes_v[m];
         index_column += num_modes_v[m];
 
-        hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
+        //hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
 
         for(int j = 0; j < num_modes_p[m]; j++){
             for(int i = 0; i < n_internal_vertex_1stdd; i++){
-                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
+                hlpod_mat->pod_modes_decoupled_p[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
             }
         }
-
+/*
         for(int i = 0; i < n_internal_vertex_1stdd; i++){
             hlpod_mat->node_id[index] = index;
             hlpod_mat->subdomain_id_in_nodes_internal[index][m] = m + 1;
             index++;
         }
         hlpod_mat->n_internal_vertex_subd[m] = n_internal_vertex_1stdd;
-
+*/
         index_row += n_internal_vertex_1stdd;
         index_column_p += num_modes_p[m];
         index_column += num_modes_p[m];
     }
 
-    hlpod_vals->num_modes = index_column;
+    index = 0;
+    index_row = 0;
+    index_column = 0;
+    index_column_v = 0;
+    index_column_p = 0;
+
+    for(int m = 0; m < num_2nd_subdomains; m++){
+        int subdomain_id = hlpod_meta->subdomain_id[m];
+        n_internal_vertex_1stdd = hlpod_mat->n_internal_vertex_subd[m];
+
+        
+        for(int j = 0; j < num_modes_v[m]; j++){
+            for(int i = 0; i < n_internal_vertex_1stdd; i++){
+                for(int k = 0; k < 3; k++){
+                    hlpod_mat->pod_modes_decoupled_v[index_row*4 + i*4 + k][index_column + j] = v[index_row*3 + i*3 + k][index_column_v + j];
+                }
+            }
+        }
+        
+    
+        index_column_v += num_modes_v[m];
+        index_column += num_modes_v[m];
+
+        //hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
+        /*
+        for(int j = 0; j < num_modes_p[m]; j++){
+            for(int i = 0; i < n_internal_vertex_1stdd; i++){
+                hlpod_mat->pod_modes_decoupled_p[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
+            }
+        }
+        */
+/*
+        for(int i = 0; i < n_internal_vertex_1stdd; i++){
+            hlpod_mat->node_id[index] = index;
+            hlpod_mat->subdomain_id_in_nodes_internal[index][m] = m + 1;
+            index++;
+        }
+        hlpod_mat->n_internal_vertex_subd[m] = n_internal_vertex_1stdd;
+*/
+        index_row += n_internal_vertex_1stdd;
+        index_column_p += num_modes_p[m];
+        index_column += num_modes_p[m];
+    }
+
+    //hlpod_vals->num_modes = index_column;
 
 }
 
@@ -1219,6 +1186,56 @@ void HROM_ddecm_set_podbasis_ovl(
 		monolis_mpi_update_R(monolis_com, NDOF, dof, monolis_in);
 		for(int k = 0; k < NDOF; k++){
             hlpod_mat->pod_basis_hr[k][l] = monolis_in[k];
+        }
+	}
+
+	BB_std_free_1d_double(monolis_in, NDOF);
+
+}
+
+void HROM_ddecm_set_podbasis_ovl_decoupled(
+    MONOLIS_COM*  	monolis_com,
+	HLPOD_VALUES*		hlpod_vals,
+    HLPOD_MAT*    hlpod_mat,
+	const int		total_num_nodes,
+    const int       dof)
+{
+	hlpod_mat->pod_basis_hr_decoupled_p = BB_std_calloc_2d_double(hlpod_mat->pod_basis_hr_decoupled_p, total_num_nodes*dof, hlpod_vals->num_modes_max);
+
+    const int NDOF  = total_num_nodes*dof;
+
+    double* monolis_in;
+    monolis_in = BB_std_calloc_1d_double(monolis_in, NDOF);
+
+    for(int l = 0; l < hlpod_vals->num_modes_max; l++){
+		for(int k = 0; k < NDOF; k++){
+			monolis_in[k] = 0;
+		}
+		for(int j = 0; j < monolis_com->n_internal_vertex * dof; j++){
+			monolis_in[j] = hlpod_mat->pod_modes[j][l];
+		}
+		monolis_mpi_update_R(monolis_com, NDOF, dof, monolis_in);
+		for(int k = 0; k < NDOF; k++){
+            hlpod_mat->pod_basis_hr_decoupled_p[k][l] = monolis_in[k];
+        }
+	}
+
+	BB_std_free_1d_double(monolis_in, NDOF);
+
+
+    hlpod_mat->pod_basis_hr_decoupled_v = BB_std_calloc_2d_double(hlpod_mat->pod_basis_hr_decoupled_v, total_num_nodes*dof, hlpod_vals->num_modes_max);
+
+
+    for(int l = 0; l < hlpod_vals->num_modes_max; l++){
+		for(int k = 0; k < NDOF; k++){
+			monolis_in[k] = 0;
+		}
+		for(int j = 0; j < monolis_com->n_internal_vertex * dof; j++){
+			monolis_in[j] = hlpod_mat->pod_modes[j][l];
+		}
+		monolis_mpi_update_R(monolis_com, NDOF, dof, monolis_in);
+		for(int k = 0; k < NDOF; k++){
+            hlpod_mat->pod_basis_hr_decoupled_v[k][l] = monolis_in[k];
         }
 	}
 

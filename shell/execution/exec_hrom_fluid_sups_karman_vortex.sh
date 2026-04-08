@@ -7,13 +7,13 @@ e=15
 ep=1
 
 #podモード数
-num_modes=(20)
+num_modes=(5)
 #POD計算領域数
 num_1stdd=(48)
 #並列計算領域数 (=並列数)
 num_parallel=(16)
 #基底本数可変の閾値 1.0E-{pa}
-pa=0
+pa=0.999999
 #solver type
 st=3
 
@@ -31,3 +31,4 @@ do
         done
 	done
 done
+

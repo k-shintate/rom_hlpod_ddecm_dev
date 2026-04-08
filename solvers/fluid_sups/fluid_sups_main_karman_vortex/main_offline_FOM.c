@@ -329,8 +329,9 @@ int main (
 */
 //	if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
-            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
-                    sys.rom_p.hlpod_meta.subdomain_id[0]);
+            //snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d", sys.rom_p.hlpod_meta.subdomain_id[0]);
+
+            snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
 
             double* val = BB_std_calloc_1d_double(val, 4 * sys.fe.total_num_nodes);
 
@@ -433,8 +434,9 @@ int main (
 
 //		if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
-            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
-                    sys.rom_p.hlpod_meta.subdomain_id[0]);
+            //snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
+            //        sys.rom_p.hlpod_meta.subdomain_id[0]);
+            snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
 
             double* val = BB_std_calloc_1d_double(val, 4 * sys.fe.total_num_nodes);
 
@@ -485,7 +487,7 @@ int main (
 			//}
 			//solver_fom_collect_snapmat(sys, t, count);
             //solver_fom_NR(sys, t, count);
-solver_fom_NR_collect_snapmat(sys, t, count);
+            solver_fom_NR_collect_snapmat(sys, t, count);
 			count ++;
 
 			//if(step%sys.vals.output_interval == 0) {
@@ -494,6 +496,18 @@ solver_fom_NR_collect_snapmat(sys, t, count);
 				file_num += 1;
 			}
 
+            /*
+            BBFE_fluid_sups_update_vec(
+        		sys.vals.v,
+                sys.vals.p,
+		        sys.monolis.mat.R.X,
+		        sys.fe.total_num_nodes);
+
+            char fname[BUFFER_SIZE];         
+            snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
+            hot_start_write_initialize_val(sys.monolis.mat.R.X, sys.fe.total_num_nodes, 4, t, fname, sys.cond.directory);
+            */
+            
             /*
             if(step == 40000 && sys.rom_prm_p.hot_start == 0){
                 char fname[BUFFER_SIZE];         

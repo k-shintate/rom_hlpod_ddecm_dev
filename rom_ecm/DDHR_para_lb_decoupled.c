@@ -3,6 +3,7 @@
 //load balancing, 2階層目のbscr形式に対応
 
 #include "DDHR_para_lb.h"
+#include "DDHR_para_lb_decoupled.h"
 
 static const int BUFFER_SIZE = 10000;
 static const char* INPUT_FILENAME_ELEM_ID          = "elem.dat.id";
@@ -578,12 +579,10 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 	int index_NNLS1 = 0;
 	int index_NNLS2 = 0;
 
-    double global_norm = ddhr_calc_tol(monolis_com,
-        hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
 
 	for (int m = 0; m < num_subdomains; m++) {
 		int NNLS_row = hlpod_ddhr->num_modes_1stdd[m] * total_num_snapshot; //2は残差ベクトル＋右辺ベクトルを採用しているため
-printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
+        printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 		ans_vec = BB_std_calloc_1d_double(ans_vec, hlpod_ddhr->num_elems[m]);
 		matrix = BB_std_calloc_2d_double(matrix, NNLS_row, hlpod_ddhr->num_elems[m]);
 		RH = BB_std_calloc_1d_double(RH, NNLS_row);
@@ -625,10 +624,19 @@ printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 
         double local_norm = 0.0;
 		for(int j = 0; j < NNLS_row; j++){
-			local_norm += RH[j]*RH[j];
+			local_norm += RH[j];
+		}
+	
+
+        double local_Frovnorm = 0.0;
+		for(int j = 0; j < NNLS_row; j++){
+            for(int e = 0; e < hlpod_ddhr->num_elems[m]; e++){
+			    local_Frovnorm += matrix[j][e];
+            }
 		}
 
-        double input_TOL = TOL * sqrt(global_norm) / (num_subdomains  * sqrt(local_norm));
+        printf("local norm = %e, local_Fnorm = %e ", local_norm, local_Frovnorm);
+
 
 		index_NNLS1 = 0;
 		index_NNLS2 = 0;
@@ -1225,13 +1233,10 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 	int index_NNLS1 = 0;
 	int index_NNLS2 = 0;
 
-    double global_norm = ddhr_calc_tol(monolis_com,
-        hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
-
 	for (int m = 0; m < num_subdomains; m++) {
 		int NNLS_row = hlpod_ddhr->num_modes_1stdd[m] * total_num_snapshot; //2は残差ベクトル＋右辺ベクトルを採用しているため
         //int NNLS_row = hlpod_ddhr->num_modes_1stdd[m] * total_num_snapshot +1; //2は残差ベクトル＋右辺ベクトルを採用しているため
-printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
+        printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 		ans_vec = BB_std_calloc_1d_double(ans_vec, hlpod_ddhr->num_elems[m]);
 		matrix = BB_std_calloc_2d_double(matrix, NNLS_row, hlpod_ddhr->num_elems[m]);
 		RH = BB_std_calloc_1d_double(RH, NNLS_row);
@@ -1504,6 +1509,3 @@ printf("NNLS_row = %d num_elems = %d\n", NNLS_row, hlpod_ddhr->num_elems[m]);
 
 	double t = monolis_get_time_global_sync();
 }
-
-
-

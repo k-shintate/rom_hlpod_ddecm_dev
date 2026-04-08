@@ -2,6 +2,8 @@
 #include "core_ROM.h"
 #include "core_HROM.h"
 
+#include "core_HROM_decoupled.h"
+
 static const char* OPTION_NUM_MODES     = "-nm";
 static const char* OPTION_NUM_1STDD     = "-nd";
 static const char* OPTION_PADAPTIVE     = "-pa";
@@ -353,7 +355,21 @@ int main (
     /******************/
 
 	/*for online*/
+    /*
     ROM_std_hlpod_read_pod_modes_diag(
+		&(sys.rom_v),
+		&(sys.rom_p),
+		&(sys.rom_sups),
+		sys.fe.total_num_nodes,
+		sys.mono_com.n_internal_vertex,
+		3,
+		1,
+		"pod_modes_v",
+		"pod_modes_p",
+		sys.cond.directory);
+    */
+
+    ROM_std_hlpod_read_pod_modes_diag_decoupled(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
@@ -394,7 +410,7 @@ int main (
 
     monolis_initialize(&(sys.monolis_rom0));
 
-    HROM_std_hlpod_online_pre(
+    HROM_std_hlpod_online_pre_decoupled(
             &(sys.monolis_rom0),
             &(sys.mono_com),
             &(sys.mono_com_rom),
@@ -616,9 +632,8 @@ if(sys.rom_prm_p.hot_start == 1) {
         solver_rom_NR4(&(sys), t, step_rom, 0);
         add_reduced_mat_linear(&(sys), t, step_rom, 0);
 
-//HROM_pre_offline3(&sys, &(sys.rom_sups), &(sys.hrom_sups));
-//double tt3 = monolis_mpi_get_global_my_rank();
-//exit(1);
+        //HROM_pre_offline3(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+        //double tt3 = monolis_mpi_get_global_my_rank();
 
         while (t < sys.vals.rom_finish_time - t_hotstart) {
             t += sys.vals.dt;
@@ -642,7 +657,8 @@ if(sys.rom_prm_p.hot_start == 1) {
 
             double calctime_rom_t2 = monolis_get_time();
             if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
-                solver_rom_NR3(&(sys), t, step_rom, step_hrom);
+                solver_rom_NR3_decoupled(&(sys), t, step_rom, step_hrom);
+                //solver_rom_NR3(&(sys), t, step_rom, step_hrom);
 
                 if(step_rom%2==0){
                     step_hrom++;

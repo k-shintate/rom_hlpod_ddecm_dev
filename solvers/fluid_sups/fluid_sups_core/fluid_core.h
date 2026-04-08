@@ -60,6 +60,12 @@ void BBFE_fluid_sups_renew_pressure(
 		double*   ans_vec,
 		const int total_num_nodes);
 
+void BBFE_fluid_sups_update_vec(
+		double**  v,
+        double*  p,
+		double*   ans_vec,
+		const int total_num_nodes);
+
 void BBFE_fluid_finalize(
 		BBFE_DATA*   fe,
 		BBFE_BASIS*  basis);

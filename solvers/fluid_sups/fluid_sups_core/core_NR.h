@@ -171,4 +171,17 @@ void HROM_ddecm_set_residuals_NR_vec(
     const double    dt,
     double          t);
 
-
+void HROM_ddecm_set_residuals_NR_blas2_decoupled(
+    BBFE_DATA*      fe,
+    BBFE_BASIS*     basis,
+    VALUES*         vals,
+    BBFE_BC*        bc,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_DDHR*     hlpod_ddhr,
+    const int       num_subdomains,
+    const int       index_snap,
+    const int       num_snapshot,
+    const int       num_neib,
+    const double    dt,
+    double          t);

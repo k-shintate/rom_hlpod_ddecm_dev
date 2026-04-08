@@ -18,16 +18,16 @@ directory="result_fluid_sups_karman_vortex/${nm}-${np}-${nd}"
 
 cd solvers/fluid_sups
 
-make -f Makefile_HROM_karman_vortex clean
-make -f Makefile_HROM_karman_vortex
+make -f Makefile_HROM_karman_vortex_decoupled clean
+make -f Makefile_HROM_karman_vortex_decoupled
 
 cp -r hlpod_fluid_sups_offline_FOM ./../../$directory
-cp -r hlpod_fluid_sups_offline_ROM ./../../$directory
-cp -r hlpod_fluid_sups_online_HROM ./../../$directory
+cp -r hlpod_fluid_sups_offline_ROM_decoupled ./../../$directory
+cp -r hlpod_fluid_sups_online_HROM_decoupled ./../../$directory
 
 cd ./../../$directory
 
-mkdir -p {pod_modes_vtk,pod_modes_v,pod_modes_p,fem_solver_prm,pod_solver_prm,hr_solver_prm,calctime,DDECM,hr_prm,hot_start}
+mkdir -p {pod_modes_vtk,pod_modes_v,pod_modes_p,fem_solver_prm,pod_solver_prm,hr_solver_prm,calctime,DDECM_p,DDECM_v,hr_prm,hot_start}
 for ((i=0; i<nd; i++))
 do
     mkdir -p "pod_modes_v/subdomain${i}"
@@ -47,7 +47,7 @@ echo "exit" >> $fname
 #./hlpod_fluid_sups_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np $np  ./hlpod_fluid_sups_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_offline_FOM
-mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_offline_ROM
+mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_offline_ROM_decoupled
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_online_HROM
 #mpirun -np $np  ./hlpod_fluid_sups_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np $np  ./hlpod_fluid_sups_online_HROM ./ -nd $nd -nm $nm -pa $pa -st $st

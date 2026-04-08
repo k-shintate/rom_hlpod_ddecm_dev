@@ -3767,3 +3767,286 @@ void HROM_ddecm_set_residuals_NR_vec(
     BB_std_free_2d_double(val_ip_vec, 4, np);
     BB_std_free_1d_double(integ_val_vec, 4);
 }
+
+
+void HROM_ddecm_set_residuals_NR_blas2_decoupled(
+    BBFE_DATA*      fe,
+    BBFE_BASIS*     basis,
+    VALUES*         vals,
+    BBFE_BC*        bc,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_DDHR*     hlpod_ddhr,
+    const int       num_subdomains,
+    const int       index_snap,
+    const int       num_snapshot,
+    const int       num_neib,
+    const double    dt,
+    double          t)
+{
+    (void)num_snapshot;
+    (void)num_neib;
+    (void)dt;
+    (void)t;
+
+    const int ns = index_snap;
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+    const int nrv = hlpod_vals->n_neib_vec;
+
+    /* ---------------------------------
+     * compact coefficient:
+     * original:
+     *   index2: compact j-basis index
+     *   index1+kj: padded coefficient index
+     * --------------------------------- */
+    double* coef_compact = (double*)mkl_malloc(sizeof(double) * (size_t)nrv, 64);
+    {
+        int index1 = 0;
+        int index2 = 0;
+        for (int ki = 0; ki < num_neib; ++ki) {
+            for (int kj = 0; kj < hlpod_mat->num_modes_1stdd_neib[ki]; ++kj) {
+                coef_compact[index2++] = hlpod_mat->mode_coef_1stdd[index1 + kj];
+            }
+            index1 += hlpod_mat->max_num_neib_modes[ki];
+        }
+    }
+
+    /* ---- geometry / field work ---- */
+    double*   Jacobian_ip = BB_std_calloc_1d_double(NULL, np);
+
+    double**  local_v     = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip        = BB_std_calloc_2d_double(NULL, np, 3);
+    double*** grad_v_ip   = BB_std_calloc_3d_double(NULL, np, 3, 3);
+
+    double**  local_v_old = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip_old    = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*   local_p     = BB_std_calloc_1d_double(NULL, nl);
+    double*   p_ip        = BB_std_calloc_1d_double(NULL, np);
+    double**  grad_p_ip   = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*   wJ          = (double*)mkl_malloc(sizeof(double) * (size_t)np, 64);
+    double*   tau         = (double*)mkl_malloc(sizeof(double) * (size_t)np, 64);
+    double*   tau_c       = (double*)mkl_malloc(sizeof(double) * (size_t)np, 64);
+
+    /* ---- element-local metadata ---- */
+    int* conn_e = (int*)mkl_malloc(sizeof(int) * (size_t)nl, 64);
+    int* IS_i   = (int*)mkl_malloc(sizeof(int) * (size_t)nl, 64);
+    int* IE_i   = (int*)mkl_malloc(sizeof(int) * (size_t)nl, 64);
+    int* msz_i  = (int*)mkl_malloc(sizeof(int) * (size_t)nl, 64);
+
+    /* j-side packed info */
+    double* s_j = (double*)mkl_malloc(sizeof(double) * (size_t)nl * 4, 64);
+    /* s_j[j*4+b] :
+     *   free column -> dot(phi_j(:,b), coef_compact)
+     *   D column    -> imposed_D_val
+     */
+
+    /* i-side basis pack: column-major (msz_max x 4) */
+    int msz_max_global = 0;
+    for (int n = 0; n < num_subdomains; ++n) {
+        for (int m = 0; m < hlpod_ddhr->num_elems[n]; ++m) {
+            const int e = hlpod_ddhr->elem_id_local[m][n];
+            for (int i = 0; i < nl; ++i) {
+                const int gi   = fe->conn[e][i];
+                const int sidi = hlpod_mat->subdomain_id_in_nodes[gi];
+                const int IS   = hlpod_ddhr->num_neib_modes_1stdd_sum[sidi];
+                const int IE   = hlpod_ddhr->num_neib_modes_1stdd_sum[sidi + 1];
+                msz_max_global = max2_int(msz_max_global, IE - IS);
+            }
+        }
+    }
+
+    double* Phi_i_buf = (double*)mkl_malloc(sizeof(double) * (size_t)msz_max_global * 4, 64);
+    double* y_buf     = (double*)mkl_malloc(sizeof(double) * (size_t)msz_max_global, 64);
+
+    for (int n = 0; n < num_subdomains; ++n) {
+        for (int m = 0; m < hlpod_ddhr->num_elems[n]; ++m) {
+            const int e = hlpod_ddhr->elem_id_local[m][n];
+
+            /* -----------------------------
+             * element precompute
+             * ----------------------------- */
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v,     fe, vals->v,     e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+            BBFE_elemmat_set_local_array_scalar(local_p,     fe, vals->p,     e);
+
+            for (int p = 0; p < np; ++p) {
+                double J_inv[3][3];
+
+                BBFE_std_mapping_vector3d(v_ip[p],     nl, local_v,     basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p],  nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+
+                BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                tau[p] = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                    J_inv, fe->geo[e][p].Jacobian,
+                    vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                tau_c[p] = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                    J_inv, fe->geo[e][p].Jacobian,
+                    vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                wJ[p] = basis->integ_weight[p] * Jacobian_ip[p];
+            }
+
+            /* -----------------------------
+             * element node metadata
+             * ----------------------------- */
+            int msz_max_elem = 0;
+            for (int i = 0; i < nl; ++i) {
+                const int gi   = fe->conn[e][i];
+                const int sidi = hlpod_mat->subdomain_id_in_nodes[gi];
+                const int IS   = hlpod_ddhr->num_neib_modes_1stdd_sum[sidi];
+                const int IE   = hlpod_ddhr->num_neib_modes_1stdd_sum[sidi + 1];
+
+                conn_e[i] = gi;
+                IS_i[i]   = IS;
+                IE_i[i]   = IE;
+                msz_i[i]  = IE - IS;
+
+                msz_max_elem = max2_int(msz_max_elem, msz_i[i]);
+            }
+
+            if (msz_max_elem <= 0) continue;
+
+            /* -----------------------------
+             * j-side scalar summary:
+             *   free  -> ddot(phi_j, coef_compact)
+             *   D-bc  -> imposed_D_val
+             * ----------------------------- */
+            for (int j = 0; j < nl; ++j) {
+                const int gj = conn_e[j];
+                for (int b = 0; b < 4; ++b) {
+                    if (bc->D_bc_exists[gj*4 + b]) {
+                        s_j[j*4 + b] = bc->imposed_D_val[gj*4 + b];
+                    }
+                    else {
+                        s_j[j*4 + b] = cblas_ddot(
+                            nrv,
+                            hlpod_mat->neib_vec_decoupled_p[gj*4 + b], 1,
+                            coef_compact, 1);
+                    }
+                }
+            }
+
+            /* -----------------------------
+             * (i,j) loop
+             * ----------------------------- */
+            for (int i = 0; i < nl; ++i) {
+                const int gi  = conn_e[i];
+                const int IS  = IS_i[i];
+                const int IE  = IE_i[i];
+                const int msz = msz_i[i];
+
+                if (msz <= 0) continue;
+
+                /* Phi_i_buf: (msz x 4), column-major */
+                for (int a = 0; a < 4; ++a) {
+                    memcpy(Phi_i_buf + (size_t)a * (size_t)msz_max_global,
+                           &hlpod_mat->neib_vec_decoupled_p[gi*4 + a][IS],
+                           sizeof(double) * (size_t)msz);
+                }
+
+                for (int j = 0; j < nl; ++j) {
+                    const int gj = conn_e[j];
+
+                    /* acc[a + 4*b] : column-major 4x4 */
+                    double acc[16];
+                    for (int q = 0; q < 16; ++q) acc[q] = 0.0;
+
+                    for (int p = 0; p < np; ++p) {
+                        double A[4][4];
+                        double du_time[3] = {
+                            v_ip[p][0] - v_ip_old[p][0],
+                            v_ip[p][1] - v_ip_old[p][1],
+                            v_ip[p][2] - v_ip_old[p][2]
+                        };
+                        double J_inv[3][3];
+
+                        BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                        BBFE_elemmat_fluid_mat_rom_nonlinear(
+                            A, J_inv, fe->geo[e][p].Jacobian,
+                            basis->N[p][i], basis->N[p][j],
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                            v_ip[p], grad_v_ip[p], grad_p_ip[p],
+                            vals->density, vals->viscosity,
+                            tau[p], tau_c[p], vals->dt, du_time);
+
+                        const double wp = wJ[p];
+                        for (int a = 0; a < 4; ++a) {
+                            for (int b = 0; b < 4; ++b) {
+                                acc[a + 4*b] += A[a][b] * wp;
+                            }
+                        }
+                    }
+
+                    /* g[a] = sum_b acc[a,b] * s_jb */
+                    double g[4];
+                    for (int a = 0; a < 4; ++a) {
+                        g[a] =
+                            acc[a + 4*0] * s_j[j*4 + 0] +
+                            acc[a + 4*1] * s_j[j*4 + 1] +
+                            acc[a + 4*2] * s_j[j*4 + 2] +
+                            acc[a + 4*3] * s_j[j*4 + 3];
+                    }
+
+                    /* y = Phi_i(msz x 4) * g(4) */
+                    cblas_dgemv(CblasColMajor, CblasNoTrans,
+                                msz, 4,
+                                1.0,
+                                Phi_i_buf, msz_max_global,
+                                g, 1,
+                                0.0,
+                                y_buf, 1);
+
+                    /* scatter add */
+                    for (int rr = 0; rr < msz; ++rr) {
+                        const int index = ns * nrv + (IS + rr);
+                        const double val = y_buf[rr];
+
+                        hlpod_ddhr->matrix[index][m][n] += val;
+                        hlpod_ddhr->RH[index][n]        += val;
+                    }
+                }
+            }
+        }
+    }
+
+    /* ---- free ---- */
+    mkl_free(y_buf);
+    mkl_free(Phi_i_buf);
+
+    mkl_free(s_j);
+
+    mkl_free(conn_e);
+    mkl_free(IS_i);
+    mkl_free(IE_i);
+    mkl_free(msz_i);
+
+    mkl_free(wJ);
+    mkl_free(tau);
+    mkl_free(tau_c);
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip, np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old, np, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip, np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    mkl_free(coef_compact);
+}

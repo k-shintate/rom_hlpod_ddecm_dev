@@ -23,10 +23,10 @@ mv result_fluid_sups_karman_vortex/tmp/${nm}-${np}-${nd} $directory_online
 
 cd solvers/fluid_sups
 
-make -f Makefile_HROM_karman_vortex clean
-make -f Makefile_HROM_karman_vortex
+make -f Makefile_HROM_karman_vortex_decoupled clean
+make -f Makefile_HROM_karman_vortex_decoupled
 
-cp -r hlpod_fluid_sups_online_HROM ./../../$directory_online
+cp -r hlpod_fluid_sups_online_HROM_decoupled ./../../$directory_online
 
 cd ../../$directory_online
 
@@ -39,7 +39,7 @@ echo "exit" >> $fname
 
 #mpirun -np $np  ./hlpod_fluid_sups_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_offline_ROM
-mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_online_HROM
+mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_fluid_sups_online_HROM_decoupled
 #mpirun -np $np  ./hlpod_fluid_sups_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np $np  ./hlpod_fluid_sups_online_HROM ./ -nd $nd -nm $nm -pa $pa -st $st
 

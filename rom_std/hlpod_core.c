@@ -1622,6 +1622,24 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             ndof2,
             rom_sups->hlpod_vals.num_2nd_subdomains,
             directory);
+    
+    ROM_std_hlpod_set_podmodes_local_para_diag_decoupled(
+            &(rom_sups->hlpod_vals),
+            &(rom_sups->hlpod_mat),
+            &(rom_sups->hlpod_meta),
+            total_num_nodes,
+            n_internal_vertex,
+            rom_v->hlpod_mat.pod_modes,
+            rom_p->hlpod_mat.pod_modes,
+            rom_v->hlpod_mat.num_modes_internal,
+            rom_p->hlpod_mat.num_modes_internal,
+            rom_v->hlpod_vals.num_modes,
+            rom_p->hlpod_vals.num_modes,
+            ndof1,
+            ndof2,
+            rom_sups->hlpod_vals.num_2nd_subdomains,
+            directory);
+    
     /*
     ROM_std_hlpod_set_podmodes_local_para_diag_v(
             &(rom_sups_v->hlpod_vals),
@@ -1657,7 +1675,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             rom_sups_p->hlpod_vals.num_2nd_subdomains,
             directory);
     */
-   
+
     rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
 
     ROM_std_hlpod_free_local_podmodes_para(

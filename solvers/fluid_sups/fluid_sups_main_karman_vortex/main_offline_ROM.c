@@ -456,8 +456,8 @@ int main (
 
 if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
-            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
-                    sys.rom_p.hlpod_meta.subdomain_id[0]);
+            //snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d", sys.rom_p.hlpod_meta.subdomain_id[0]);
+            snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
 
             double* val = BB_std_calloc_1d_double(val, 4 * sys.fe.total_num_nodes);
 
@@ -519,7 +519,7 @@ if(sys.rom_prm_p.hot_start == 1) {
         &(sys.hrom_sups.hlpod_ddhr),
         4,
         &(sys.rom_sups.hlpod_mat));
-  
+
     /************************/
 
 
@@ -560,8 +560,9 @@ if(sys.rom_prm_p.hot_start == 1) {
 
 	if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
-            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
-                    sys.rom_p.hlpod_meta.subdomain_id[0]);
+            //snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d", sys.rom_p.hlpod_meta.subdomain_id[0]);
+            snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
+
 
             double* val = BB_std_calloc_1d_double(val, 4 * sys.fe.total_num_nodes);
 
@@ -643,6 +644,7 @@ if(sys.rom_prm_p.hot_start == 1) {
             double calctime_rom_t2 = monolis_get_time();
             if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
                 solver_rom_NR3(&(sys), t, step_rom, step_hrom);
+                //solver_rom_NR5(&(sys), t, step_rom, step_hrom);
 
 		if(step_rom%2==0){
 			step_hrom++;

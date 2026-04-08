@@ -34,3 +34,10 @@ void ROM_std_hlpod_get_neib_num_modes_mode_subd(
     HLPOD_META*		hlpod_meta,
     const int 		np,     //変更
     const char*     directory);
+
+void ROM_std_hlpod_get_neib_vec_decoupled(
+    MONOLIS_COM*  	monolis_com,
+    HLPOD_VALUES*	hlpod_vals,
+    HLPOD_MAT* 	    hlpod_mat,
+    const int 		num_modes,
+    const int       ndof);
