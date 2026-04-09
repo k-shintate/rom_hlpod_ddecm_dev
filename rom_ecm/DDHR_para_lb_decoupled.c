@@ -1083,6 +1083,317 @@ void HROM_ddecm_get_selected_elema_add_decoupled(
 
 }
 
+void HROM_ddecm_get_selected_elema_add_decoupled_v(
+	HLPOD_DDHR*     hlpod_ddhr,
+	const int       num_parallel_subdomains,
+    const char*     fphs,
+	const char*     directory)
+{
+	double t = monolis_get_time_global_sync();
+
+	const int myrank = monolis_mpi_get_global_my_rank();
+	FILE* fp1;
+	FILE* fp2;
+	char fname1[BUFFER_SIZE];
+	char fname2[BUFFER_SIZE];
+
+	int val;
+
+	int*    ovl_selected_elems;
+	int*    ovl_selected_elems_D_bc;
+	double* ovl_selected_elems_weight;
+	double* ovl_selected_elems_weight_D_bc;
+
+	int num_selected_elems = 0;
+	int num_selected_elems_D_bc = 0;
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
+		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
+
+		fscanf(fp1, "%d", &(val));
+		num_selected_elems += val;
+		fclose(fp1);
+	}
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
+		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
+
+		fscanf(fp2, "%d", &(val));
+		num_selected_elems_D_bc += val;
+		fclose(fp2);
+	}
+
+	ovl_selected_elems = BB_std_calloc_1d_int(ovl_selected_elems, num_selected_elems);
+	ovl_selected_elems_weight = BB_std_calloc_1d_double(ovl_selected_elems_weight, num_selected_elems);
+	ovl_selected_elems_D_bc = BB_std_calloc_1d_int(ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	ovl_selected_elems_weight_D_bc = BB_std_calloc_1d_double(ovl_selected_elems_weight_D_bc, num_selected_elems_D_bc);
+
+	int index = 0;
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
+		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
+
+		fscanf(fp1, "%d", &(val));
+
+		for(int j = 0; j < val; j++){
+			fscanf(fp1, "%d %lf", &(ovl_selected_elems[j+index]), &(ovl_selected_elems_weight[j+index]));
+		}
+
+		index += val;
+
+		fclose(fp1);
+	}
+
+	index = 0;
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
+		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
+
+		fscanf(fp2, "%d", &(val));
+
+		for(int j = 0; j < val; j++){
+			fscanf(fp2, "%d %lf", &(ovl_selected_elems_D_bc[j+index]), &(ovl_selected_elems_weight_D_bc[j+index]));
+		}
+
+		index += val;
+
+		fclose(fp2);
+	}
+
+	bool*   bool_ovl_selected_elems;
+	bool*   bool_ovl_selected_elems_D_bc;
+
+	bool_ovl_selected_elems = BB_std_calloc_1d_bool(bool_ovl_selected_elems, num_selected_elems);
+	bool_ovl_selected_elems_D_bc = BB_std_calloc_1d_bool(bool_ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+
+	int*    ovl_elem_local_id;
+	int*    ovl_elem_local_id_D_bc;
+
+	ovl_elem_local_id = BB_std_calloc_1d_int(ovl_elem_local_id, num_selected_elems);
+	ovl_elem_local_id_D_bc = BB_std_calloc_1d_int(ovl_elem_local_id_D_bc, num_selected_elems_D_bc);
+
+
+	int index1 = 0;
+	int index2 = 0;
+
+	for(int i = 0; i < num_selected_elems; i++){
+		for(int j = 0; j < hlpod_ddhr->total_num_elems[0]; j++){
+			if(ovl_selected_elems[i] == hlpod_ddhr->ovl_elem_global_id[j][0]){
+				bool_ovl_selected_elems[i] = true;
+				ovl_elem_local_id[index1] = j;
+				index1++;
+			}
+		}
+	}
+	for(int i = 0; i < num_selected_elems_D_bc; i++){
+		for(int j = 0; j < hlpod_ddhr->total_num_elems[0]; j++){
+			if(ovl_selected_elems_D_bc[i] == hlpod_ddhr->ovl_elem_global_id[j][0]){
+				bool_ovl_selected_elems_D_bc[i] = true;
+				ovl_elem_local_id_D_bc[index2] = j;
+				index2++;
+			}
+		}
+	}
+
+	hlpod_ddhr->ovl_id_selected_elems_v = BB_std_calloc_1d_int(hlpod_ddhr->ovl_id_selected_elems_v, index1);
+	hlpod_ddhr->ovl_elem_weight_v = BB_std_calloc_1d_double(hlpod_ddhr->ovl_elem_weight_v, index1);
+	hlpod_ddhr->ovl_id_selected_elems_D_bc_v = BB_std_calloc_1d_int(hlpod_ddhr->ovl_id_selected_elems_D_bc_v, index2);
+	hlpod_ddhr->ovl_elem_weight_D_bc_v = BB_std_calloc_1d_double(hlpod_ddhr->ovl_elem_weight_D_bc_v, index2);
+
+	hlpod_ddhr->ovl_num_selected_elems_v = index1;
+	hlpod_ddhr->ovl_num_selected_elems_D_bc_v = index2;
+
+	index1 = 0;
+	index2 = 0;
+
+	for(int i = 0; i < num_selected_elems; i++){
+		if(bool_ovl_selected_elems[i]){
+
+			hlpod_ddhr->ovl_id_selected_elems_v[index1] = ovl_elem_local_id[index1];
+			hlpod_ddhr->ovl_elem_weight_v[index1] = ovl_selected_elems_weight[i];
+			index1++;
+		}
+	}
+
+	for(int i = 0; i < num_selected_elems_D_bc; i++){
+		if(bool_ovl_selected_elems_D_bc[i]){
+			hlpod_ddhr->ovl_id_selected_elems_D_bc_v[index2] = ovl_elem_local_id_D_bc[index2];
+			hlpod_ddhr->ovl_elem_weight_D_bc_v[index2] = ovl_selected_elems_weight_D_bc[i];
+			index2++;
+		}
+	}
+
+	BB_std_free_1d_int(ovl_selected_elems, num_selected_elems);
+	BB_std_free_1d_double(ovl_selected_elems_weight, num_selected_elems);
+	BB_std_free_1d_int(ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	BB_std_free_1d_double(ovl_selected_elems_weight_D_bc, num_selected_elems_D_bc);
+
+	BB_std_free_1d_bool(bool_ovl_selected_elems, num_selected_elems);
+	BB_std_free_1d_bool(bool_ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	BB_std_free_1d_int(ovl_elem_local_id, num_selected_elems);
+	BB_std_free_1d_int(ovl_elem_local_id_D_bc, num_selected_elems_D_bc);
+
+}
+
+
+void HROM_ddecm_get_selected_elema_add_decoupled_p(
+	HLPOD_DDHR*     hlpod_ddhr,
+	const int       num_parallel_subdomains,
+    const char*     fphs,
+	const char*     directory)
+{
+	double t = monolis_get_time_global_sync();
+
+	const int myrank = monolis_mpi_get_global_my_rank();
+	FILE* fp1;
+	FILE* fp2;
+	char fname1[BUFFER_SIZE];
+	char fname2[BUFFER_SIZE];
+
+	int val;
+
+	int*    ovl_selected_elems;
+	int*    ovl_selected_elems_D_bc;
+	double* ovl_selected_elems_weight;
+	double* ovl_selected_elems_weight_D_bc;
+
+	int num_selected_elems = 0;
+	int num_selected_elems_D_bc = 0;
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
+		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
+
+		fscanf(fp1, "%d", &(val));
+		num_selected_elems += val;
+		fclose(fp1);
+	}
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
+		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
+
+		fscanf(fp2, "%d", &(val));
+		num_selected_elems_D_bc += val;
+		fclose(fp2);
+	}
+
+	ovl_selected_elems = BB_std_calloc_1d_int(ovl_selected_elems, num_selected_elems);
+	ovl_selected_elems_weight = BB_std_calloc_1d_double(ovl_selected_elems_weight, num_selected_elems);
+	ovl_selected_elems_D_bc = BB_std_calloc_1d_int(ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	ovl_selected_elems_weight_D_bc = BB_std_calloc_1d_double(ovl_selected_elems_weight_D_bc, num_selected_elems_D_bc);
+
+	int index = 0;
+
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname1, BUFFER_SIZE,"DDECM_%s/selected_elem.%d.txt", fphs, m);
+		fp1 = ROM_BB_read_fopen(fp1, fname1, directory);
+
+		fscanf(fp1, "%d", &(val));
+
+		for(int j = 0; j < val; j++){
+			fscanf(fp1, "%d %lf", &(ovl_selected_elems[j+index]), &(ovl_selected_elems_weight[j+index]));
+		}
+
+		index += val;
+
+		fclose(fp1);
+	}
+
+	index = 0;
+	for(int m = 0; m < num_parallel_subdomains; m++){
+		snprintf(fname2, BUFFER_SIZE,"DDECM_%s/selected_elem_D_bc.%d.txt", fphs, m);
+		fp2 = ROM_BB_read_fopen(fp2, fname2, directory);
+
+		fscanf(fp2, "%d", &(val));
+
+		for(int j = 0; j < val; j++){
+			fscanf(fp2, "%d %lf", &(ovl_selected_elems_D_bc[j+index]), &(ovl_selected_elems_weight_D_bc[j+index]));
+		}
+
+		index += val;
+
+		fclose(fp2);
+	}
+
+	bool*   bool_ovl_selected_elems;
+	bool*   bool_ovl_selected_elems_D_bc;
+
+	bool_ovl_selected_elems = BB_std_calloc_1d_bool(bool_ovl_selected_elems, num_selected_elems);
+	bool_ovl_selected_elems_D_bc = BB_std_calloc_1d_bool(bool_ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+
+	int*    ovl_elem_local_id;
+	int*    ovl_elem_local_id_D_bc;
+
+	ovl_elem_local_id = BB_std_calloc_1d_int(ovl_elem_local_id, num_selected_elems);
+	ovl_elem_local_id_D_bc = BB_std_calloc_1d_int(ovl_elem_local_id_D_bc, num_selected_elems_D_bc);
+
+
+	int index1 = 0;
+	int index2 = 0;
+
+	for(int i = 0; i < num_selected_elems; i++){
+		for(int j = 0; j < hlpod_ddhr->total_num_elems[0]; j++){
+			if(ovl_selected_elems[i] == hlpod_ddhr->ovl_elem_global_id[j][0]){
+				bool_ovl_selected_elems[i] = true;
+				ovl_elem_local_id[index1] = j;
+				index1++;
+			}
+		}
+	}
+	for(int i = 0; i < num_selected_elems_D_bc; i++){
+		for(int j = 0; j < hlpod_ddhr->total_num_elems[0]; j++){
+			if(ovl_selected_elems_D_bc[i] == hlpod_ddhr->ovl_elem_global_id[j][0]){
+				bool_ovl_selected_elems_D_bc[i] = true;
+				ovl_elem_local_id_D_bc[index2] = j;
+				index2++;
+			}
+		}
+	}
+
+	hlpod_ddhr->ovl_id_selected_elems_p = BB_std_calloc_1d_int(hlpod_ddhr->ovl_id_selected_elems_p, index1);
+	hlpod_ddhr->ovl_elem_weight_p = BB_std_calloc_1d_double(hlpod_ddhr->ovl_elem_weight_p, index1);
+	hlpod_ddhr->ovl_id_selected_elems_D_bc_p = BB_std_calloc_1d_int(hlpod_ddhr->ovl_id_selected_elems_D_bc_p, index2);
+	hlpod_ddhr->ovl_elem_weight_D_bc_p = BB_std_calloc_1d_double(hlpod_ddhr->ovl_elem_weight_D_bc_p, index2);
+
+	hlpod_ddhr->ovl_num_selected_elems_p = index1;
+	hlpod_ddhr->ovl_num_selected_elems_D_bc_p = index2;
+
+	index1 = 0;
+	index2 = 0;
+
+	for(int i = 0; i < num_selected_elems; i++){
+		if(bool_ovl_selected_elems[i]){
+
+			hlpod_ddhr->ovl_id_selected_elems_p[index1] = ovl_elem_local_id[index1];
+			hlpod_ddhr->ovl_elem_weight_p[index1] = ovl_selected_elems_weight[i];
+			index1++;
+		}
+	}
+
+	for(int i = 0; i < num_selected_elems_D_bc; i++){
+		if(bool_ovl_selected_elems_D_bc[i]){
+			hlpod_ddhr->ovl_id_selected_elems_D_bc_p[index2] = ovl_elem_local_id_D_bc[index2];
+			hlpod_ddhr->ovl_elem_weight_D_bc_p[index2] = ovl_selected_elems_weight_D_bc[i];
+			index2++;
+		}
+	}
+
+	BB_std_free_1d_int(ovl_selected_elems, num_selected_elems);
+	BB_std_free_1d_double(ovl_selected_elems_weight, num_selected_elems);
+	BB_std_free_1d_int(ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	BB_std_free_1d_double(ovl_selected_elems_weight_D_bc, num_selected_elems_D_bc);
+
+	BB_std_free_1d_bool(bool_ovl_selected_elems, num_selected_elems);
+	BB_std_free_1d_bool(bool_ovl_selected_elems_D_bc, num_selected_elems_D_bc);
+	BB_std_free_1d_int(ovl_elem_local_id, num_selected_elems);
+	BB_std_free_1d_int(ovl_elem_local_id_D_bc, num_selected_elems_D_bc);
+
+}
+
 
 /*for visualization*/
 void ddhr_lb_set_selected_elems_para_decoupled(

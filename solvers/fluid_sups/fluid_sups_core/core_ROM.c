@@ -2363,7 +2363,7 @@ void solver_rom_NR3_decoupled(
     const double rel_tol_p = 1.0e-6;
     const double abs_tol_p = 1.0e-12;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 3;
+    int max_iter_NR = 2;
 
     monolis_com_initialize_by_self(&(sys->mono_com0));
 
@@ -2484,7 +2484,7 @@ void solver_rom_NR3_decoupled(
                 &(sys->fe),
                 &(sys->basis),
                 &(sys->vals_rom),
-                &(sys->bc_NR),
+                &(sys->bc),
                 &(sys->rom_sups.hlpod_mat),
                 &(sys->rom_sups.hlpod_vals),
                 &(sys->hrom_sups.hlpod_ddhr),

@@ -108,6 +108,8 @@ void HROM_pre_online_decoupled(
         HROM*           hrom,
 		const int num_modes,
 		const int num_snapshot,
+        const char* name1,
+        const char* name2,
 		const int num_2nd_subdomains)
 {
 	monolis_initialize(&(sys->monolis_hr));
@@ -121,13 +123,24 @@ void HROM_pre_online_decoupled(
 
     HROM_ddecm_read_selected_elems_para_decoupled(
         num_2nd_subdomains,
-        "v",
+        name1,
         sys->cond.directory);
 
-    HROM_ddecm_get_selected_elema_add_decoupled(
+    HROM_ddecm_get_selected_elema_add_decoupled_v(
         &(hrom->hlpod_ddhr),
         monolis_mpi_get_global_comm_size(),
-        "v",
+        name1,
+        sys->cond.directory);
+
+    HROM_ddecm_read_selected_elems_para_decoupled(
+        num_2nd_subdomains,
+        name2,
+        sys->cond.directory);
+
+    HROM_ddecm_get_selected_elema_add_decoupled_p(
+        &(hrom->hlpod_ddhr),
+        monolis_mpi_get_global_comm_size(),
+        name2,
         sys->cond.directory);
 
     HROM_ddecm_set_podbasis_ovl_decoupled(
@@ -147,7 +160,7 @@ void HROM_pre_online_decoupled(
 }
 
 void solver_hrom_NR_decoupled(
-    FE_SYSTEM *  sys,
+    FE_SYSTEM * sys,
     double      t,
     const int   step,
     const int   step_hrom)
@@ -185,7 +198,20 @@ void solver_hrom_NR_decoupled(
         monolis_clear_mat_value_R(&(sys->monolis_hr));
         monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_hr));
 
-        HROM_set_element_mat_NR(
+        HROM_set_element_mat_NR_decoupled_v(
+            &(sys->monolis_hr),
+            &(sys->fe),
+            &(sys->vals_hrom),
+            &(sys->basis),
+            &(sys->bc),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->rom_sups.hlpod_mat),
+            &(sys->hrom_sups.hlpod_ddhr),
+            sys->rom_sups.hlpod_vals.num_modes_pre,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->vals.dt);
+
+        HROM_set_element_mat_NR_decoupled_p(
             &(sys->monolis_hr),
             &(sys->fe),
             &(sys->vals_hrom),
@@ -246,7 +272,7 @@ void solver_hrom_NR_decoupled(
             sys->rom_sups.hlpod_vals.num_modes_pre);
         
 
-        HROM_set_element_vec_NR(
+        HROM_set_element_vec_NR_v(
             &(sys->monolis_hr),
             &(sys->fe),
             &(sys->vals_hrom),
@@ -259,6 +285,21 @@ void solver_hrom_NR_decoupled(
             sys->rom_sups.hlpod_vals.num_2nd_subdomains,
             sys->vals.dt,
             t);
+
+        HROM_set_element_vec_NR_p(
+            &(sys->monolis_hr),
+            &(sys->fe),
+            &(sys->vals_hrom),
+            &(sys->basis),
+            &(sys->hrom_sups.hr_vals),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->hrom_sups.hlpod_ddhr),
+            &(sys->rom_sups.hlpod_mat),
+            sys->rom_sups.hlpod_vals.num_modes_pre,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->vals.dt,
+            t);
+
 
         ROM_monowrap_solve(
             &(sys->monolis_hr),
@@ -485,10 +526,10 @@ void HROM_pre_online_decoupled2(
         HROM*       hrom)
 {
     if(monolis_mpi_get_global_comm_size() == 1){		
-		HROM_pre_online(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
+		HROM_pre_online_decoupled(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, "v", "p", rom->hlpod_vals.num_2nd_subdomains);
 	}
 	else{
-		HROM_pre_online(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
+		HROM_pre_online_decoupled(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot,  "v", "p", rom->hlpod_vals.num_2nd_subdomains);
 	}
 }
 
@@ -544,6 +585,8 @@ void HROM_std_hlpod_pre_lpod_para_decoupled(
             rom->hlpod_meta.item);
 }
 
+
+// offline
 void HROM_std_hlpod_online_pre_decoupled(
         MONOLIS*     monolis_rom0,
         MONOLIS_COM* mono_com,

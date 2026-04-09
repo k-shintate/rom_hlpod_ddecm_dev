@@ -244,7 +244,7 @@ void HROM_output_files(
 			(const double**)sys->vals.v,
 			(const double**)sys->vals_rom.v);
 
-	printf("%s L2 error velocity FEM-HROM: %e\n", CODENAME, L2_error_v);
+	printf("%s L2 error velocity FEM-ROM: %e\n", CODENAME, L2_error_v);
 
 	if(monolis_mpi_get_global_my_rank() == 0){
 		FILE* fp;

@@ -1,4 +1,3 @@
-
 SetFactory("OpenCASCADE");
 
 // =====================================================
@@ -35,12 +34,14 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Global mesh sizes ----------------
-lcTurn  = 1.0 * Scale;   // individual turn conductor mesh size
-lcPlate = 8.0 * Scale;
-lcAir   = 30  * Scale;
-lcFar   = 60  * Scale;
-lcSlit  = 3.0 * Scale;
-lcGap   = 5.0 * Scale;
+// revised for better resolution of conductor cross-section,
+// coil-plate gap, and slit region
+lcTurn  = 0.5 * Scale;   // individual turn conductor mesh size
+lcPlate = 4.0 * Scale;
+lcAir   = 20  * Scale;
+lcFar   = 50  * Scale;
+lcSlit  = 1.5 * Scale;
+lcGap   = 2.0 * Scale;
 
 // ---------------- Coil pack outer/inner envelope ----------------
 // Same envelope as the original bulk model

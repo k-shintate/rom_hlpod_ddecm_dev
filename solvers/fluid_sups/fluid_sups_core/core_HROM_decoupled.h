@@ -39,13 +39,15 @@ void HROM_pre_offline2_decoupled(
 		const int num_modes,
 		const int num_snapshot,
 		const int num_2nd_subdomains);
-
+    
 void HROM_pre_online_decoupled(
 		FE_SYSTEM* sys,
         ROM*            rom,
         HROM*           hrom,
 		const int num_modes,
 		const int num_snapshot,
+        const char* name1,
+        const char* name2,
 		const int num_2nd_subdomains);
 
 void solver_hrom_NR_decoupled(

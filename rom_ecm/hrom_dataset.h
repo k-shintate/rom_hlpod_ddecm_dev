@@ -77,14 +77,28 @@ typedef struct
 	int* total_num_elems;
 	int** ovl_elem_global_id;
 
+// for decoupled
 	int* ovl_id_selected_elems;
 	int* ovl_id_selected_elems_D_bc;
-
 	double* ovl_elem_weight;
 	double* ovl_elem_weight_D_bc;
-
 	int ovl_num_selected_elems;
 	int ovl_num_selected_elems_D_bc;
+
+
+	int* ovl_id_selected_elems_p;
+	int* ovl_id_selected_elems_D_bc_p;
+	double* ovl_elem_weight_p;
+	double* ovl_elem_weight_D_bc_p;
+	int ovl_num_selected_elems_p;
+	int ovl_num_selected_elems_D_bc_p;
+
+	int* ovl_id_selected_elems_v;
+	int* ovl_id_selected_elems_D_bc_v;
+	double* ovl_elem_weight_v;
+	double* ovl_elem_weight_D_bc_v;
+	int ovl_num_selected_elems_v;
+	int ovl_num_selected_elems_D_bc_v;
 
 	int* parallel_elems_id;
 

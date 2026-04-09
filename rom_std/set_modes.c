@@ -956,7 +956,7 @@ void ROM_std_hlpod_set_podmodes_local_para_diag(
 
         for(int j = 0; j < num_modes_p[m]; j++){
             for(int i = 0; i < n_internal_vertex_1stdd; i++){
-                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
+                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j] * 1.0e5;
             }
         }
 
@@ -1212,16 +1212,13 @@ void HROM_ddecm_set_podbasis_ovl_decoupled(
 			monolis_in[k] = 0;
 		}
 		for(int j = 0; j < monolis_com->n_internal_vertex * dof; j++){
-			monolis_in[j] = hlpod_mat->pod_modes[j][l];
+			monolis_in[j] = hlpod_mat->pod_modes_decoupled_p[j][l];
 		}
 		monolis_mpi_update_R(monolis_com, NDOF, dof, monolis_in);
 		for(int k = 0; k < NDOF; k++){
             hlpod_mat->pod_basis_hr_decoupled_p[k][l] = monolis_in[k];
         }
 	}
-
-	BB_std_free_1d_double(monolis_in, NDOF);
-
 
     hlpod_mat->pod_basis_hr_decoupled_v = BB_std_calloc_2d_double(hlpod_mat->pod_basis_hr_decoupled_v, total_num_nodes*dof, hlpod_vals->num_modes_max);
 
@@ -1231,7 +1228,7 @@ void HROM_ddecm_set_podbasis_ovl_decoupled(
 			monolis_in[k] = 0;
 		}
 		for(int j = 0; j < monolis_com->n_internal_vertex * dof; j++){
-			monolis_in[j] = hlpod_mat->pod_modes[j][l];
+			monolis_in[j] = hlpod_mat->pod_modes_decoupled_v[j][l];
 		}
 		monolis_mpi_update_R(monolis_com, NDOF, dof, monolis_in);
 		for(int k = 0; k < NDOF; k++){

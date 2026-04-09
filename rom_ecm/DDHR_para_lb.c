@@ -1179,7 +1179,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
     double t1 = monolis_get_time_global_sync();
 
 	const int max_ITER = 10000;
-	const double TOL = 1.0e-12;
+	const double TOL = 1.0e-14;
 
 	double residual;
 
@@ -1263,12 +1263,22 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
             }
 		}
 
-        printf("local norm = %e, local_Fnorm = %e ", local_norm, local_Frovnorm);
+        //double scale = max(1.0, maxval(abs(local_norm)), maxval(abs(local_Frovnorm)));
+        //printf("local norm = %e, local_Fnorm = %e, scale = %e ", local_norm, local_Frovnorm, scale);
 
+        //local_norm = 0.0;
+		for(int j = 0; j < NNLS_row; j++){
+			RH[j] /= local_Frovnorm;
+		}
+        //local_Frovnorm = 0.0;
+		for(int j = 0; j < NNLS_row; j++){
+            for(int e = 0; e < hlpod_ddhr->num_elems[m]; e++){
+			    matrix[j][e] /= local_Frovnorm;
+            }
+		}
 
 		index_NNLS1 = 0;
 		index_NNLS2 = 0;
-
 		residual = 0.0;
 
 		monolis_optimize_nnls_R_with_sparse_solution(
@@ -1276,7 +1286,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
 			RH,
 			ans_vec, NNLS_row, hlpod_ddhr->num_elems[m], max_ITER, TOL, &residual);
 
-		printf("\n\nmax_iter = %d, tol = %lf, residuals = %lf\n\n", max_ITER, TOL, residual);
+		printf("\n\nmax_iter = %d, tol = %e, residuals = %e\n\n", max_ITER, TOL, residual);
 
 		int index = 0;
 		for (int i = 0; i < hlpod_ddhr->num_elems[m]; i++) {

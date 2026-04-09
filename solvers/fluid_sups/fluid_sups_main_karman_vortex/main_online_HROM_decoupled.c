@@ -368,7 +368,21 @@ int main (
     /******************/
 
 	/*for online*/
+    /*
     ROM_std_hlpod_read_pod_modes_diag(
+		&(sys.rom_v),
+		&(sys.rom_p),
+		&(sys.rom_sups),
+		sys.fe.total_num_nodes,
+		sys.mono_com.n_internal_vertex,
+		3,
+		1,
+		"pod_modes_v",
+		"pod_modes_p",
+		sys.cond.directory);
+    */
+
+    ROM_std_hlpod_read_pod_modes_diag_decoupled(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
@@ -426,9 +440,22 @@ int main (
     /********************/
 
     /*for Hyper-reduction*/
+/*
     HROM_memory_allocation_online(&sys, &(sys.rom_sups), &(sys.hrom_sups));
     HROM_pre(&sys, &(sys.rom_sups), &(sys.hrom_sups));
     HROM_pre_online(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+
+    HROM_set_bc_id(
+        &(sys.fe),
+        (&sys.bc),
+        &(sys.hrom_sups.hlpod_ddhr),
+        4,
+        &(sys.rom_sups.hlpod_mat));
+*/
+        
+    HROM_memory_allocation_online(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    HROM_pre_decoupled(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    HROM_pre_online_decoupled2(&sys, &(sys.rom_sups), &(sys.hrom_sups));
 
     HROM_set_bc_id(
         &(sys.fe),
@@ -459,12 +486,11 @@ int main (
     /******** */
 
     solver_rom_NR4(&(sys), 0, 0, 0);
-            double tt2 = monolis_get_time_global_sync();
-	    printf("done solver ROM");
+    double tt2 = monolis_get_time_global_sync();
+	printf("done solver ROM");
     add_reduced_mat_linear(&(sys), 0, 0, 0);
-            double tt3 = monolis_get_time_global_sync();
-
-//	    printf("done add_mat_linear");
+    double tt3 = monolis_get_time_global_sync();
+    // printf("done add_mat_linear");
 
     ROM_BB_vec_copy_2d(
                         sys.vals.v,
@@ -522,10 +548,9 @@ int main (
         }
 */
 
-if(sys.rom_prm_p.hot_start == 1) {
+        if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
-            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
-                    sys.rom_p.hlpod_meta.subdomain_id[0]);
+            snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d", sys.rom_p.hlpod_meta.subdomain_id[0]);
 
             double* val = BB_std_calloc_1d_double(val, 4 * sys.fe.total_num_nodes);
 
@@ -553,14 +578,14 @@ if(sys.rom_prm_p.hot_start == 1) {
             BBFE_fluid_sups_renew_velocity(sys.vals_rom.v_old, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_pressure(sys.vals_rom.p, val, sys.fe.total_num_nodes);
 
-	    BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v, val, sys.fe.total_num_nodes);
+	        BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v_old, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_pressure(sys.vals_hrom.p, val, sys.fe.total_num_nodes);
 
             BB_std_free_1d_double(val, 4 * sys.fe.total_num_nodes);
         }
 
-while (t < sys.vals.rom_finish_time) {
+    while (t < sys.vals.rom_finish_time) {
                 t += sys.vals.dt;
                 step_rom += 1;
 		printf("\n%s ----------------- step-ROM %d ----------------\n", CODENAME, step_rom);
@@ -581,8 +606,7 @@ while (t < sys.vals.rom_finish_time) {
 		double calctime_rom_t2 = monolis_get_time_global_sync();
 		if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
 			//solver_rom(&(sys), step_rom, 0, t);
-           solver_rom_NR5(&(sys), t, step_rom, 0);
-	   //solver_rom_NR2(&(sys), t, step_rom, 0);
+            //solver_rom_NR5(&(sys), t, step_rom, 0);
 		}
 		else{
 			solver_rom_global_para(
@@ -605,7 +629,8 @@ while (t < sys.vals.rom_finish_time) {
         }
         else{
 			//HROM_hierarchical_parallel(sys, &(sys.rom_sups), &(sys.hrom_sups), step_rom, 0, t);
-            solver_hrom_NR(&(sys), t, step_rom, 0);
+            //solver_hrom_NR(&(sys), t, step_rom, 0);
+            solver_hrom_NR_decoupled(&(sys), t, step_rom, 0);
         }
 
 		double calctime_hrom_t1 = monolis_get_time_global_sync();

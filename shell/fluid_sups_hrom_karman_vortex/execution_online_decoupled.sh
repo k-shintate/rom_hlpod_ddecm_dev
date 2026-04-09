@@ -15,6 +15,8 @@ st=$7
 directory_offline="result_fluid_sups_karman_vortex/${nm}-${np}-${nd}"
 directory_online="result_fluid_sups_karman_vortex/online_${nm}-${np}-${nd}"
 
+. shell/install.sh
+
 rm -r $directory_online
 #mkdir -p $directory_offline
 mkdir -p result_fluid_sups_karman_vortex/tmp

@@ -76,3 +76,14 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
     const char*     fphs,
 	const char*		directory);
 
+void HROM_ddecm_get_selected_elema_add_decoupled_p(
+	HLPOD_DDHR*     hlpod_ddhr,
+	const int       num_parallel_subdomains,
+    const char*     fphs,
+	const char*     directory);
+
+void HROM_ddecm_get_selected_elema_add_decoupled_v(
+	HLPOD_DDHR*     hlpod_ddhr,
+	const int       num_parallel_subdomains,
+    const char*     fphs,
+	const char*     directory);

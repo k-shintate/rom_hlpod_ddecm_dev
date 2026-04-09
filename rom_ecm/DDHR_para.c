@@ -173,6 +173,7 @@ void HROM_ddecm_to_monollis_rhs_para(
 	for(int k = 0; k < num_2nddd; k++){
 		for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
 			monolis->mat.R.B[index + i] = hlpod_ddrh->reduced_RH[index + i];
+            printf("val = %e\n", monolis->mat.R.B[index + i]);
 		}
 		index += hlpod_mat->num_modes_internal[k];		
 		sum += hlpod_mat->n_internal_vertex_subd[k];
@@ -225,7 +226,7 @@ void HROM_ddecm_add_monollis_rhs_para(
 	for(int k = 0; k < num_2nddd; k++){
 		for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
 			monolis->mat.R.B[index + i] += hlpod_ddrh->reduced_RH[index + i];
-            //printf("val = %e\n", monolis->mat.R.B[index + i]);
+            printf("val = %e\n", monolis->mat.R.B[index + i]);
 		}
 		index += hlpod_mat->num_modes_internal[k];		
 		sum += hlpod_mat->n_internal_vertex_subd[k];

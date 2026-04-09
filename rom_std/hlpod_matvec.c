@@ -670,7 +670,7 @@ void ROM_std_hlpod_reduced_rhs_to_monollis(
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
             monolis->mat.R.B[index + i] = hlpod_mat->VTf[index + i];
             if(monolis_mpi_get_global_my_rank()==0){
-                //printf("VTf[%d] = %e\n", index + i, hlpod_mat->VTf[index + i]);
+                printf("VTf[%d] = %e\n", index + i, hlpod_mat->VTf[index + i]);
             }
         }
         index += hlpod_mat->num_modes_internal[k];

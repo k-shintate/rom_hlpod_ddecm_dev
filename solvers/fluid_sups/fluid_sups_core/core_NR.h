@@ -185,3 +185,58 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
     const int       num_neib,
     const double    dt,
     double          t);
+
+void HROM_set_element_mat_NR_decoupled_v(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+		HLPOD_VALUES*   hlpod_vals,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int 		num_modes,
+		const int 		num_subdomains,
+		const double    dt);
+
+void HROM_set_element_mat_NR_decoupled_p(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+		HLPOD_VALUES*   hlpod_vals,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int 		num_modes,
+		const int 		num_subdomains,
+		const double    dt);
+
+
+void HROM_set_element_vec_NR_p(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS*	 	basis,
+        HR_VALUES*      hr_vals,
+        HLPOD_VALUES*   hlpod_vals,
+        HLPOD_DDHR*     hlpod_ddhr,
+    	HLPOD_MAT*      hlpod_mat,
+        const int		num_modes,
+		const int 		num_subdomains,
+        const double    dt,
+		double       	t);
+
+void HROM_set_element_vec_NR_v(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS*	 	basis,
+        HR_VALUES*      hr_vals,
+        HLPOD_VALUES*   hlpod_vals,
+        HLPOD_DDHR*     hlpod_ddhr,
+    	HLPOD_MAT*      hlpod_mat,
+        const int		num_modes,
+		const int 		num_subdomains,
+        const double    dt,
+		double       	t);

@@ -3930,7 +3930,7 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
                     else {
                         s_j[j*4 + b] = cblas_ddot(
                             nrv,
-                            hlpod_mat->neib_vec_decoupled_p[gj*4 + b], 1,
+                            hlpod_mat->neib_vec_decoupled_v[gj*4 + b], 1,
                             coef_compact, 1);
                     }
                 }
@@ -3950,7 +3950,7 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
                 /* Phi_i_buf: (msz x 4), column-major */
                 for (int a = 0; a < 4; ++a) {
                     memcpy(Phi_i_buf + (size_t)a * (size_t)msz_max_global,
-                           &hlpod_mat->neib_vec_decoupled_p[gi*4 + a][IS],
+                           &hlpod_mat->neib_vec_decoupled_v[gi*4 + a][IS],
                            sizeof(double) * (size_t)msz);
                 }
 
@@ -4049,4 +4049,792 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
     BB_std_free_2d_double(grad_p_ip, np, 3);
 
     mkl_free(coef_compact);
+}
+
+
+
+void HROM_set_element_mat_NR_decoupled_p(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+		HLPOD_VALUES*    hlpod_vals,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int 		num_modes,
+		const int 		num_subdomains,
+		const double    dt)
+{
+    /*
+    for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
+        for(int j = 0; j < hlpod_vals->n_neib_vec; j++){
+            hlpod_ddhr->reduced_mat[i][j] = 0.0;
+        }
+        hlpod_ddhr->reduced_RH[i] = 0.0;
+    }
+    */
+
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip;      double* Jacobian_ip;
+    val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+    Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+    double**  val_ip_vec   = BB_std_calloc_2d_double(val_ip_vec , 4 , np);
+    double*   integ_val_vec= BB_std_calloc_1d_double(integ_val_vec, 4);
+
+    double** local_v       = BB_std_calloc_2d_double(local_v, nl, 3);
+    double** v_ip          = BB_std_calloc_2d_double(v_ip   , np, 3);
+    double*** grad_v_ip    = BB_std_calloc_3d_double(grad_v_ip, np, 3, 3);
+
+    double** local_v_old   = BB_std_calloc_2d_double(local_v_old, nl, 3);
+    double** v_ip_old      = BB_std_calloc_2d_double(v_ip_old   , np, 3);
+
+    double*  local_p       = BB_std_calloc_1d_double(local_p, nl);
+    double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
+    double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
+
+    double A[4][4];
+    double J_inv[3][3];
+
+
+    int rank = monolis_mpi_get_global_my_rank();
+
+   
+    for (int kind = 0; kind < 2; kind++) {
+        int num = (kind == 0)
+            ? hlpod_ddhr->ovl_num_selected_elems_p
+            : hlpod_ddhr->ovl_num_selected_elems_D_bc_p;
+
+        int *ids = (kind == 0)
+            ? hlpod_ddhr->ovl_id_selected_elems_p
+            : hlpod_ddhr->ovl_id_selected_elems_D_bc_p;
+        
+        double *weight = (kind == 0)
+            ? hlpod_ddhr->ovl_elem_weight_p
+            : hlpod_ddhr->ovl_elem_weight_D_bc_p;
+
+        for (int m = 0; m < num; m++) {
+            int e = ids[m];
+ 
+ //   for (int e = 0; e < fe->total_num_elems; ++e) {
+        
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+
+            BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+            
+            for (int p = 0; p < np; ++p) {
+                BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+            }
+                    double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+                    double h_e = cbrt(vol);
+            
+            for (int i = 0; i < nl; ++i) {
+                for (int p = 0; p < np; ++p)
+                    for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
+
+                for (int j = 0; j < nl; ++j) {
+                    for (int p = 0; p < np; ++p) {
+                            double du_time[3] = {
+                            v_ip[p][0] - v_ip_old[p][0],
+                            v_ip[p][1] - v_ip_old[p][1],
+                            v_ip[p][2] - v_ip_old[p][2]
+                            };
+
+                        BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                        const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        /*
+                        BBFE_elemmat_fluid_mat_rom_linear(
+                            A, J_inv,
+                            basis->N[p][i], basis->N[p][j],
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                            v_ip[p], grad_v_ip[p], grad_p_ip[p],
+                            vals->density, vals->viscosity, tau, tau_c, vals->dt, du_time);
+                        */
+
+                        BBFE_elemmat_fluid_mat_rom_nonlinear(
+                            A, J_inv, fe->geo[e][p].Jacobian,
+                            basis->N[p][i], basis->N[p][j],
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                            v_ip[p], grad_v_ip[p], grad_p_ip[p],
+                            vals->density, vals->viscosity, tau, tau_c, vals->dt, du_time);
+
+                        for (int a = 0; a < 4; ++a) {
+                            for (int b = 0; b < 4; ++b) {
+                                val_ip[a][b][p] = A[a][b];
+
+                                if (!isfinite(A[a][b])) {
+                                    printf("rank = %d, bad vec: e=%d p=%d i=%d d=%d vec=%e\n", rank, e, p, i, a, A[a][b]);
+                                }
+
+                                A[a][b] = 0.0;
+                            }
+                        }
+                    }
+
+                    int index_i = fe->conn[e][i];
+                    int index_j = fe->conn[e][j];
+
+                    for (int a = 0; a < 4; ++a) {
+                        for (int b = 0; b < 4; ++b) {
+                            const double integ_val = BBFE_std_integ_calc(
+                                np, val_ip[a][b], basis->integ_weight, Jacobian_ip);
+
+                        if( bc->D_bc_exists[index_j*4+b]) {
+                        }
+                        else{
+                            int subdomain_id_i = hlpod_mat->subdomain_id_in_nodes[index_i];
+                            int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_i];
+                            int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_i + 1];
+
+                            int subdomain_id_j = hlpod_mat->subdomain_id_in_nodes[index_j];
+                            int JS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j];
+                            int JE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j + 1];
+
+                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j]; 
+
+                            if(subdomain_id_j < num_subdomains){
+                                for(int k1 = IS; k1 < IE; k1++){
+                                    for(int k2 = JS; k2 < JE; k2++){
+                                        double val = hlpod_mat->pod_basis_hr_decoupled_p[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr_decoupled_p[index_j*4+b][k2];
+                                        //printf("val = %e", val);
+                                        hlpod_ddhr->reduced_mat[k1][k2] += weight[m] *  val;
+                                        //hlpod_ddhr->reduced_mat[k1][k2] += val;
+                                    }
+                                }
+                            }
+
+                            if(subdomain_id_j >= num_subdomains){
+                                for(int k1 = IS; k1 < IE; k1++){
+                                    for(int k2 = JS - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2 < JE - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2++){
+                                        double val = hlpod_mat->pod_basis_hr_decoupled_p[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr_decoupled_p[index_j*4+b][k2] ;
+                                        //hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += weight[m] *  val;
+                                        hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += val;
+                                        // /printf("val = %e", val);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip , 4 , 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip   , np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old,   np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip   , np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+}
+
+
+void HROM_set_element_mat_NR_decoupled_v(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+		HLPOD_VALUES*   hlpod_vals,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int 		num_modes,
+		const int 		num_subdomains,
+		const double    dt)
+{
+    for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
+        for(int j = 0; j < hlpod_vals->n_neib_vec; j++){
+            hlpod_ddhr->reduced_mat[i][j] = 0.0;
+        }
+        hlpod_ddhr->reduced_RH[i] = 0.0;
+    }
+
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip;      double* Jacobian_ip;
+    val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+    Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+    double**  val_ip_vec   = BB_std_calloc_2d_double(val_ip_vec , 4 , np);
+    double*   integ_val_vec= BB_std_calloc_1d_double(integ_val_vec, 4);
+
+    double** local_v       = BB_std_calloc_2d_double(local_v, nl, 3);
+    double** v_ip          = BB_std_calloc_2d_double(v_ip   , np, 3);
+    double*** grad_v_ip    = BB_std_calloc_3d_double(grad_v_ip, np, 3, 3);
+
+    double** local_v_old   = BB_std_calloc_2d_double(local_v_old, nl, 3);
+    double** v_ip_old      = BB_std_calloc_2d_double(v_ip_old   , np, 3);
+
+    double*  local_p       = BB_std_calloc_1d_double(local_p, nl);
+    double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
+    double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
+
+    double A[4][4];
+    double J_inv[3][3];
+
+
+    int rank = monolis_mpi_get_global_my_rank();
+
+    
+    for (int kind = 0; kind < 2; kind++) {
+        int num = (kind == 0)
+            ? hlpod_ddhr->ovl_num_selected_elems_v
+            : hlpod_ddhr->ovl_num_selected_elems_D_bc_v;
+
+        int *ids = (kind == 0)
+            ? hlpod_ddhr->ovl_id_selected_elems_v
+            : hlpod_ddhr->ovl_id_selected_elems_D_bc_v;
+        
+        double *weight = (kind == 0)
+            ? hlpod_ddhr->ovl_elem_weight_v
+            : hlpod_ddhr->ovl_elem_weight_D_bc_v;
+
+        for (int m = 0; m < num; m++) {
+            int e = ids[m];
+ 
+    //for (int e = 0; e < fe->total_num_elems; ++e) {
+        
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+
+            BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+            
+            for (int p = 0; p < np; ++p) {
+                BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+            }
+
+            double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+            double h_e = cbrt(vol);
+            
+            for (int i = 0; i < nl; ++i) {
+                for (int p = 0; p < np; ++p)
+                    for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
+
+                for (int j = 0; j < nl; ++j) {
+                    for (int p = 0; p < np; ++p) {
+                            double du_time[3] = {
+                            v_ip[p][0] - v_ip_old[p][0],
+                            v_ip[p][1] - v_ip_old[p][1],
+                            v_ip[p][2] - v_ip_old[p][2]
+                            };
+
+                        BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                        const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        /*
+                        BBFE_elemmat_fluid_mat_rom_linear(
+                            A, J_inv,
+                            basis->N[p][i], basis->N[p][j],
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                            v_ip[p], grad_v_ip[p], grad_p_ip[p],
+                            vals->density, vals->viscosity, tau, tau_c, vals->dt, du_time);
+                        */
+
+                        BBFE_elemmat_fluid_mat_rom_nonlinear(
+                            A, J_inv, fe->geo[e][p].Jacobian,
+                            basis->N[p][i], basis->N[p][j],
+                            fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                            v_ip[p], grad_v_ip[p], grad_p_ip[p],
+                            vals->density, vals->viscosity, tau, tau_c, vals->dt, du_time);
+
+                        for (int a = 0; a < 4; ++a) {
+                            for (int b = 0; b < 4; ++b) {
+                                val_ip[a][b][p] = A[a][b];
+
+                                if (!isfinite(A[a][b])) {
+                                    printf("rank = %d, bad vec: e=%d p=%d i=%d d=%d vec=%e\n", rank, e, p, i, a, A[a][b]);
+                                }
+
+                                A[a][b] = 0.0;
+                            }
+                        }
+                    }
+
+                    int index_i = fe->conn[e][i];
+                    int index_j = fe->conn[e][j];
+
+                    for (int a = 0; a < 4; ++a) {
+                        for (int b = 0; b < 4; ++b) {
+                            const double integ_val = BBFE_std_integ_calc(
+                                np, val_ip[a][b], basis->integ_weight, Jacobian_ip);
+
+                        if( bc->D_bc_exists[index_j*4+b]) {
+                        }
+                        else{
+                            int subdomain_id_i = hlpod_mat->subdomain_id_in_nodes[index_i];
+                            int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_i];
+                            int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_i + 1];
+
+                            int subdomain_id_j = hlpod_mat->subdomain_id_in_nodes[index_j];
+                            int JS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j];
+                            int JE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j + 1];
+
+                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j]; 
+
+                            if(subdomain_id_j < num_subdomains){
+                                for(int k1 = IS; k1 < IE; k1++){
+                                    for(int k2 = JS; k2 < JE; k2++){
+                                        double val = hlpod_mat->pod_basis_hr_decoupled_v[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr_decoupled_v[index_j*4+b][k2];
+                                        //printf("val = %e", val);
+                                        hlpod_ddhr->reduced_mat[k1][k2] += weight[m] *  val;
+                                        //hlpod_ddhr->reduced_mat[k1][k2] += val;
+                                    }
+                                }
+                            }
+
+                            if(subdomain_id_j >= num_subdomains){
+                                for(int k1 = IS; k1 < IE; k1++){
+                                    for(int k2 = JS - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2 < JE - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2++){
+                                        double val = hlpod_mat->pod_basis_hr_decoupled_v[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr_decoupled_v[index_j*4+b][k2] ;
+                                        hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += weight[m] *  val;
+                                        //hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += val;
+                                        // /printf("val = %e", val);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip , 4 , 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip   , np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old,   np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip   , np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+}
+
+
+void HROM_set_element_vec_NR_v(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS*	 	basis,
+        HR_VALUES*      hr_vals,
+        HLPOD_VALUES*   hlpod_vals,
+        HLPOD_DDHR*     hlpod_ddhr,
+    	HLPOD_MAT*      hlpod_mat,
+        const int		num_modes,
+		const int 		num_subdomains,
+        const double    dt,
+		double       	t)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip;      double* Jacobian_ip;
+    val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+    Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+    double**  val_ip_vec   = BB_std_calloc_2d_double(val_ip_vec , 4 , np);
+    double*   integ_val_vec= BB_std_calloc_1d_double(integ_val_vec, 4);
+
+    double** local_v       = BB_std_calloc_2d_double(local_v, nl, 3);
+    double** v_ip          = BB_std_calloc_2d_double(v_ip   , np, 3);
+    double*** grad_v_ip    = BB_std_calloc_3d_double(grad_v_ip, np, 3, 3);
+
+    double** local_v_old   = BB_std_calloc_2d_double(local_v_old, nl, 3);
+    double** v_ip_old      = BB_std_calloc_2d_double(v_ip_old   , np, 3);
+
+    double*  local_p       = BB_std_calloc_1d_double(local_p, nl);
+    double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
+    double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
+
+    double vec[4];
+    double J_inv[3][3];
+
+    int rank = monolis_mpi_get_global_my_rank();
+    
+    
+    for (int kind = 0; kind < 2; kind++) {
+        int num = (kind == 0)
+            ? hlpod_ddhr->ovl_num_selected_elems_v
+            : hlpod_ddhr->ovl_num_selected_elems_D_bc_v;
+
+        int *ids = (kind == 0)
+            ? hlpod_ddhr->ovl_id_selected_elems_v
+            : hlpod_ddhr->ovl_id_selected_elems_D_bc_v;
+        
+        double *weight = (kind == 0)
+            ? hlpod_ddhr->ovl_elem_weight_v
+            : hlpod_ddhr->ovl_elem_weight_D_bc_v;
+
+         printf("v num = %d, %d\n", num, rank);
+          
+
+        for (int m = 0; m < num; m++) {
+            int e = ids[m];
+        
+    
+        //for(int e = 0; e < fe->total_num_elems; e++) {
+
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+
+            BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+            
+            for (int p = 0; p < np; ++p) {
+                BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+            }
+                    double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+                    double h_e = cbrt(vol);
+            
+            for (int i = 0; i < nl; ++i) {
+
+                int index = fe->conn[e][i];
+                int subdomain_id = hlpod_mat->subdomain_id_in_nodes[index];
+
+                if(subdomain_id < num_subdomains){
+
+                    for (int p = 0; p < np; ++p)
+                        for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
+
+                    for (int p = 0; p < np; ++p) {
+                            double du_time[3] = {
+                                v_ip[p][0] - v_ip_old[p][0],
+                                v_ip[p][1] - v_ip_old[p][1],
+                                v_ip[p][2] - v_ip_old[p][2]
+                                };
+
+                        BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                        const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+                    
+                        BBFE_elemmat_fluid_vec_rom_nonlinear(
+                                vec,
+                                basis->N[p][i],
+                                fe->geo[e][p].grad_N[i],
+                                v_ip[p],
+                                v_ip_old[p],
+                                grad_v_ip[p],
+                                p_ip[p],
+                                grad_p_ip[p],
+                                vals->density, vals->viscosity,
+                                tau, tau_c, vals->dt,
+                                du_time);
+
+                        for (int d = 0; d < 4; ++d) {
+                            val_ip_vec[d][p] = vec[d];
+
+                                if (!isfinite(vec[d])) {
+                                    printf("rank = %d, bad vec: e=%d p=%d i=%d d=%d vec=%e\n", rank, e, p, i, d, vec[d]);
+                                }
+
+                            vec[d] = 0.0;
+                        }
+                    }
+
+                    int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id];
+                    int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id + 1];
+
+                    for (int d = 0; d < 4; ++d) {
+                        integ_val_vec[d] = BBFE_std_integ_calc(
+                            np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
+                        
+                            if (!isfinite(integ_val_vec[d])) {
+                                printf("rank = %d, bad integ_val_vec: e=%d i=%d d=%d val=%e\n", rank, e, i, d, integ_val_vec[d]);
+                            }      
+                        
+                        for(int k = IS; k < IE; k++){
+                            double val = integ_val_vec[d] * hlpod_mat->pod_modes_decoupled_v[index*4+d][k];
+
+                            monolis->mat.R.B[k] -= weight[m] * val;
+                            //monolis->mat.R.B[k] -= val;
+                        
+                            double mode = hlpod_mat->pod_modes_decoupled_v[index*4+d][k];
+                            double val2 = integ_val_vec[d] * mode;
+
+                            if (!isfinite(mode) || !isfinite(val)) {
+                                printf("rank = %d, bad reduction: e=%d i=%d index=%d d=%d k=%d integ=%e mode=%e val=%e\n",
+                                    rank, e, i, index, d, k, integ_val_vec[d], mode, val);
+                            }
+
+                            if(val==0.0){
+                            }
+                            else{
+                            //hlpod_ddhr->reduced_RH[k] -= val;
+                            //printf("val = %e integ_val_vec = %e modes = %e", val, integ_val_vec[d], hlpod_mat->pod_modes[index*4+d][k]);
+                            }
+
+                            //printf("val = %e integ_val_vec = %e modes = %e", val, integ_val_vec[d], hlpod_mat->pod_modes[index*4+d][k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip , 4 , 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip   , np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old,   np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip   , np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+}
+
+
+void HROM_set_element_vec_NR_p(
+		MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		VALUES*         vals,
+		BBFE_BASIS*	 	basis,
+        HR_VALUES*      hr_vals,
+        HLPOD_VALUES*   hlpod_vals,
+        HLPOD_DDHR*     hlpod_ddhr,
+    	HLPOD_MAT*      hlpod_mat,
+        const int		num_modes,
+		const int 		num_subdomains,
+        const double    dt,
+		double       	t)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip;      double* Jacobian_ip;
+    val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+    Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+    double**  val_ip_vec   = BB_std_calloc_2d_double(val_ip_vec , 4 , np);
+    double*   integ_val_vec= BB_std_calloc_1d_double(integ_val_vec, 4);
+
+    double** local_v       = BB_std_calloc_2d_double(local_v, nl, 3);
+    double** v_ip          = BB_std_calloc_2d_double(v_ip   , np, 3);
+    double*** grad_v_ip    = BB_std_calloc_3d_double(grad_v_ip, np, 3, 3);
+
+    double** local_v_old   = BB_std_calloc_2d_double(local_v_old, nl, 3);
+    double** v_ip_old      = BB_std_calloc_2d_double(v_ip_old   , np, 3);
+
+    double*  local_p       = BB_std_calloc_1d_double(local_p, nl);
+    double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
+    double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
+
+    double vec[4];
+    double J_inv[3][3];
+
+    int rank = monolis_mpi_get_global_my_rank();
+    
+
+    for (int kind = 0; kind < 2; kind++) {
+        int num = (kind == 0)
+            ? hlpod_ddhr->ovl_num_selected_elems_p
+            : hlpod_ddhr->ovl_num_selected_elems_D_bc_p;
+
+        int *ids = (kind == 0)
+            ? hlpod_ddhr->ovl_id_selected_elems_p
+            : hlpod_ddhr->ovl_id_selected_elems_D_bc_p;
+        
+        double *weight = (kind == 0)
+            ? hlpod_ddhr->ovl_elem_weight_p
+            : hlpod_ddhr->ovl_elem_weight_D_bc_p;
+
+        printf("p num = %d, %d\n", num, rank);
+            
+
+        for (int m = 0; m < num; m++) {
+            int e = ids[m];
+    
+        //for(int e = 0; e < fe->total_num_elems; e++) {
+
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+
+            BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+            
+            for (int p = 0; p < np; ++p) {
+                BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+            }
+                    double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+                    double h_e = cbrt(vol);
+            
+            for (int i = 0; i < nl; ++i) {
+
+                int index = fe->conn[e][i];
+                int subdomain_id = hlpod_mat->subdomain_id_in_nodes[index];
+
+                if(subdomain_id < num_subdomains){
+
+                    for (int p = 0; p < np; ++p)
+                        for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
+
+                    for (int p = 0; p < np; ++p) {
+                            double du_time[3] = {
+                                v_ip[p][0] - v_ip_old[p][0],
+                                v_ip[p][1] - v_ip_old[p][1],
+                                v_ip[p][2] - v_ip_old[p][2]
+                                };
+
+                        BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                        const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                        const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                            J_inv, fe->geo[e][p].Jacobian,
+                            vals->density, vals->viscosity, v_ip[p], vals->dt);
+                    
+                        BBFE_elemmat_fluid_vec_rom_nonlinear(
+                                vec,
+                                basis->N[p][i],
+                                fe->geo[e][p].grad_N[i],
+                                v_ip[p],
+                                v_ip_old[p],
+                                grad_v_ip[p],
+                                p_ip[p],
+                                grad_p_ip[p],
+                                vals->density, vals->viscosity,
+                                tau, tau_c, vals->dt,
+                                du_time);
+
+                        for (int d = 0; d < 4; ++d) {
+                            val_ip_vec[d][p] = vec[d];
+
+                                if (!isfinite(vec[d])) {
+                                    printf("rank = %d, bad vec: e=%d p=%d i=%d d=%d vec=%e\n", rank, e, p, i, d, vec[d]);
+                                }
+
+                            vec[d] = 0.0;
+                        }
+                    }
+
+                    int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id];
+                    int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id + 1];
+
+                    for (int d = 0; d < 4; ++d) {
+                        integ_val_vec[d] = BBFE_std_integ_calc(
+                            np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
+                        
+                            if (!isfinite(integ_val_vec[d])) {
+                                printf("rank = %d, bad integ_val_vec: e=%d i=%d d=%d val=%e\n", rank, e, i, d, integ_val_vec[d]);
+                            }      
+                        
+                        for(int k = IS; k < IE; k++){
+                            double val = integ_val_vec[d] * hlpod_mat->pod_modes_decoupled_p[index*4+d][k];
+
+                            monolis->mat.R.B[k] -= weight[m] * val;
+                            //monolis->mat.R.B[k] -= val;
+                        
+                            double mode = hlpod_mat->pod_modes_decoupled_p[index*4+d][k];
+                            double val2 = integ_val_vec[d] * mode;
+
+                            if (!isfinite(mode) || !isfinite(val)) {
+                                printf("rank = %d, bad reduction: e=%d i=%d index=%d d=%d k=%d integ=%e mode=%e val=%e\n",
+                                    rank, e, i, index, d, k, integ_val_vec[d], mode, val);
+                            }
+
+                            if(val==0.0){
+                            }
+                            else{
+                            //hlpod_ddhr->reduced_RH[k] -= val;
+                            //printf("val = %e integ_val_vec = %e modes = %e", val, integ_val_vec[d], hlpod_mat->pod_modes[index*4+d][k]);
+                            }
+
+                            //printf("val = %e integ_val_vec = %e modes = %e", val, integ_val_vec[d], hlpod_mat->pod_modes[index*4+d][k]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    
+    
+
+    BB_std_free_3d_double(val_ip , 4 , 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip   , np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old,   np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip   , np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
 }
