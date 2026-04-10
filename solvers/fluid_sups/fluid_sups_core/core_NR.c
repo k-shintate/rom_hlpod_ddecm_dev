@@ -829,8 +829,9 @@ void set_element_vec_NR_linear_nonlinear(
             BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
             p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
         }
-                double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
-                double h_e = cbrt(vol);
+
+        double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+        double h_e = cbrt(vol);
         
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
@@ -865,7 +866,6 @@ void set_element_vec_NR_linear_nonlinear(
                         vals->density, vals->viscosity,
                         tau, tau_c, vals->dt,
                         du_time);
-            
 
                 for (int d = 0; d < 4; ++d) {
                     val_ip_vec[d][p] = vec[d];
@@ -3745,8 +3745,8 @@ void HROM_ddecm_set_residuals_NR_vec(
                                 np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
 
                         for(int k = IS; k < IE; k++){
-                            hlpod_ddhr->matrix[ns*(hlpod_vals->n_neib_vec) + k][m][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
-                            hlpod_ddhr->RH[ns*(hlpod_vals->n_neib_vec) + k][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                            hlpod_ddhr->matrix[ns*(hlpod_vals->n_neib_vec) + k][m][n] += integ_val_vec[d] * hlpod_mat->neib_vec_decoupled_v[index*4 + d][k];
+                            hlpod_ddhr->RH[ns*(hlpod_vals->n_neib_vec) + k][n] += integ_val_vec[d] * hlpod_mat->neib_vec_decoupled_v[index*4 + d][k];
                         }
                     }
                 }

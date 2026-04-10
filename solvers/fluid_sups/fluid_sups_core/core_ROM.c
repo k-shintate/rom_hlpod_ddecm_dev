@@ -2470,8 +2470,8 @@ void solver_rom_NR3_decoupled(
     
         //if(step_hrom%2==0 && it == max_iter_NR - 1){
         //if(step_hrom%2==0){
-        if(it == max_iter_NR - 1){
-
+        //if(it == max_iter_NR - 1){
+        if(step==1 && it == max_iter_NR - 1){
             printf("decoupled\n");
 
             HROM_get_neib_coordinates(
@@ -2494,7 +2494,7 @@ void solver_rom_NR3_decoupled(
                 &(sys->hrom_sups.hlpod_ddhr),
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains,
                 //step_hrom -1 ,   //index 0 start
-                step,
+                step -1,
                 sys->rom_sups.hlpod_vals.num_snapshot,
                 1 + sys->mono_com.recv_n_neib,
                 sys->vals.dt,
