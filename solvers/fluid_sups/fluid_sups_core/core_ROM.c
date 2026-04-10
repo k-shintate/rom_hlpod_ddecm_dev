@@ -1467,7 +1467,9 @@ void solver_rom_NR3(
 
     
     //if(step_hrom%2==0 && it == max_iter_NR - 1){
-    if(step_hrom%2==0){
+    //if(step_hrom%2==0){
+    if(step==1 && it == max_iter_NR - 1){
+    //if(step==1){
     HROM_get_neib_coordinates(
             &(sys->mono_com_rom),
             &(sys->rom_sups.hlpod_vals),
@@ -1493,18 +1495,18 @@ void solver_rom_NR3(
             sys->vals.dt,
             t);
   */  
-    HROM_ddecm_set_residuals_NR_blas2(
-    //HROM_ddecm_set_residuals_NR_vec(
+    //HROM_ddecm_set_residuals_NR_blas2(
+    HROM_ddecm_set_residuals_NR_vec(
     //HROM_ddecm_set_residuals_NR_PSPG(
             &(sys->fe),
             &(sys->basis),
             &(sys->vals_rom),
-            &(sys->bc_NR),
+            &(sys->bc),
             &(sys->rom_sups.hlpod_mat),
             &(sys->rom_sups.hlpod_vals),
             &(sys->hrom_sups.hlpod_ddhr),
             sys->rom_sups.hlpod_vals.num_2nd_subdomains,
-            step_hrom -1 ,   //index 0 start
+            step -1 ,   //index 0 start
             sys->rom_sups.hlpod_vals.num_snapshot,
             1 + sys->mono_com.recv_n_neib,
             sys->vals.dt,
@@ -2363,7 +2365,7 @@ void solver_rom_NR3_decoupled(
     const double rel_tol_p = 1.0e-6;
     const double abs_tol_p = 1.0e-12;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 2;
+    int max_iter_NR = 3;
 
     monolis_com_initialize_by_self(&(sys->mono_com0));
 
@@ -2467,7 +2469,8 @@ void solver_rom_NR3_decoupled(
 
     
         //if(step_hrom%2==0 && it == max_iter_NR - 1){
-        if(step_hrom%2==0){
+        //if(step_hrom%2==0){
+        if(it == max_iter_NR - 1){
 
             printf("decoupled\n");
 
@@ -2480,7 +2483,8 @@ void solver_rom_NR3_decoupled(
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains,
                 sys->rom_sups.hlpod_vals.num_modes_pre);
 
-            HROM_ddecm_set_residuals_NR_blas2_decoupled(
+            //HROM_ddecm_set_residuals_NR_blas2_decoupled(
+            HROM_ddecm_set_residuals_NR_vec(
                 &(sys->fe),
                 &(sys->basis),
                 &(sys->vals_rom),
@@ -2489,7 +2493,8 @@ void solver_rom_NR3_decoupled(
                 &(sys->rom_sups.hlpod_vals),
                 &(sys->hrom_sups.hlpod_ddhr),
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains,
-                step_hrom -1 ,   //index 0 start
+                //step_hrom -1 ,   //index 0 start
+                step,
                 sys->rom_sups.hlpod_vals.num_snapshot,
                 1 + sys->mono_com.recv_n_neib,
                 sys->vals.dt,

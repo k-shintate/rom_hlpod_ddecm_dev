@@ -649,7 +649,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
             label,
             directory);
 
-    	n_basis = 5;
+    	n_basis = 10;
 
         hlpod_mat->num_modes_internal[m] = n_basis;
 
@@ -956,7 +956,7 @@ void ROM_std_hlpod_set_podmodes_local_para_diag(
 
         for(int j = 0; j < num_modes_p[m]; j++){
             for(int i = 0; i < n_internal_vertex_1stdd; i++){
-                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j] * 1.0e5;
+                hlpod_mat->pod_modes[index_row*4 + i*4 + 3][index_column + j] = p[index_row + i][index_column_p + j];
             }
         }
 

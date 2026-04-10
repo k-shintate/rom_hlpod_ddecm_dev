@@ -701,7 +701,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		//index = D_bcが付与された要素数
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;
@@ -1728,7 +1728,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		//index = D_bcが付与された要素数
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;

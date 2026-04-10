@@ -2100,3 +2100,870 @@ double calc_copper_shield_loss_EM1_freq(
 
     return loss_global;
 }
+
+
+
+
+/* ============================================================
+ * 3x3 tensor utilities for anisotropic sigma_eff
+ * ============================================================ */
+static inline void mat3_zero(double A[3][3])
+{
+    for(int i=0;i<3;++i){
+        for(int j=0;j<3;++j){
+            A[i][j] = 0.0;
+        }
+    }
+}
+
+static inline void mat3_copy(double A[3][3], const double B[3][3])
+{
+    for(int i=0;i<3;++i){
+        for(int j=0;j<3;++j){
+            A[i][j] = B[i][j];
+        }
+    }
+}
+
+static inline double dot3_local(const double a[3], const double b[3])
+{
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+static inline double norm3_local(const double a[3])
+{
+    return sqrt(dot3_local(a,a));
+}
+
+static inline void cross3_local(const double a[3], const double b[3], double c[3])
+{
+    c[0] = a[1]*b[2] - a[2]*b[1];
+    c[1] = a[2]*b[0] - a[0]*b[2];
+    c[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+static inline void normalize3_local(double a[3])
+{
+    double n = norm3_local(a);
+    if(n > 1.0e-30){
+        a[0] /= n; a[1] /= n; a[2] /= n;
+    }
+}
+
+static inline void matvec3_local(const double A[3][3], const double x[3], double y[3])
+{
+    for(int i=0;i<3;++i){
+        y[i] = A[i][0]*x[0] + A[i][1]*x[1] + A[i][2]*x[2];
+    }
+}
+
+static inline double bilinear3_local(
+    const double a[3],
+    const double S[3][3],
+    const double b[3]
+){
+    double Sb[3];
+    matvec3_local(S, b, Sb);
+    return dot3_local(a, Sb);
+}
+
+/* S += alpha * u \otimes u */
+static inline void add_outer_scaled_3x3(double S[3][3], double alpha, const double u[3])
+{
+    for(int i=0;i<3;++i){
+        for(int j=0;j<3;++j){
+            S[i][j] += alpha * u[i] * u[j];
+        }
+    }
+}
+
+/* t から直交基底 (t, n1, n2) を作る */
+static void build_orthonormal_frame_from_t(
+    const double t_in[3],
+    double t[3],
+    double n1[3],
+    double n2[3]
+){
+    t[0] = t_in[0];
+    t[1] = t_in[1];
+    t[2] = t_in[2];
+    normalize3_local(t);
+
+    /* t と平行でない適当な参照ベクトルを選ぶ */
+    double ref[3] = {0.0, 0.0, 1.0};
+    if(fabs(t[2]) > 0.9){
+        ref[0] = 1.0; ref[1] = 0.0; ref[2] = 0.0;
+    }
+
+    cross3_local(ref, t, n1);
+    normalize3_local(n1);
+
+    cross3_local(t, n1, n2);
+    normalize3_local(n2);
+}
+
+/* isotropic tensor: s * I */
+static inline void set_isotropic_tensor(double S[3][3], double s)
+{
+    mat3_zero(S);
+    S[0][0] = s;
+    S[1][1] = s;
+    S[2][2] = s;
+}
+
+/* ============================================================
+ * sigma_eff tensor model
+ *
+ * coil:
+ *   sigma_eff = sigma_parallel(w) * (t \otimes t)
+ *             + sigma_n1(w)       * (n1 \otimes n1)
+ *             + sigma_n2(w)       * (n2 \otimes n2)
+ *
+ * shield:
+ *   isotropic sigma
+ * ============================================================ */
+static void get_sigma_tensors_for_prop_team21c(
+    int prop,
+    const double x_ip[3],
+    double sigma_mass_A[3][3],
+    double sigma_cpl[3][3],
+    double sigma_phi[3][3]
+){
+    mat3_zero(sigma_mass_A);
+    mat3_zero(sigma_cpl);
+    mat3_zero(sigma_phi);
+
+    if(prop == 1 || prop == 2){
+        /* ---- coil region: anisotropic effective tensor ---- */
+        COIL_INFO coil;
+        if(!get_coil_info_team21(prop, &coil)){
+            return;
+        }
+
+        double tdir[3];
+        if(!get_team21c_rectcoil_tangent(&coil, x_ip, tdir)){
+            return;
+        }
+
+        double t[3], n1[3], n2[3];
+        build_orthonormal_frame_from_t(tdir, t, n1, n2);
+
+        /* -----------------------------------------------
+         * ここを必要に応じて周波数依存に差し替える
+         * まずは実数・定数版
+         *
+         * 例:
+         *   sigma_parallel = fill * Sigma_coil;
+         *   sigma_n1 = 0;
+         *   sigma_n2 = 0;
+         *
+         * 元コードの縮約値 Sigma_coil * 0.1256/3.2 を
+         * とりあえず巻線方向成分として使うなら下記
+         * ----------------------------------------------- */
+        const double sigma_parallel = Sigma_coil * 0.1256;
+        const double sigma_n1_val   = 0.0;
+        const double sigma_n2_val   = 0.0;
+
+        add_outer_scaled_3x3(sigma_mass_A, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_mass_A, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_mass_A, sigma_n2_val,   n2);
+
+        /* A-phi, phi-A, phi-phi も同じ tensor を使うなら */
+        add_outer_scaled_3x3(sigma_cpl, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_cpl, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_cpl, sigma_n2_val,   n2);
+
+        add_outer_scaled_3x3(sigma_phi, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_phi, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_phi, sigma_n2_val,   n2);
+
+        /* もし従来どおり coil では cpl/phi を切りたいなら:
+         * mat3_zero(sigma_cpl);
+         * mat3_zero(sigma_phi);
+         */
+    }
+    else if(prop == 3){
+        /* shield: isotropic */
+        set_isotropic_tensor(sigma_mass_A, Sigma_steel);
+        set_isotropic_tensor(sigma_cpl,    Sigma_steel);
+        set_isotropic_tensor(sigma_phi,    Sigma_steel);
+    }
+    else{
+        /* air / steel core / other => zero for conductivity part */
+        mat3_zero(sigma_mass_A);
+        mat3_zero(sigma_cpl);
+        mat3_zero(sigma_phi);
+    }
+}
+
+void set_element_mat_NR_Aphi_team21c_hom(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* x_curr,
+    double dt
+){
+    const int np = basis->num_integ_points;
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
+
+    const double inv_dt = 1.0/dt;
+    const double epsB   = 1.0e-14;
+
+    const int nEdge = fe->total_num_nodes;
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* ========= [1] A-A : Curl-Curl (tangent stiffness) ========= */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+
+                for(int p=0; p<np; ++p){
+                    const double* ci = ned->curl_N_edge[e][p][i];
+                    const double* cj = ned->curl_N_edge[e][p][j];
+
+                    if(nonlinear_mu){
+                        double B[3]; compute_B_ip(ned, e, p, x_curr, nEdge, B);
+                        double Bmag = fmax(norm3(B), epsB);
+                        double nu, dnudB;
+                        eval_nu_and_dnudB_team21c(Bmag, &nu, &dnudB);
+                        double alpha = dnudB / Bmag;
+                        val_ip_C[p] = nu * dot3(ci,cj) + alpha * dot3(ci,B) * dot3(cj,B);
+                    }else{
+                        val_ip_C[p] = NU_LIN * dot3(ci,cj);
+                    }
+                }
+
+                double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, (double)(si*sj) * v);
+            }
+        }
+
+        /* ========= [2] A-A : Mass ((sigma_eff/dt) N_i·N_j) ========= */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        ned->N_edge[e][p][i],
+                        sigma_mass_A,
+                        ned->N_edge[e][p][j]
+                    );
+                }
+
+                double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                if(fabs(v) > 0.0){
+                    monolis_add_scalar_to_sparse_matrix_R(
+                        monolis, gi, gj, 0, 0, (double)(si*sj) * v * inv_dt);
+                }
+            }
+        }
+
+        /* ========= [3] Phi-Phi : gradN_i · sigma_eff · gradN_j ========= */
+        for(int i=0; i<fe->local_num_nodes; ++i){
+            int gi = fe->conn[e][i];
+
+            for(int j=0; j<fe->local_num_nodes; ++j){
+                int gj = fe->conn[e][j];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        fe->geo[e][p].grad_N[i],
+                        sigma_phi_t,
+                        fe->geo[e][p].grad_N[j]
+                    );
+                }
+
+                double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                if(fabs(v) > 0.0){
+                    monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, v);
+                }
+            }
+        }
+
+        /* ========= [4] A-Phi : (N_edge_j) · sigma_eff · gradN_n ========= */
+        for(int n=0; n<fe->local_num_nodes; ++n){      /* col: phi */
+            int gn = fe->conn[e][n];
+
+            for(int j=0; j<ned->local_num_edges; ++j){ /* row: A */
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        ned->N_edge[e][p][j],
+                        sigma_cpl_t,
+                        fe->geo[e][p].grad_N[n]
+                    );
+                }
+
+                double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                if(fabs(v) > 0.0){
+                    monolis_add_scalar_to_sparse_matrix_R(monolis, gj, gn, 0, 0, (double)sj * v);
+                }
+            }
+        }
+
+        /* ========= [5] Phi-A : gradN_n · sigma_eff · N_edge_i / dt ========= */
+        for(int i=0; i<ned->local_num_edges; ++i){      /* col: A */
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            for(int n=0; n<fe->local_num_nodes; ++n){   /* row: phi */
+                int gn = fe->conn[e][n];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        fe->geo[e][p].grad_N[n],
+                        sigma_cpl_t,
+                        ned->N_edge[e][p][i]
+                    );
+                }
+
+                double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                if(fabs(v) > 0.0){
+                    monolis_add_scalar_to_sparse_matrix_R(
+                        monolis, gn, gi, 0, 0, (double)si * v * inv_dt);
+                }
+            }
+        }
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip_C, np);
+}
+
+void set_element_vec_NR_Aphi_team21c_hom(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* x_prev,   /* time n */
+    const double* x_curr,   /* time n+1 (Newton iter) */
+    double dt,
+    double current_time     /* time n+1 */
+){
+    const int np = basis->num_integ_points;
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
+
+    const double inv_dt = 1.0 / dt;
+    const double epsB   = 1.0e-14;
+    const double eps_r  = 1.0e-14;
+
+    const int nEdge = fe->total_num_nodes;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
+
+        /* coil info */
+        COIL_INFO coil;
+        int is_coil = get_coil_info_team21(prop, &coil);
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* ==========================================================
+         * [1] Source term (coil excitation)
+         *     ここは元コードをそのまま維持
+         * ========================================================== */
+        if(is_coil){
+            double I_t = get_coil_current_team21c(prop, current_time);
+            double J_mag = (coil.turns * I_t) / coil.area;
+
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    get_interp_coords(e, p, fe, basis, x_ip);
+
+                    double tdir[3];
+                    double Js[3] = {0.0, 0.0, 0.0};
+                    int ok_tdir = 0;
+
+                    if (USE_SIMPLE_TDIR_TEST) {
+                        ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
+                    } else {
+                        ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
+                    }
+
+                    if (ok_tdir) {
+                        Js[0] = J_mag * tdir[0];
+                        Js[1] = J_mag * tdir[1];
+                        Js[2] = J_mag * tdir[2];
+                    }
+
+                    val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
+                }
+
+                double integ = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+
+                /* residual B = -F(x) */
+                monolis->mat.R.B[gi] += (double)si * integ;
+            }
+        }
+
+        /* ==========================================================
+         * [2] A-equation : Curl-Curl term
+         *     ここも元コードのまま
+         * ========================================================== */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            double acc = 0.0;
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+                double aj = x_curr[gj];
+
+                for(int p = 0; p < np; ++p){
+                    const double* ci = ned->curl_N_edge[e][p][i];
+                    const double* cj = ned->curl_N_edge[e][p][j];
+
+                    if(nonlinear_mu){
+                        double B[3];
+                        compute_B_ip(ned, e, p, x_curr, nEdge, B);
+                        double Bmag = fmax(norm3(B), epsB);
+
+                        double nu, dnudB;
+                        eval_nu_and_dnudB_team21c(Bmag, &nu, &dnudB);
+                        double alpha = dnudB / Bmag;
+
+                        val_ip_C[p] = nu * dot3(ci, cj) + alpha * dot3(ci, B) * dot3(cj, B);
+                    }else{
+                        val_ip_C[p] = NU_LIN * dot3(ci, cj);
+                    }
+                }
+
+                double kij = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)(si * sj) * kij * aj;
+            }
+
+            monolis->mat.R.B[gi] -= acc;
+        }
+
+        /* ==========================================================
+         * [3] A-A mass term : N_i · sigma_eff · (A^{n+1}-A^n)/dt
+         * ========================================================== */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            double acc = 0.0;
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+                double da = x_curr[gj] - x_prev[gj];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        ned->N_edge[e][p][i],
+                        sigma_mass_A,
+                        ned->N_edge[e][p][j]
+                    );
+                }
+
+                double mij = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)(si * sj) * mij * da * inv_dt;
+            }
+
+            monolis->mat.R.B[gi] -= acc;
+        }
+
+        /* ==========================================================
+         * [4] A-Phi-equation
+         *     A-row residual: \int N_i · sigma_eff · grad(phi) dV
+         * ========================================================== */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            double acc = 0.0;
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                int gn = fe->conn[e][n];
+                double phi_val = x_curr[gn];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        ned->N_edge[e][p][i],
+                        sigma_cpl_t,
+                        fe->geo[e][p].grad_N[n]
+                    );
+                }
+
+                double cin = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)si * cin * phi_val;
+            }
+
+            monolis->mat.R.B[gi] -= acc;
+        }
+
+        /* ==========================================================
+         * [5] Phi-A-equation
+         *     phi-row residual: \int grad(N_n) · sigma_eff · (A^{n+1}-A^n)/dt dV
+         * ========================================================== */
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            int gn = fe->conn[e][n];
+
+            double acc = 0.0;
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+                double da = x_curr[gi] - x_prev[gi];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        fe->geo[e][p].grad_N[n],
+                        sigma_cpl_t,
+                        ned->N_edge[e][p][i]
+                    );
+                }
+
+                double gni = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)si * gni * da * inv_dt;
+            }
+
+            monolis->mat.R.B[gn] -= acc;
+        }
+
+        /* ==========================================================
+         * [6] Phi-equation
+         *     phi-row residual: \int grad(N_n) · sigma_eff · grad(phi) dV
+         * ========================================================== */
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            int gn = fe->conn[e][n];
+
+            double acc = 0.0;
+            for(int m = 0; m < fe->local_num_nodes; ++m){
+                int gm = fe->conn[e][m];
+                double phi_m = x_curr[gm];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl_t[3][3], sigma_phi_t[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21c(
+                        prop, x_ip, sigma_mass_A, sigma_cpl_t, sigma_phi_t);
+
+                    val_ip_C[p] = bilinear3_local(
+                        fe->geo[e][p].grad_N[n],
+                        sigma_phi_t,
+                        fe->geo[e][p].grad_N[m]
+                    );
+                }
+
+                double knm = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += knm * phi_m;
+            }
+
+            monolis->mat.R.B[gn] -= acc;
+        }
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip_C, np);
+}
+
+
+static void get_sigma_tensors_for_prop_team21a2(
+    int prop,
+    const double x_ip[3],
+    double sigma_mass_A[3][3],
+    double sigma_cpl[3][3],
+    double sigma_phi[3][3]
+){
+    mat3_zero(sigma_mass_A);
+    mat3_zero(sigma_cpl);
+    mat3_zero(sigma_phi);
+
+    if(prop == 1 || prop == 2){
+        COIL_INFO coil;
+        if(!get_coil_info_team21(prop, &coil)) return;
+
+        double tdir[3];
+        int ok_tdir = 0;
+
+        if (USE_SIMPLE_TDIR_TEST) {
+            ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
+        } else {
+            ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
+        }
+        if(!ok_tdir) return;
+
+        double t[3], n1[3], n2[3];
+        build_orthonormal_frame_from_t(tdir, t, n1, n2);
+
+        /* まずは巻線方向のみ */
+        const double sigma_parallel = Sigma_coil * 0.1256;
+        const double sigma_n1_val   = 0.0;
+        const double sigma_n2_val   = 0.0;
+
+        add_outer_scaled_3x3(sigma_mass_A, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_mass_A, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_mass_A, sigma_n2_val,   n2);
+
+        /* current-driven coil: keep phi coupling OFF */
+        add_outer_scaled_3x3(sigma_cpl, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_cpl, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_cpl, sigma_n2_val,   n2);
+
+        add_outer_scaled_3x3(sigma_phi, sigma_parallel, t);
+        add_outer_scaled_3x3(sigma_phi, sigma_n1_val,   n1);
+        add_outer_scaled_3x3(sigma_phi, sigma_n2_val,   n2);
+
+        mat3_zero(sigma_cpl);
+        mat3_zero(sigma_phi);
+    }
+    else if(prop == 3){
+        set_isotropic_tensor(sigma_mass_A, Sigma_steel);
+        set_isotropic_tensor(sigma_cpl,    Sigma_steel);
+        set_isotropic_tensor(sigma_phi,    Sigma_steel);
+    }
+    else{
+        mat3_zero(sigma_mass_A);
+        mat3_zero(sigma_cpl);
+        mat3_zero(sigma_phi);
+    }
+}
+
+void set_element_mat_nedelec_Aphi_team21a2_hom(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned)
+{
+    (void)bc;
+
+    const int np = basis->num_integ_points;
+
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+        int nonlinear_mu = 0;
+
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+
+        /* [1] Curl-Curl */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn[e][j];
+                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += Nu * BBFE_elemmat_mag_mat_curl(
+                        ned->curl_N_edge[e][p][i],
+                        ned->curl_N_edge[e][p][j],
+                        1.0
+                    );
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)(si*sj);
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+            }
+        }
+
+        /* [2] A-A : jω N_i · sigma_mass_A · N_j */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn[e][j];
+                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl[3][3], sigma_phi[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21a2(
+                        prop, x_ip, sigma_mass_A, sigma_cpl, sigma_phi);
+
+                    val_ip_C[p] =
+                        bilinear3_local(
+                            ned->N_edge[e][p][i],
+                            sigma_mass_A,
+                            ned->N_edge[e][p][j]
+                        ) * I * Omega;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)(si*sj);
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+            }
+        }
+
+        /* [3] phi-phi : jω gradN_m · sigma_phi · gradN_n */
+        for(int m=0; m<fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
+
+            for(int n=0; n<fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl[3][3], sigma_phi[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21a2(
+                        prop, x_ip, sigma_mass_A, sigma_cpl, sigma_phi);
+
+                    val_ip_C[p] =
+                        bilinear3_local(
+                            fe->geo[e][p].grad_N[m],
+                            sigma_phi,
+                            fe->geo[e][p].grad_N[n]
+                        ) * I * Omega;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
+            }
+        }
+
+        /* [4] A-phi : jω N_j · sigma_cpl · gradN_n */
+        for(int j=0; j<ned->local_num_edges; ++j){
+            const int gj = ned->nedelec_conn[e][j];
+            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+            for(int n=0; n<fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl[3][3], sigma_phi[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21a2(
+                        prop, x_ip, sigma_mass_A, sigma_cpl, sigma_phi);
+
+                    val_ip_C[p] =
+                        bilinear3_local(
+                            ned->N_edge[e][p][j],
+                            sigma_cpl,
+                            fe->geo[e][p].grad_N[n]
+                        ) * I * Omega;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)sj;
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
+            }
+        }
+
+        /* [5] phi-A : jω gradN_m · sigma_cpl · N_i */
+        for(int m=0; m<fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
+
+            for(int i=0; i<ned->local_num_edges; ++i){
+                const int gi = ned->nedelec_conn[e][i];
+                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+                for(int p=0; p<np; ++p){
+                    double x_ip[3];
+                    double sigma_mass_A[3][3], sigma_cpl[3][3], sigma_phi[3][3];
+
+                    get_interp_coords(e, p, fe, basis, x_ip);
+                    get_sigma_tensors_for_prop_team21a2(
+                        prop, x_ip, sigma_mass_A, sigma_cpl, sigma_phi);
+
+                    val_ip_C[p] =
+                        bilinear3_local(
+                            fe->geo[e][p].grad_N[m],
+                            sigma_cpl,
+                            ned->N_edge[e][p][i]
+                        ) * I * Omega;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)si;
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
+            }
+        }
+    }
+
+    BB_std_free_1d_double(J_ip, np);
+    BB_std_free_1d_double_C(val_ip_C, np);
+}

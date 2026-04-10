@@ -131,26 +131,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
     # --- reference data from Table A3-2 ---
     z_ref, xp_meas, xp_calc, xm_meas, xm_calc = get_table_a3_2_in_si()
 
-    plt.plot(
-        z_ref, xp_meas,
-        marker="s", linestyle="None",
-        label="Table A3-2: X=+5.76 mm Measured"
-    )
-    plt.plot(
-        z_ref, xp_calc,
-        linestyle="--",
-        label="Table A3-2: X=+5.76 mm Calculated"
-    )
-    plt.plot(
-        z_ref, xm_meas,
-        marker="^", linestyle="None",
-        label="Table A3-2: X=-5.76 mm Measured"
-    )
-    plt.plot(
-        z_ref, xm_calc,
-        linestyle=":",
-        label="Table A3-2: X=-5.76 mm Calculated"
-    )
+
 
     plt.xlim(0.0, 0.4)
     plt.xlabel("z [m]")

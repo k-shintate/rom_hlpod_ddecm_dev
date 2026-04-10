@@ -122,3 +122,10 @@ double calc_copper_shield_loss_EM1_freq(
     FE_SYSTEM* sys,
     const double _Complex* x_c,
     double freq_hz);
+
+void set_element_mat_nedelec_Aphi_team21a2_hom(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned);

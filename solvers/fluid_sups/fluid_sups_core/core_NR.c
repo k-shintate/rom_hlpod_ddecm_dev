@@ -115,6 +115,7 @@ void BBFE_elemmat_fluid_sups_coef_metric_tensor_derivative(
     }
 }
 
+
 void BBFE_elemmat_fluid_mat_rom_linear(
     double         mat[4][4],
     const double   J_inv[3][3],
@@ -448,53 +449,6 @@ void BBFE_elemmat_fluid_vec_rom_linear(
 }
 
 
-void BBFE_elemmat_fluid_vec_rom_linear2(
-    double         vec[4],
-    const double   N_i,
-    const double   grad_N_i[3],
-    const double   v[3],
-    const double   u_old[3],
-    double**       grad_u,
-    const double   p_cur,
-    const double   grad_p[3],
-    const double   density,
-    const double   viscosity,
-    const double   tau,
-    const double   tau_c,
-    const double   dt,
-    const double   du_time[3])
-{
-    for (int d = 0; d < 4; ++d) {
-        vec[d] = 0.0;
-    }
-
-    const double div_v =
-        grad_u[0][0] + grad_u[1][1] + grad_u[2][2];
-
-    for (int d = 0; d < 3; ++d) {
-        const double gradv_dot_gradNi =
-            grad_u[d][0]*grad_N_i[0] +
-            grad_u[d][1]*grad_N_i[1] +
-            grad_u[d][2]*grad_N_i[2];
-
-        /* viscous */
-        //vec[d] += dt * viscosity * gradv_dot_gradNi;
-        //vec[d] += dt * viscosity * div_v * grad_N_i[d];
-
-        /* pressure-velocity Galerkin */
-        //vec[d] -= dt * grad_N_i[d] * p_cur;
-
-        /* mass */
-        //vec[d] += density * N_i * (v[d] - u_old[d]);
-        //vec[d] += density * N_i * (v[d]);
-        vec[d] += density * N_i * (- u_old[d]);
-    }
-
-    /* continuity Galerkin */
-    //vec[3] += dt * N_i * div_v;
-}
-
-
 void BBFE_elemmat_fluid_vec_rom_nonlinear(
     double         vec[4],
     const double   N_i,
@@ -578,7 +532,51 @@ void BBFE_elemmat_fluid_vec_rom_nonlinear(
     }
 }
 
+void BBFE_elemmat_fluid_vec_rom_linear2(
+    double         vec[4],
+    const double   N_i,
+    const double   grad_N_i[3],
+    const double   v[3],
+    const double   u_old[3],
+    double**       grad_u,
+    const double   p_cur,
+    const double   grad_p[3],
+    const double   density,
+    const double   viscosity,
+    const double   tau,
+    const double   tau_c,
+    const double   dt,
+    const double   du_time[3])
+{
+    for (int d = 0; d < 4; ++d) {
+        vec[d] = 0.0;
+    }
 
+    const double div_v =
+        grad_u[0][0] + grad_u[1][1] + grad_u[2][2];
+
+    for (int d = 0; d < 3; ++d) {
+        const double gradv_dot_gradNi =
+            grad_u[d][0]*grad_N_i[0] +
+            grad_u[d][1]*grad_N_i[1] +
+            grad_u[d][2]*grad_N_i[2];
+
+        /* viscous */
+        //vec[d] += dt * viscosity * gradv_dot_gradNi;
+        //vec[d] += dt * viscosity * div_v * grad_N_i[d];
+
+        /* pressure-velocity Galerkin */
+        //vec[d] -= dt * grad_N_i[d] * p_cur;
+
+        /* mass */
+        //vec[d] += density * N_i * (v[d] - u_old[d]);
+        //vec[d] += density * N_i * (v[d]);
+        vec[d] += density * N_i * (- u_old[d]);
+    }
+
+    /* continuity Galerkin */
+    //vec[3] += dt * N_i * div_v;
+}
 
 void set_element_mat_NR_linear(
     MONOLIS*     monolis,
@@ -3312,7 +3310,7 @@ void HROM_ddecm_set_residuals_NR_blas2(
 
                     /* scatter add */
                     for (int rr = 0; rr < msz; ++rr) {
-                        const int index = 2 * ns * nrv + (IS + rr);
+                        const int index = ns * nrv + (IS + rr);
                         const double val = y_buf[rr];
 
                         hlpod_ddhr->matrix[index][m][n] += val;
@@ -3689,8 +3687,9 @@ void HROM_ddecm_set_residuals_NR_vec(
                 BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
                 p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
             }
-                    double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
-                    double h_e = cbrt(vol);
+
+            double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+            double h_e = cbrt(vol);
 
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
@@ -3739,12 +3738,16 @@ void HROM_ddecm_set_residuals_NR_vec(
                 int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id + 1];
 
                 for(int d=0; d<4; d++) {
-                    integ_val_vec[d] = BBFE_std_integ_calc(
-                            np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
+                    if( bc->D_bc_exists[index*4+d]) {
+                    }
+                    else{
+                        integ_val_vec[d] = BBFE_std_integ_calc(
+                                np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
 
-                    for(int k = IS; k < IE; k++){
-                        hlpod_ddhr->matrix[ns*(hlpod_vals->n_neib_vec) + k][m][n] = integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
-                        hlpod_ddhr->RH[ns*(hlpod_vals->n_neib_vec) + k][n] = integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                        for(int k = IS; k < IE; k++){
+                            hlpod_ddhr->matrix[ns*(hlpod_vals->n_neib_vec) + k][m][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                            hlpod_ddhr->RH[ns*(hlpod_vals->n_neib_vec) + k][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                        }
                     }
                 }
             }
@@ -3930,7 +3933,7 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
                     else {
                         s_j[j*4 + b] = cblas_ddot(
                             nrv,
-                            hlpod_mat->neib_vec_decoupled_v[gj*4 + b], 1,
+                            hlpod_mat->neib_vec_decoupled_p[gj*4 + b], 1,
                             coef_compact, 1);
                     }
                 }
@@ -3950,7 +3953,7 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
                 /* Phi_i_buf: (msz x 4), column-major */
                 for (int a = 0; a < 4; ++a) {
                     memcpy(Phi_i_buf + (size_t)a * (size_t)msz_max_global,
-                           &hlpod_mat->neib_vec_decoupled_v[gi*4 + a][IS],
+                           &hlpod_mat->neib_vec_decoupled_p[gi*4 + a][IS],
                            sizeof(double) * (size_t)msz);
                 }
 
@@ -4225,8 +4228,8 @@ void HROM_set_element_mat_NR_decoupled_p(
                                 for(int k1 = IS; k1 < IE; k1++){
                                     for(int k2 = JS - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2 < JE - hlpod_mat->num_neib_modes_sum[subdomain_id-1]; k2++){
                                         double val = hlpod_mat->pod_basis_hr_decoupled_p[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr_decoupled_p[index_j*4+b][k2] ;
-                                        //hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += weight[m] *  val;
-                                        hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += val;
+                                        hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += weight[m] *  val;
+                                        //hlpod_ddhr->reduced_mat[k1][k2 + hlpod_mat->num_neib_modes_sum[subdomain_id-1]] += val;
                                         // /printf("val = %e", val);
                                     }
                                 }

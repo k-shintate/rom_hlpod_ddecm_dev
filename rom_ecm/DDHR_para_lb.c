@@ -786,7 +786,7 @@ void HROM_ddecm_write_selected_elems_svd(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;
 		hlpod_ddhr->num_selected_elems_D_bc[m] = index;
@@ -1042,7 +1042,7 @@ void HROM_ddecm_write_selected_elems_para(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		//index = D_bcが付与された要素数
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;
@@ -1179,7 +1179,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
     double t1 = monolis_get_time_global_sync();
 
 	const int max_ITER = 10000;
-	const double TOL = 1.0e-14;
+	const double TOL = 1.0e-12;
 
 	double residual;
 
@@ -1264,7 +1264,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
 		}
 
         //double scale = max(1.0, maxval(abs(local_norm)), maxval(abs(local_Frovnorm)));
-        //printf("local norm = %e, local_Fnorm = %e, scale = %e ", local_norm, local_Frovnorm, scale);
+        printf("local norm = %e, local_Fnorm = %e, scale = %e ", local_norm, local_Frovnorm);
 
         //local_norm = 0.0;
 		for(int j = 0; j < NNLS_row; j++){
@@ -1339,7 +1339,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		//index = D_bcが付与された要素数
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;
@@ -2607,9 +2607,11 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd(
         int k = ROM_BB_estimate_num_pod_modes(
             V,
             hlpod_ddhr->num_elems[m],
-            10e-10);
+            10e-14);
 
         //k = 100;
+
+        printf("NNLS_k = %d ", k);
 
         double** S_k = BB_std_calloc_2d_double(S_k, NNLS_row, k);
 
@@ -2709,7 +2711,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd(
 			}
 		}
 
-		printf("\n\n num_elem_D_bc = %d \n\n", index);
+		//printf("\n\n num_elem_D_bc = %d \n\n", index);
 
 		//index = D_bcが付与された要素数
 		hlpod_ddhr->num_selected_elems[m] = total_num_selected_elems[m] - index;
