@@ -17,12 +17,12 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Base mesh sizes ----------------
-lcCoil = 12 * Scale;
-lcHole = 12 * Scale;
-lcCond = 16 * Scale;
-lcNear = 24 * Scale;
-lcMid  = 48 * Scale;
-lcFar  = 160 * Scale;
+lcCoil = 6  * Scale;
+lcHole = 6  * Scale;
+lcCond = 8  * Scale;
+lcNear = 12 * Scale;
+lcMid  = 24 * Scale;
+lcFar  = 80  * Scale;
 
 // ---------------- Geometry ----------------
 aluX = 294 * Scale;

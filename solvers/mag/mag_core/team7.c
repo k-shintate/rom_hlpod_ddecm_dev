@@ -51,7 +51,7 @@ static const double NI_RMS_team7 = 2742.0;        /* [A.turn rms] */
 */
 static const double TEAM7_T0_THICKNESS = 0.025;   /* [m] */
 
-static const double TEAM7_PHI_STAB = 1.0e-1;
+static const double TEAM7_PHI_STAB = 1.0e-3;
 
 /* =========================================================
    helpers
@@ -612,7 +612,7 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
         const int prop = ned->elem_prop[e];
         for(int i = 0; i < n_local_edges; ++i){
             const int ged = ned->nedelec_conn[e][i];
-            if(prop==1||prop==2||prop==3||prop==5||prop==6){
+            if(prop==1||prop==2||prop==3||prop==6){
                 monolis_set_Dirichlet_bc_C(
                     monolis,
                     monolis->mat.C.B,
