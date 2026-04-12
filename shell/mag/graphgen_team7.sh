@@ -32,6 +32,6 @@ mv cond.dat rom_cond.dat
 ./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i nedelec_elem.dat -o graph_nedelec_elem.dat
 
 #python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
-python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
+python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
 
 cd ../..

@@ -1,63 +1,241 @@
-
 #include "team7.h"
+#include <math.h>
+#include <complex.h>
+#include <stdbool.h>
+#include <stdlib.h>
 
-/* TEAM Problem 7 */
-const double Sigma_coil = 5.7e7;      /* impressed current regionとして扱うなら 0 でよい */
-const double Sigma_al   = 3.526e7;  /* aluminum plate */
-const double Sigma_air  = 0.0;
+/* =========================================================
+   TEAM Problem 7 : T-Phi formulation inspired by
+   NGSolve/TEAM-problems/TEAM-7/team7TPhiT0_withMS.py
 
-void get_sigmas_for_prop_team7(
+   Unknowns:
+     - edge DOF : T   in H(curl)
+     - node DOF : Phi in H1
+
+   Weak form (conceptual):
+     ∫ rho curl(T)·curl(vT)
+   + j*w*mu ∫ (T - grad Phi)·(vT - grad vPhi)
+   = -j*w*mu*J0*t ∫ T0·(vT - grad vPhi) on coil
+
+   prop meaning in THIS file:
+       1 : coil_inner
+       2 : coil_limb
+       3 : coil_corner
+       4 : aluminum
+       5 : air
+
+   Notes:
+   - The mesh is assumed to be already split geometrically into
+     coil_inner / coil_limb / coil_corner.
+   - Therefore, we do NOT classify subregions from coordinates anymore.
+   - T0 is selected by prop and evaluated with simple local formulas
+     only inside the corresponding already-meshed subregion.
+   ========================================================= */
+
+/* ---------------- material / frequency constants ---------------- */
+
+const double Sigma_al  = 3.526e7;   /* aluminum plate [S/m] */
+const double Sigma_air = 0.0;
+
+const double mu0_team7   = 4.0 * M_PI * 1.0e-7;   /* [H/m] */
+const double freq_team7  = 50.0;                  /* [Hz] */
+const double omega_team7 = 2.0 * M_PI * 50.0;     /* [rad/s] */
+
+/* TEAM benchmark rated current */
+static const double NI_RMS_team7 = 2742.0;        /* [A.turn rms] */
+
+/* Source scaling in the NGSolve code is:
+     -j*w*mu*J0*0.025*T0*(...)
+   where 0.025 is the radial thickness factor used there.
+*/
+static const double TEAM7_T0_THICKNESS = 0.025;   /* [m] */
+
+/* =========================================================
+   helpers
+   ========================================================= */
+
+static inline int is_team7_coil_prop(int prop)
+{
+    return (prop == 1 || prop == 2 || prop == 3);
+}
+
+static inline double clamp01_team7(double x)
+{
+    if(x < 0.0) return 0.0;
+    if(x > 1.0) return 1.0;
+    return x;
+}
+
+static inline double dot3_team7(const double a[3], const double b[3])
+{
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+/* =========================================================
+   material accessors for T-Phi
+   ========================================================= */
+
+void get_material_for_prop_team7_Tphi(
     int prop,
-    double* sigma_mass_A,
-    double* sigma_cpl,
-    double* sigma_phi
+    double* rho,   /* resistivity-like coefficient in curl-curl term */
+    double* mu     /* permeability in mass/coupling terms           */
 ){
-    if(prop == 1 || prop == 2){
-        /* exciting coil */
-        *sigma_mass_A = 0.0;
-        *sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
+    *mu = mu0_team7;
 
-    } else if(prop == 3){
-        /* aluminum conductor with hole */
-        *sigma_mass_A = Sigma_al;
-        *sigma_cpl    = Sigma_al;
-        *sigma_phi    = Sigma_al;
-
-    } else if(prop == 4){
-        /* hole or unused region */
-        *sigma_mass_A = 0.0;
-        *sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
-
+    if(prop == 4){
+        /* aluminum plate */
+        *rho = 1.0 / Sigma_al;
     } else {
-        *sigma_mass_A = 0.0;
-        *sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
+        /* coil + air: no conduction curl-curl coefficient */
+        *rho = 0.0;
     }
 }
 
+/* Representative coil information.
+   Center chosen from the meshed TEAM-7 geometry:
+     outer x : 94 ... 294 mm
+     outer y :  0 ... 200 mm
+     z-center: zCoil0 + 50 mm = 19 + 30 + 50 mm
+*/
+static inline int get_coil_info_team7(int elem_prop, COIL_INFO* info)
+{
+    if(!is_team7_coil_prop(elem_prop)) return 0;
 
-const double mu0   = 4.0*M_PI*1e-7;      // H/m
-const double Nu    = 1.0 / mu0;          // 1/H/m = A/(T·m)
-const double freq  = 50.0;               // Hz
-const double Omega = 2.0*M_PI*freq;      // rad/s  ★これが正しい
+    info->axis[0] = 0.0;
+    info->axis[1] = 0.0;
+    info->axis[2] = 1.0;
 
+    info->turns = 1.0;
 
-static const double I_RMS_team7 = 10.0;   /* TEAM benchmark rated current [A rms] */
-static const double FREQ_HZ_team7 = 50.0; /* [Hz] */
-static const double NI_RMS_team7 = 2742.0;
+    /* full coil cross-sectional area used for J0 = NI / area */
+    info->area = 2500.0 * (MM_TO_M * MM_TO_M);
+
+    info->center[0] = 0.5 * (94.0 + 294.0) * MM_TO_M;
+    info->center[1] = 0.5 * (0.0  + 200.0) * MM_TO_M;
+    info->center[2] = (19.0 + 30.0 + 50.0) * MM_TO_M;
+
+    return 1;
+}
 
 static inline double get_coil_current_team7(int prop)
 {
-    const double omega = 2.0 * M_PI * FREQ_HZ_team7;
+    if(is_team7_coil_prop(prop)){
+        return NI_RMS_team7;
+    }
+    return 0.0;
+}
+
+/* =========================================================
+   T0 construction based on already-split prop
+
+   prop = 1 : coil_inner  -> constant 1
+   prop = 2 : coil_limb   -> linear distribution across thickness
+   prop = 3 : coil_corner -> radial linear distribution
+
+   We use local coordinates centered at the whole coil center.
+   ========================================================= */
+
+static double get_team7_T0_scalar_from_prop(
+    int prop,
+    const double x_ip[3],
+    const COIL_INFO* coil
+){
+    const double MM = MM_TO_M;
+
+    /* local coordinates relative to whole coil center */
+    const double x = x_ip[0] - coil->center[0];
+    const double y = x_ip[1] - coil->center[1];
+
+    /* TEAM-7 geometry consistent with the split mesh:
+       outer overall size = 200 mm
+       inner straight length = 150 mm
+       outer radius = 50 mm
+       inner radius = 25 mm
+
+       In local coordinates centered at the coil box:
+         xs = ys = 75 mm  (half of inner straight length)
+         thickness = rOuter - rInner = 25 mm
+    */
+    const double xs = 75.0 * MM;
+    const double ys = 75.0 * MM;
+    const double rOuter = 50.0 * MM;
+    const double rInner = 25.0 * MM;
+    const double thickness = rOuter - rInner;
+    const double eps = 1.0e-14;
 
     if(prop == 1){
-        return NI_RMS_team7;   
+        /* coil_inner */
+        return 1.0;
+    }
+
+    if(prop == 2){
+        /* coil_limb:
+           linear ramp from inner interface (value 1)
+           to outer interface (value 0)
+        */
+
+        /* top / bottom limb */
+        if(fabs(x) <= xs + eps){
+            const double d = fabs(y) - ys;
+            const double val = 1.0 - d / fmax(thickness, 1.0e-16);
+            return clamp01_team7(val);
+        }
+
+        /* left / right limb */
+        if(fabs(y) <= ys + eps){
+            const double d = fabs(x) - xs;
+            const double val = 1.0 - d / fmax(thickness, 1.0e-16);
+            return clamp01_team7(val);
+        }
+
+        return 0.0;
+    }
+
+    if(prop == 3){
+        /* coil_corner:
+           choose the corner center from the quadrant,
+           then apply radial ramp from rInner -> rOuter
+        */
+        double cx = 0.0, cy = 0.0;
+
+        if(x >=  xs && y >=  ys){
+            cx =  xs; cy =  ys;
+        } else if(x <= -xs && y >=  ys){
+            cx = -xs; cy =  ys;
+        } else if(x <= -xs && y <= -ys){
+            cx = -xs; cy = -ys;
+        } else if(x >=  xs && y <= -ys){
+            cx =  xs; cy = -ys;
+        } else {
+            return 0.0;
+        }
+
+        const double xr = x - cx;
+        const double yr = y - cy;
+        const double r  = sqrt(xr*xr + yr*yr);
+
+        const double val = (rOuter - r) / fmax(thickness, 1.0e-16);
+        return clamp01_team7(val);
     }
 
     return 0.0;
 }
+
+static void get_team7_T0_vector(
+    int prop,
+    const COIL_INFO* coil,
+    const double x_ip[3],
+    double T0[3]
+){
+    const double s = get_team7_T0_scalar_from_prop(prop, x_ip, coil);
+    T0[0] = 0.0;
+    T0[1] = 0.0;
+    T0[2] = s;
+}
+
+/* =========================================================
+   matrix assembly for T-Phi
+   ========================================================= */
 
 void set_element_mat_nedelec_Aphi_team7(
     MONOLIS*     monolis,
@@ -73,148 +251,140 @@ void set_element_mat_nedelec_Aphi_team7(
     double* J_ip = BB_std_calloc_1d_double(J_ip, np);
     double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
 
-    for(int e=0; e<fe->total_num_elems; ++e){
+    for(int e = 0; e < fe->total_num_elems; ++e){
 
-        int prop = ned->elem_prop[e];
-        double sigma_massA, sigma_cpl, sigma_phi;
-        get_sigmas_for_prop_team7(prop, &sigma_massA, &sigma_cpl, &sigma_phi);
+        const int prop = ned->elem_prop[e];
 
-        int nonlinear_mu = 0;
+        double rho = 0.0, mu = mu0_team7;
+        get_material_for_prop_team7_Tphi(prop, &rho, &mu);
 
         BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
 
-        for(int i=0; i<ned->local_num_edges; ++i){
+        /* ---------------------------------------------
+           edge-edge block:
+             ∫ rho curl(Ni).curl(Nj)
+           + j*w*mu ∫ Ni.Nj
+           --------------------------------------------- */
+        for(int i = 0; i < ned->local_num_edges; ++i){
             const int gi = ned->nedelec_conn[e][i];
             const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-            for(int j=0; j<ned->local_num_edges; ++j){
+            for(int j = 0; j < ned->local_num_edges; ++j){
                 const int gj = ned->nedelec_conn[e][j];
                 const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
-                for(int p=0; p<np; ++p){
+                for(int p = 0; p < np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += Nu * BBFE_elemmat_mag_mat_curl(
-                        ned->curl_N_edge[e][p][i],
-                        ned->curl_N_edge[e][p][j],
-                        1.0
-                    );
-                }
 
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si*sj);  // ★ edge_sign
-
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-            }
-        }
-
-        //if(prop==1){
-            for(int i=0; i<ned->local_num_edges; ++i){
-                const int gi = ned->nedelec_conn[e][i];
-                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-                for(int j=0; j<ned->local_num_edges; ++j){
-                    const int gj = ned->nedelec_conn[e][j];
-                    const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-                    for(int p=0; p<np; ++p){
-                        val_ip_C[p] = 0.0 + 0.0*I;
-                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                            ned->N_edge[e][p][i],
-                            ned->N_edge[e][p][j],
-                            1
+                    /* curl-curl term */
+                    if(rho != 0.0){
+                        val_ip_C[p] += rho * BBFE_elemmat_mag_mat_curl(
+                            ned->curl_N_edge[e][p][i],
+                            ned->curl_N_edge[e][p][j],
+                            1.0
                         );
                     }
 
-                    double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                    v *= (double)(si*sj);
-                    monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-                }
-            }
-        //}
-
-        for(int i=0; i<ned->local_num_edges; ++i){
-            const int gi = ned->nedelec_conn[e][i];
-            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-            for(int j=0; j<ned->local_num_edges; ++j){
-                const int gj = ned->nedelec_conn[e][j];
-                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        ned->N_edge[e][p][j],
-                        sigma_massA
-                    ) * Omega * I;
+                    /* j*w*mu mass term */
+                    val_ip_C[p] += (0.0 + 1.0*I) * omega_team7 * mu
+                        * BBFE_elemmat_mag_mat_mass(
+                            ned->N_edge[e][p][i],
+                            ned->N_edge[e][p][j],
+                            1.0
+                        );
                 }
 
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si*sj);
+                double _Complex v = BBFE_std_integ_calc_C(
+                    np, val_ip_C, basis->integ_weight, J_ip
+                );
+                v *= (double)(si * sj);
+
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
             }
         }
 
-        for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm =  fe->conn[e][m];
+        /* ---------------------------------------------
+           node-node block:
+             j*w*mu ∫ grad(Nm).grad(Nn)
+           --------------------------------------------- */
+        for(int m = 0; m < fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
 
-            for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn =  fe->conn[e][n];
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
 
-                for(int p=0; p<np; ++p){
+                for(int p = 0; p < np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[m],
-                        fe->geo[e][p].grad_N[n],
-                        sigma_phi
-                    )*I*Omega;
+                    val_ip_C[p] += (0.0 + 1.0*I) * omega_team7 * mu
+                        * BBFE_elemmat_mag_mat_mass(
+                            fe->geo[e][p].grad_N[m],
+                            fe->geo[e][p].grad_N[n],
+                            1.0
+                        );
                 }
 
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                double _Complex v = BBFE_std_integ_calc_C(
+                    np, val_ip_C, basis->integ_weight, J_ip
+                );
+
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
             }
         }
 
-        for(int j=0; j<ned->local_num_edges; ++j){
+        /* ---------------------------------------------
+           edge-node block:
+             -j*w*mu ∫ Nj_edge . grad(Nn)
+           --------------------------------------------- */
+        for(int j = 0; j < ned->local_num_edges; ++j){
             const int gj = ned->nedelec_conn[e][j];
             const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
-            for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn =  fe->conn[e][n];
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
 
-                for(int p=0; p<np; ++p){
+                for(int p = 0; p < np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[n],
-                        ned->N_edge[e][p][j],
-                        sigma_cpl
-                    ) *I*Omega;
+                    val_ip_C[p] += -(0.0 + 1.0*I) * omega_team7 * mu
+                        * BBFE_elemmat_mag_mat_mass(
+                            ned->N_edge[e][p][j],
+                            fe->geo[e][p].grad_N[n],
+                            1.0
+                        );
                 }
 
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                double _Complex v = BBFE_std_integ_calc_C(
+                    np, val_ip_C, basis->integ_weight, J_ip
+                );
                 v *= (double)sj;
 
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
             }
         }
 
-        for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm =  fe->conn[e][m];
+        /* ---------------------------------------------
+           node-edge block:
+             -j*w*mu ∫ grad(Nm) . Ni_edge
+           --------------------------------------------- */
+        for(int m = 0; m < fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
 
-            for(int i=0; i<ned->local_num_edges; ++i){
+            for(int i = 0; i < ned->local_num_edges; ++i){
                 const int gi = ned->nedelec_conn[e][i];
                 const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-                for(int p=0; p<np; ++p){
+                for(int p = 0; p < np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        fe->geo[e][p].grad_N[m],
-                        sigma_cpl
-                    )*I*Omega;
+                    val_ip_C[p] += -(0.0 + 1.0*I) * omega_team7 * mu
+                        * BBFE_elemmat_mag_mat_mass(
+                            fe->geo[e][p].grad_N[m],
+                            ned->N_edge[e][p][i],
+                            1.0
+                        );
                 }
 
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                double _Complex v = BBFE_std_integ_calc_C(
+                    np, val_ip_C, basis->integ_weight, J_ip
+                );
                 v *= (double)si;
 
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
@@ -226,295 +396,12 @@ void set_element_mat_nedelec_Aphi_team7(
     BB_std_free_1d_double_C(val_ip_C, np);
 }
 
-static inline int get_coil_info_team7(int elem_prop, COIL_INFO* info)
-{
-    if(elem_prop != 1) return 0;
-
-    info->axis[0] = 0.0;
-    info->axis[1] = 0.0;
-    info->axis[2] = 1.0;
-
-    info->turns = 1.0;  /* NI を直接使うなら 1 でよい */
-
-    info->area = 2500.0 * (MM_TO_M * MM_TO_M);
-
-    /* race-track の代表中心 */
-    info->center[0] = 0.5 * (44.0 + 294.0) * MM_TO_M;
-    info->center[1] = 0.5 * (0.0  + 250.0) * MM_TO_M;
-    info->center[2] = (19.0 + 30.0 + 50.0) * MM_TO_M;
-
-    return 1;
-}
-
-static int get_team7_rectcoil_tangent(
-    const COIL_INFO* coil,
-    const double x_ip[3],
-    double tdir[3]
-){
-    const double MM = MM_TO_M;
-
-    /* TEAM13 の coding と同じ発想:
-       コイル電流密度 J を「直線部 + 4つの角部」で区分的に与える。
-       ただし寸法は TEAM7 の race-track 幾何に合わせる。 */
-
-    const double outerX = 270.0 * MM;
-    const double outerY = 270.0 * MM;
-    const double innerX = 200.0 * MM;
-    const double innerY = 200.0 * MM;
-    const double rOuter = 45.0  * MM;
-    const double rInner = 10.0  * MM;
-
-    /* centerline rounded rectangle */
-    const double a  = 0.25 * (outerX + innerX);
-    const double b  = 0.25 * (outerY + innerY);
-    const double rc = 0.5  * (rOuter + rInner);
-    const double xs = a - rc;
-    const double ys = b - rc;
-
-    const double x = x_ip[0] - coil->center[0];
-    const double y = x_ip[1] - coil->center[1];
-    const double eps = 1.0e-14;
-
-    /* ---- straight bricks (TEAM13 style piecewise definition) ---- */
-    if(y >=  ys && fabs(x) <= xs){
-        tdir[0] = -1.0; tdir[1] =  0.0; tdir[2] = 0.0;
-        return 1;
-    }
-    if(y <= -ys && fabs(x) <= xs){
-        tdir[0] =  1.0; tdir[1] =  0.0; tdir[2] = 0.0;
-        return 1;
-    }
-    if(x >=  xs && fabs(y) <= ys){
-        tdir[0] =  0.0; tdir[1] =  1.0; tdir[2] = 0.0;
-        return 1;
-    }
-    if(x <= -xs && fabs(y) <= ys){
-        tdir[0] =  0.0; tdir[1] = -1.0; tdir[2] = 0.0;
-        return 1;
-    }
-
-    /* ---- corner arcs (same idea as TEAM13: tangent from local radius) ---- */
-    double cx = 0.0, cy = 0.0;
-    int found_corner = 1;
-
-    if(x >  xs && y >  ys){
-        cx = +xs; cy = +ys;   /* top-right */
-    } else if(x < -xs && y >  ys){
-        cx = -xs; cy = +ys;   /* top-left */
-    } else if(x < -xs && y < -ys){
-        cx = -xs; cy = -ys;   /* bottom-left */
-    } else if(x >  xs && y < -ys){
-        cx = +xs; cy = -ys;   /* bottom-right */
-    } else {
-        found_corner = 0;
-    }
-
-    if(found_corner){
-        const double xr = x - cx;
-        const double yr = y - cy;
-        const double r  = sqrt(xr*xr + yr*yr);
-
-        if(r > eps){
-            /* CCW tangent along rounded rectangle */
-            tdir[0] = -yr / r;
-            tdir[1] =  xr / r;
-            tdir[2] =  0.0;
-            return 1;
-        }
-    }
-
-    /* フォールバック: 最近傍の中心線接線を返す */
-    {
-        double best_d2 = 1.0e30;
-        double best_tx = 0.0;
-        double best_ty = 0.0;
-
-        #define UPDATE_BEST(px, py, tx_, ty_) do {             const double dx_ = x - (px);             const double dy_ = y - (py);             const double d2_ = dx_*dx_ + dy_*dy_;             if(d2_ < best_d2){                 best_d2 = d2_;                 best_tx = (tx_);                 best_ty = (ty_);             }         } while(0)
-
-        UPDATE_BEST(fmax(-xs, fmin(xs, x)),  b, -1.0,  0.0);
-        UPDATE_BEST(fmax(-xs, fmin(xs, x)), -b,  1.0,  0.0);
-        UPDATE_BEST( a, fmax(-ys, fmin(ys, y)),  0.0,  1.0);
-        UPDATE_BEST(-a, fmax(-ys, fmin(ys, y)),  0.0, -1.0);
-
-        const double arc_centers[4][2] = {
-            { +xs, +ys }, { -xs, +ys }, { -xs, -ys }, { +xs, -ys }
-        };
-
-        for(int k = 0; k < 4; ++k){
-            const double ax = arc_centers[k][0];
-            const double ay = arc_centers[k][1];
-            const double vx = x - ax;
-            const double vy = y - ay;
-            const double vn = sqrt(vx*vx + vy*vy);
-            if(vn <= eps) continue;
-
-            const double ux = vx / vn;
-            const double uy = vy / vn;
-            UPDATE_BEST(ax + rc*ux, ay + rc*uy, -uy, ux);
-        }
-
-        #undef UPDATE_BEST
-
-        if(best_d2 < 1.0e29){
-            const double nt = sqrt(best_tx*best_tx + best_ty*best_ty);
-            if(nt > eps){
-                tdir[0] = best_tx / nt;
-                tdir[1] = best_ty / nt;
-                tdir[2] = 0.0;
-                return 1;
-            }
-        }
-    }
-
-    tdir[0] = 0.0;
-    tdir[1] = 0.0;
-    tdir[2] = 0.0;
-    return 0;
-}
-
-
-static int get_team7_rectcoil_current_density(
-    const COIL_INFO* coil,
-    const double x_ip[3],
-    const double J_mag,
-    double Js[3]
-)
-{
-    const double MM = MM_TO_M;
-    const double eps = 1.0e-14;
-
-    /* TEAM13 coding に合わせて、J は「一定大きさ + 区分的な方向」 */
-    const double outerX = 270.0 * MM;
-    const double outerY = 270.0 * MM;
-    const double innerX = 200.0 * MM;
-    const double innerY = 200.0 * MM;
-    const double rOuter = 45.0  * MM;
-    const double rInner = 10.0  * MM;
-
-    const double a  = 0.25 * (outerX + innerX);
-    const double b  = 0.25 * (outerY + innerY);
-    const double rc = 0.5  * (rOuter + rInner);
-    const double xs = a - rc;
-    const double ys = b - rc;
-
-    const double x = x_ip[0] - coil->center[0];
-    const double y = x_ip[1] - coil->center[1];
-
-    Js[0] = 0.0;
-    Js[1] = 0.0;
-    Js[2] = 0.0;
-
-    /* ---- straight bricks: same idea as TEAM13 ---- */
-    if(y >=  ys && fabs(x) <= xs){
-        Js[0] = -J_mag; Js[1] =  0.0;   Js[2] = 0.0;
-        return 1;
-    }
-    if(y <= -ys && fabs(x) <= xs){
-        Js[0] =  J_mag; Js[1] =  0.0;   Js[2] = 0.0;
-        return 1;
-    }
-    if(x >=  xs && fabs(y) <= ys){
-        Js[0] =  0.0;   Js[1] =  J_mag; Js[2] = 0.0;
-        return 1;
-    }
-    if(x <= -xs && fabs(y) <= ys){
-        Js[0] =  0.0;   Js[1] = -J_mag; Js[2] = 0.0;
-        return 1;
-    }
-
-    /* ---- corner arcs: same formula pattern as TEAM13 ---- */
-    {
-        double cx = 0.0, cy = 0.0;
-        int found_corner = 1;
-
-        if(x >  xs && y >  ys){
-            cx = +xs; cy = +ys;   /* top-right */
-        } else if(x < -xs && y >  ys){
-            cx = -xs; cy = +ys;   /* top-left */
-        } else if(x < -xs && y < -ys){
-            cx = -xs; cy = -ys;   /* bottom-left */
-        } else if(x >  xs && y < -ys){
-            cx = +xs; cy = -ys;   /* bottom-right */
-        } else {
-            found_corner = 0;
-        }
-
-        if(found_corner){
-            const double xr = x - cx;
-            const double yr = y - cy;
-            const double r  = sqrt(xr*xr + yr*yr);
-
-            if(r > eps){
-                Js[0] = J_mag * (-yr / r);
-                Js[1] = J_mag * ( xr / r);
-                Js[2] = 0.0;
-                return 1;
-            }
-        }
-    }
-
-    /* inside prop==1 but outside the idealized subregions: use closest centerline tangent */
-    {
-        double best_d2 = 1.0e100;
-        double best_tx = 0.0;
-        double best_ty = 0.0;
-
-        #define UPDATE_BEST(px, py, tx_, ty_) do { \
-            const double dx_ = x - (px); \
-            const double dy_ = y - (py); \
-            const double d2_ = dx_*dx_ + dy_*dy_; \
-            if(d2_ < best_d2){ \
-                best_d2 = d2_; \
-                best_tx = (tx_); \
-                best_ty = (ty_); \
-            } \
-        } while(0)
-
-        UPDATE_BEST(fmax(-xs, fmin(xs, x)),  b, -1.0,  0.0);
-        UPDATE_BEST(fmax(-xs, fmin(xs, x)), -b,  1.0,  0.0);
-        UPDATE_BEST( a, fmax(-ys, fmin(ys, y)),  0.0,  1.0);
-        UPDATE_BEST(-a, fmax(-ys, fmin(ys, y)),  0.0, -1.0);
-
-        const double arc_centers[4][2] = {
-            { +xs, +ys }, { -xs, +ys }, { -xs, -ys }, { +xs, -ys }
-        };
-
-        for(int k = 0; k < 4; ++k){
-            const double ax = arc_centers[k][0];
-            const double ay = arc_centers[k][1];
-            const double vx = x - ax;
-            const double vy = y - ay;
-            const double vn = sqrt(vx*vx + vy*vy);
-            if(vn <= eps) continue;
-
-            const double ux = vx / vn;
-            const double uy = vy / vn;
-
-            int ok = 0;
-            if(k == 0) ok = (ux >= 0.0 && uy >= 0.0);
-            if(k == 1) ok = (ux <= 0.0 && uy >= 0.0);
-            if(k == 2) ok = (ux <= 0.0 && uy <= 0.0);
-            if(k == 3) ok = (ux >= 0.0 && uy <= 0.0);
-            if(!ok) continue;
-
-            UPDATE_BEST(ax + rc*ux, ay + rc*uy, -uy, ux);
-        }
-
-        #undef UPDATE_BEST
-
-        if(best_d2 < 1.0e99){
-            const double nt = sqrt(best_tx*best_tx + best_ty*best_ty);
-            if(nt > eps){
-                Js[0] = J_mag * (best_tx / nt);
-                Js[1] = J_mag * (best_ty / nt);
-                Js[2] = 0.0;
-                return 1;
-            }
-        }
-    }
-
-    return 0;
-}
+/* =========================================================
+   RHS assembly:
+     -j*w*mu*J0*t ∫ T0·vT
+     +j*w*mu*J0*t ∫ T0·grad(vPhi)
+   on coil region only
+   ========================================================= */
 
 void set_element_vec_nedelec_Aphi_team7(
     MONOLIS*     monolis,
@@ -523,60 +410,90 @@ void set_element_vec_nedelec_Aphi_team7(
     BBFE_BC*     bc,
     NEDELEC*     ned)
 {
+    (void)bc;
+
     const int np = basis->num_integ_points;
+
     double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
-    double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
-
-    const double epsB   = 1.0e-14;
-    const double eps_r  = 1.0e-14;
-
-    const int nEdge = fe->total_num_nodes;
+    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
 
     for(int e = 0; e < fe->total_num_elems; ++e){
 
-        int prop = ned->elem_prop[e];
+        const int prop = ned->elem_prop[e];
 
-        double sigma_mass_A, sigma_cpl, sigma_phi;
-        get_sigmas_for_prop_team7(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
-
-        //int nonlinear_mu = (prop == 4) ? 1 : 0;
-        int nonlinear_mu = 0;
-
-        /* coil info */
         COIL_INFO coil;
-        int is_coil = get_coil_info_team7(prop, &coil);
+        const int is_coil = get_coil_info_team7(prop, &coil);
+        if(!is_coil) continue;
 
-    
+        double rho = 0.0, mu = mu0_team7;
+        get_material_for_prop_team7_Tphi(prop, &rho, &mu);
+        (void)rho;
+
+        const double NI_t = get_coil_current_team7(prop);
+        const double J0   = NI_t / fmax(coil.area, 1.0e-30);
+        const double _Complex rhs_scale =
+            -(0.0 + 1.0*I) * omega_team7 * mu * J0 * TEAM7_T0_THICKNESS;
+
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-        if(is_coil){
-            double NI_t  = get_coil_current_team7(prop);
-            double J_mag = NI_t / coil.area;
+        /* edge RHS: -j*w*mu*J0*t ∫ T0·Ni */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-            for(int i = 0; i < ned->local_num_edges; ++i){
-                int gi = ned->nedelec_conn[e][i];
-                int si = ned->edge_sign[e][i];
+            for(int p = 0; p < np; ++p){
+                double x_ip[3];
+                double T0[3];
+                get_interp_coords(e, p, fe, basis, x_ip);
+                get_team7_T0_vector(prop, &coil, x_ip, T0);
 
-                for(int p = 0; p < np; ++p){
-                    double x_ip[3];
-                    get_interp_coords(e, p, fe, basis, x_ip);
-
-                    double Js[3] = {0.0, 0.0, 0.0};
-                    get_team7_rectcoil_current_density(&coil, x_ip, J_mag, Js);
-
-                    val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
-                }
-
-                double integ = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                monolis->mat.C.B[gi] -= (double)si * integ;
+                val_ip_C[p] = rhs_scale * dot3_team7(T0, ned->N_edge[e][p][i]);
             }
+
+            double _Complex integ = BBFE_std_integ_calc_C(
+                np, val_ip_C, basis->integ_weight, Jacobian_ip
+            );
+
+            monolis->mat.C.B[gi] += (double)si * integ;
+        }
+
+        /* node RHS: +j*w*mu*J0*t ∫ T0·grad(Nm)
+           because rhs has -j*w*mu*J0*t * (vT - grad(vPhi))
+         */
+        for(int m = 0; m < fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
+
+            for(int p = 0; p < np; ++p){
+                double x_ip[3];
+                double T0[3];
+                get_interp_coords(e, p, fe, basis, x_ip);
+                get_team7_T0_vector(prop, &coil, x_ip, T0);
+
+                val_ip_C[p] = -rhs_scale * dot3_team7(T0, fe->geo[e][p].grad_N[m]);
+            }
+
+            double _Complex integ = BBFE_std_integ_calc_C(
+                np, val_ip_C, basis->integ_weight, Jacobian_ip
+            );
+
+            monolis->mat.C.B[gm] += integ;
         }
     }
 
     BB_std_free_1d_double(Jacobian_ip, np);
-    BB_std_free_1d_double(val_ip_C, np);
+    BB_std_free_1d_double_C(val_ip_C, np);
 }
 
+/* =========================================================
+   Boundary conditions
+
+   Edge BC:
+     T_tan = 0 on outer boundary
+
+   Node BC:
+     Fix Phi only at ONE reference node inside the conducting plate
+     to remove null space.
+   ========================================================= */
 
 void apply_dirichlet_bc_for_A_and_phi_team7(
     MONOLIS* monolis,
@@ -588,11 +505,11 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
 
     int is_dir_edge_n = fe->total_num_nodes;
     bool* is_dir_edge = BB_std_calloc_1d_bool(is_dir_edge, is_dir_edge_n);
-    build_dirichlet_edge_mask_from_boundary_faces_tet(fe, bc, ned, is_dir_edge, is_dir_edge_n);
+    build_dirichlet_edge_mask_from_boundary_faces_tet(
+        fe, bc, ned, is_dir_edge, is_dir_edge_n
+    );
 
-    /* --------------------------------------------------------
-       A (edge) boundary condition: A_tan = 0 on outer boundary
-       -------------------------------------------------------- */
+    /* edge Dirichlet: T_tan = 0 on outer boundary */
     int n_local_edges = 0;
     const int (*edge_tbl)[2] = NULL;
 
@@ -606,9 +523,9 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
 
     for(int e = 0; e < fe->total_num_elems; ++e){
         for(int i = 0; i < n_local_edges; ++i){
-            int gn1 = fe->conn[e][edge_tbl[i][0]];
-            int gn2 = fe->conn[e][edge_tbl[i][1]];
-            int ged = ned->nedelec_conn[e][i];
+            const int gn1 = fe->conn[e][edge_tbl[i][0]];
+            const int gn2 = fe->conn[e][edge_tbl[i][1]];
+            const int ged = ned->nedelec_conn[e][i];
 
             if(!(bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2])) continue;
             if(!is_dir_edge[ged]) continue;
@@ -623,58 +540,29 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
         }
     }
 
-    
-    int num_nodes = fe->total_num_nodes;
-    int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
+    /* node Dirichlet for Phi:
+       pin ONE node in the conducting plate (prop==4) */
+    int ref_node = -1;
 
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-        if(prop == 3){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 3;
-            }
+    for(int e = 0; e < fe->total_num_elems && ref_node < 0; ++e){
+        const int prop = ned->elem_prop[e];
+        if(prop != 4) continue;
+
+        for(int k = 0; k < fe->local_num_nodes; ++k){
+            ref_node = fe->conn[e][k];
+            break;
         }
     }
 
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-        if(prop==1){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 1;
-            }
-        }
+    if(ref_node >= 0){
+        monolis_set_Dirichlet_bc_C(
+            monolis,
+            monolis->mat.C.B,
+            ref_node,
+            0,
+            0.0 + 0.0*I
+        );
     }
-
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-
-        if(prop == 2){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 2; 
-            }
-        }
-    }
-
-    for (int i = 0; i < num_nodes; ++i){
-        //if (node_is_conductor[i] == 1||node_is_conductor[i] == 3) {
-        if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
-	//if (node_is_conductor[i] == 4) {
-
-
-	    monolis_set_Dirichlet_bc_C(
-                monolis, 
-                monolis->mat.C.B, 
-                i, 
-                0, 
-                0.0 + 0.0*I
-            );
-        }  
-    }
-    
 
     BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 }
-

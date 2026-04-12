@@ -91,13 +91,12 @@ limbFaces[] = {1101,1102,1103,1104};
 
 // ---- Corner quarter-annuli ----
 // Build each as (outer disk sector support) - (inner disk sector support) - trimming boxes
-
 // BL corner
 Disk(1201) = {cxBL, cyBL, z0, rOuter, rOuter};
 Disk(1202) = {cxBL, cyBL, z0, rInner, rInner};
 tmpBL[] = BooleanDifference{ Surface{1201}; Delete; }{ Surface{1202}; Delete; };
-Rectangle(1211) = {ox0, oy0, z0, 2*rOuter, rOuter};
-Rectangle(1212) = {ox0, oy0, z0, rOuter, 2*rOuter};
+Rectangle(1211) = {ox0-rOuter, oy0-rOuter, z0, 2*rOuter, rOuter};
+Rectangle(1212) = {ox0-rOuter, oy0-rOuter, z0, rOuter, 2*rOuter};
 blKeep1[] = BooleanIntersection{ Surface{tmpBL[]}; Delete; }{ Surface{1211}; Delete; };
 blCorner[] = BooleanIntersection{ Surface{blKeep1[]}; Delete; }{ Surface{1212}; Delete; };
 
@@ -105,8 +104,8 @@ blCorner[] = BooleanIntersection{ Surface{blKeep1[]}; Delete; }{ Surface{1212}; 
 Disk(1301) = {cxBR, cyBR, z0, rOuter, rOuter};
 Disk(1302) = {cxBR, cyBR, z0, rInner, rInner};
 tmpBR[] = BooleanDifference{ Surface{1301}; Delete; }{ Surface{1302}; Delete; };
-Rectangle(1311) = {ox1 - 2*rOuter, oy0, z0, 2*rOuter, rOuter};
-Rectangle(1312) = {ox1 - rOuter,   oy0, z0, rOuter, 2*rOuter};
+Rectangle(1311) = {ox1-rOuter, oy0-rOuter, z0, 2*rOuter, rOuter};
+Rectangle(1312) = {ox1,        oy0-rOuter, z0, rOuter, 2*rOuter};
 brKeep1[] = BooleanIntersection{ Surface{tmpBR[]}; Delete; }{ Surface{1311}; Delete; };
 brCorner[] = BooleanIntersection{ Surface{brKeep1[]}; Delete; }{ Surface{1312}; Delete; };
 
@@ -114,8 +113,8 @@ brCorner[] = BooleanIntersection{ Surface{brKeep1[]}; Delete; }{ Surface{1312}; 
 Disk(1401) = {cxTR, cyTR, z0, rOuter, rOuter};
 Disk(1402) = {cxTR, cyTR, z0, rInner, rInner};
 tmpTR[] = BooleanDifference{ Surface{1401}; Delete; }{ Surface{1402}; Delete; };
-Rectangle(1411) = {ox1 - 2*rOuter, oy1 - rOuter,   z0, 2*rOuter, rOuter};
-Rectangle(1412) = {ox1 - rOuter,   oy1 - 2*rOuter, z0, rOuter,   2*rOuter};
+Rectangle(1411) = {ox1-rOuter, oy1, z0, 2*rOuter, rOuter};
+Rectangle(1412) = {ox1,        oy1-rOuter, z0, rOuter, 2*rOuter};
 trKeep1[] = BooleanIntersection{ Surface{tmpTR[]}; Delete; }{ Surface{1411}; Delete; };
 trCorner[] = BooleanIntersection{ Surface{trKeep1[]}; Delete; }{ Surface{1412}; Delete; };
 
@@ -123,8 +122,8 @@ trCorner[] = BooleanIntersection{ Surface{trKeep1[]}; Delete; }{ Surface{1412}; 
 Disk(1501) = {cxTL, cyTL, z0, rOuter, rOuter};
 Disk(1502) = {cxTL, cyTL, z0, rInner, rInner};
 tmpTL[] = BooleanDifference{ Surface{1501}; Delete; }{ Surface{1502}; Delete; };
-Rectangle(1511) = {ox0, oy1 - rOuter,   z0, 2*rOuter, rOuter};
-Rectangle(1512) = {ox0, oy1 - 2*rOuter, z0, rOuter,   2*rOuter};
+Rectangle(1511) = {ox0-rOuter, oy1, z0, 2*rOuter, rOuter};
+Rectangle(1512) = {ox0-rOuter, oy1-rOuter, z0, rOuter, 2*rOuter};
 tlKeep1[] = BooleanIntersection{ Surface{tmpTL[]}; Delete; }{ Surface{1511}; Delete; };
 tlCorner[] = BooleanIntersection{ Surface{tlKeep1[]}; Delete; }{ Surface{1512}; Delete; };
 

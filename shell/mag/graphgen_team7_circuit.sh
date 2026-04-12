@@ -34,6 +34,6 @@ mv cond.dat rom_cond.dat
 python3 ../../solvers/mag/threephase_transformer/mesh_io/add_circuit_dof.py graph_nedelec_elem.dat graph_nedelec_elem_circuit.dat graph.dat 
 
 #python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
-python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
+python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
 
 cd ../..

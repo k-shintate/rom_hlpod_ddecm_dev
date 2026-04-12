@@ -9,9 +9,9 @@ ep=1
 #podモード数
 num_modes=(6)
 #POD計算領域数
-num_1stdd=(16)
+num_1stdd=(8)
 #並列計算領域数 (=並列数)
-num_parallel=(16)
+num_parallel=(8)
 #基底本数可変の閾値 1.0E-{pa}
 pa=0
 #solver type
@@ -24,8 +24,8 @@ do
     	for np in "${num_parallel[@]}"
     	do
     
-        #. shell/mag/meshgen_team7.sh $e $ep $nm $nd $np $pa
-        #. shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
+        . shell/mag/meshgen_team7.sh $e $ep $nm $nd $np $pa
+        . shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
         . shell/mag/graphgen_team7.sh $e $ep $nm $nd $np $pa
         python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
         . shell/mag/partitioner.sh $e $ep $nm $nd $np $pa $st

@@ -40,8 +40,9 @@ mv ./mesh_tmp/All_tetra_connectivity.dat ./elem.dat
 mv ./mesh_tmp/AIR_tetra_connectivity.dat ./elem_air.dat
 mv ./mesh_tmp/ALUMINUM_tetra_connectivity.dat ./elem_iron.dat
 
-mv ./mesh_tmp/COIL_tetra_connectivity.dat ./elem_widing1.dat
-
+mv ./mesh_tmp/COIL_INNER_tetra_connectivity.dat ./elem_widing1.dat
+mv ./mesh_tmp/COIL_LIMB_tetra_connectivity.dat ./elem_widing2.dat
+mv ./mesh_tmp/COIL_CORNER_tetra_connectivity.dat ./elem_widing3.dat
 
 python3 ../../solvers/mag/threephase_transformer/mesh_io/node_to_bc.py ./mesh_tmp/OuterSphere_triangle_node.dat ./D_bc.dat 1 0
 python3 ../../solvers/mag/threephase_transformer/mesh_io/node_to_bc.py ./mesh_tmp/InnerSphere_triangle_node.dat ./InnerSphere_quad_bc.dat 1 0
