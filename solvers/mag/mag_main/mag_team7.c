@@ -17,7 +17,7 @@
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
 const int DVAL_NUM_IP_EACH_AXIS = 3;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
-const double  DVAL_MAT_EPSILON  = 1.0e-6;
+const double  DVAL_MAT_EPSILON  = 1.0e-8;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";
 const int    DVAL_MAT_MAX_ITER  = 100000;
 const char*              ID_DT  = "#time_spacing";

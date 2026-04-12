@@ -7,7 +7,86 @@
 
 static const int BUFFER_SIZE = 10000;
 
-// Aphi -> 要素ごとの B
+const double mu0 = 4.0*M_PI*1e-7; // H/m
+//const double Nu  = 1.0 / mu0;     // ← ここを μ0 に合わせる
+
+void compute_B_cell_average(
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    NEDELEC*     ned,
+    const double* sol,
+    double**     B_cell
+){
+    const int ne = fe->total_num_elems;
+    const int np = basis->num_integ_points;
+
+    if(!B_cell){
+        fprintf(stderr, "compute_B_cell_average: B_cell must be pre-allocated\n");
+        exit(EXIT_FAILURE);
+    }
+
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+
+    for(int e = 0; e < ne; ++e){
+        double num[3] = {0.0, 0.0, 0.0};
+        double den = 0.0;
+
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+
+        for(int p = 0; p < np; ++p){
+            double Tp[3]      = {0.0, 0.0, 0.0};
+            double gradPhi[3] = {0.0, 0.0, 0.0};
+            double Hp[3];
+            double Bp[3];
+
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                const int ge = ned->nedelec_conn[e][j];
+                const double cj =
+                    (ned->edge_sign ? ned->edge_sign[e][j] : 1) * sol[ge];
+
+                Tp[0] += cj * ned->N_edge[e][p][j][0];
+                Tp[1] += cj * ned->N_edge[e][p][j][1];
+                Tp[2] += cj * ned->N_edge[e][p][j][2];
+            }
+
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
+                const double phi_n = sol[gn];
+
+                gradPhi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
+                gradPhi[1] += phi_n * fe->geo[e][p].grad_N[n][1];
+                gradPhi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
+            }
+
+            Hp[0] = Tp[0] - gradPhi[0];
+            Hp[1] = Tp[1] - gradPhi[1];
+            Hp[2] = Tp[2] - gradPhi[2];
+
+            Bp[0] = mu0 * Hp[0];
+            Bp[1] = mu0 * Hp[1];
+            Bp[2] = mu0 * Hp[2];
+
+            const double w = basis->integ_weight[p] * J_ip[p];
+            num[0] += w * Bp[0];
+            num[1] += w * Bp[1];
+            num[2] += w * Bp[2];
+            den    += w;
+        }
+
+        if(den > 0.0){
+            B_cell[e][0] = num[0] / den;
+            B_cell[e][1] = num[1] / den;
+            B_cell[e][2] = num[2] / den;
+        } else {
+            B_cell[e][0] = 0.0;
+            B_cell[e][1] = 0.0;
+            B_cell[e][2] = 0.0;
+        }
+    }
+
+    BB_std_free_1d_double(J_ip, np);
+}
+/*
 void compute_B_cell_average(
     BBFE_DATA*   fe,
     BBFE_BASIS*  basis,
@@ -62,6 +141,7 @@ void compute_B_cell_average(
 
     BB_std_free_1d_double(J_ip, np);
 }
+*/
 
 // B_cell -> 節点B
 void accumulate_B_cell_to_nodes(
@@ -99,7 +179,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop==3){
+            if(prop==6){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }
@@ -109,7 +189,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop!=3){
+            if(prop!=6){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }

@@ -17,12 +17,13 @@
    + j*w*mu ∫ (T - grad Phi)·(vT - grad vPhi)
    = -j*w*mu*J0*t ∫ T0·(vT - grad vPhi) on coil
 
-   prop meaning in THIS file:
-       1 : coil_inner
-       2 : coil_limb
-       3 : coil_corner
-       4 : aluminum
-       5 : air
+ prop meaning in THIS file:
+     1 : coil_inner
+     2 : coil_limb
+     3 : coil_corner
+     4 : aluminum
+     5 : hole
+     6 : air
 
    Notes:
    - The mesh is assumed to be already split geometrically into
@@ -49,6 +50,8 @@ static const double NI_RMS_team7 = 2742.0;        /* [A.turn rms] */
    where 0.025 is the radial thickness factor used there.
 */
 static const double TEAM7_T0_THICKNESS = 0.025;   /* [m] */
+
+static const double TEAM7_PHI_STAB = 1.0e-1;
 
 /* =========================================================
    helpers
@@ -124,113 +127,163 @@ static inline double get_coil_current_team7(int prop)
     }
     return 0.0;
 }
-
 /* =========================================================
-   T0 construction based on already-split prop
+   T0 construction based on coordinates
 
-   prop = 1 : coil_inner  -> constant 1
-   prop = 2 : coil_limb   -> linear distribution across thickness
-   prop = 3 : coil_corner -> radial linear distribution
+   T0 is a tangential vector field following the coil path
+   in the xy-plane, with scalar amplitude varying linearly
+   across the conductor thickness.
 
-   We use local coordinates centered at the whole coil center.
+   We use a counterclockwise tangential direction:
+     - top    : (-1, 0)
+     - right  : ( 0, 1)
+     - bottom : ( 1, 0)
+     - left   : ( 0,-1)
+     - corner : tangent of the local circular arc
+                t = (-yr/r, xr/r)
    ========================================================= */
 
-static double get_team7_T0_scalar_from_prop(
-    int prop,
+static double get_team7_T0_scalar_from_coords(
     const double x_ip[3],
     const COIL_INFO* coil
 ){
     const double MM = MM_TO_M;
 
-    /* local coordinates relative to whole coil center */
     const double x = x_ip[0] - coil->center[0];
     const double y = x_ip[1] - coil->center[1];
 
-    /* TEAM-7 geometry consistent with the split mesh:
-       outer overall size = 200 mm
-       inner straight length = 150 mm
-       outer radius = 50 mm
-       inner radius = 25 mm
-
-       In local coordinates centered at the coil box:
-         xs = ys = 75 mm  (half of inner straight length)
-         thickness = rOuter - rInner = 25 mm
-    */
-    const double xs = 75.0 * MM;
-    const double ys = 75.0 * MM;
+    /* TEAM-7 rounded-rectangle parameters */
     const double rOuter = 50.0 * MM;
     const double rInner = 25.0 * MM;
+    const double xs = 75.0 * MM;
+    const double ys = 75.0 * MM;
     const double thickness = rOuter - rInner;
-    const double eps = 1.0e-14;
 
-    if(prop == 1){
-        /* coil_inner */
-        return 1.0;
+    double s = 0.0;
+
+    /* top / bottom straight parts */
+    if(fabs(x) <= xs && fabs(y) >= ys && fabs(y) <= ys + thickness){
+        const double d = fabs(y) - ys;
+        s = 1.0 - d / thickness;
+        return clamp01_team7(s);
     }
 
-    if(prop == 2){
-        /* coil_limb:
-           linear ramp from inner interface (value 1)
-           to outer interface (value 0)
-        */
-
-        /* top / bottom limb */
-        if(fabs(x) <= xs + eps){
-            const double d = fabs(y) - ys;
-            const double val = 1.0 - d / fmax(thickness, 1.0e-16);
-            return clamp01_team7(val);
-        }
-
-        /* left / right limb */
-        if(fabs(y) <= ys + eps){
-            const double d = fabs(x) - xs;
-            const double val = 1.0 - d / fmax(thickness, 1.0e-16);
-            return clamp01_team7(val);
-        }
-
-        return 0.0;
+    /* left / right straight parts */
+    if(fabs(y) <= ys && fabs(x) >= xs && fabs(x) <= xs + thickness){
+        const double d = fabs(x) - xs;
+        s = 1.0 - d / thickness;
+        return clamp01_team7(s);
     }
 
-    if(prop == 3){
-        /* coil_corner:
-           choose the corner center from the quadrant,
-           then apply radial ramp from rInner -> rOuter
-        */
+    /* corner parts */
+    {
         double cx = 0.0, cy = 0.0;
+        int in_corner = 1;
 
-        if(x >=  xs && y >=  ys){
-            cx =  xs; cy =  ys;
-        } else if(x <= -xs && y >=  ys){
-            cx = -xs; cy =  ys;
-        } else if(x <= -xs && y <= -ys){
-            cx = -xs; cy = -ys;
-        } else if(x >=  xs && y <= -ys){
-            cx =  xs; cy = -ys;
-        } else {
-            return 0.0;
+        if(x >=  xs && y >=  ys){ cx =  xs; cy =  ys; }
+        else if(x <= -xs && y >=  ys){ cx = -xs; cy =  ys; }
+        else if(x <= -xs && y <= -ys){ cx = -xs; cy = -ys; }
+        else if(x >=  xs && y <= -ys){ cx =  xs; cy = -ys; }
+        else{
+            in_corner = 0;
         }
 
-        const double xr = x - cx;
-        const double yr = y - cy;
-        const double r  = sqrt(xr*xr + yr*yr);
+        if(in_corner){
+            const double xr = x - cx;
+            const double yr = y - cy;
+            const double r  = sqrt(xr*xr + yr*yr);
 
-        const double val = (rOuter - r) / fmax(thickness, 1.0e-16);
-        return clamp01_team7(val);
+            if(r >= rInner && r <= rOuter){
+                s = (rOuter - r) / thickness;
+                return clamp01_team7(s);
+            }
+        }
     }
 
     return 0.0;
 }
 
 static void get_team7_T0_vector(
-    int prop,
     const COIL_INFO* coil,
     const double x_ip[3],
     double T0[3]
 ){
-    const double s = get_team7_T0_scalar_from_prop(prop, x_ip, coil);
-    T0[0] = 0.0;
-    T0[1] = 0.0;
-    T0[2] = s;
+    const double MM = MM_TO_M;
+
+    const double x = x_ip[0] - coil->center[0];
+    const double y = x_ip[1] - coil->center[1];
+
+    const double rOuter = 50.0 * MM;
+    const double rInner = 25.0 * MM;
+    const double xs = 75.0 * MM;
+    const double ys = 75.0 * MM;
+    const double thickness = rOuter - rInner;
+
+    const double s = get_team7_T0_scalar_from_coords(x_ip, coil);
+
+    double tx = 0.0;
+    double ty = 0.0;
+
+    if(s <= 0.0){
+        T0[0] = 0.0;
+        T0[1] = 0.0;
+        T0[2] = 0.0;
+        return;
+    }
+
+    /* top / bottom straight parts */
+    if(fabs(x) <= xs && fabs(y) >= ys && fabs(y) <= ys + thickness){
+        if(y > 0.0){
+            /* top: counterclockwise tangent */
+            tx = -1.0;
+            ty =  0.0;
+        } else {
+            /* bottom */
+            tx =  1.0;
+            ty =  0.0;
+        }
+    }
+    /* left / right straight parts */
+    else if(fabs(y) <= ys && fabs(x) >= xs && fabs(x) <= xs + thickness){
+        if(x > 0.0){
+            /* right */
+            tx =  0.0;
+            ty =  1.0;
+        } else {
+            /* left */
+            tx =  0.0;
+            ty = -1.0;
+        }
+    }
+    /* corner parts */
+    else {
+        double cx = 0.0, cy = 0.0;
+        int in_corner = 1;
+
+        if(x >=  xs && y >=  ys){ cx =  xs; cy =  ys; }
+        else if(x <= -xs && y >=  ys){ cx = -xs; cy =  ys; }
+        else if(x <= -xs && y <= -ys){ cx = -xs; cy = -ys; }
+        else if(x >=  xs && y <= -ys){ cx =  xs; cy = -ys; }
+        else{
+            in_corner = 0;
+        }
+
+        if(in_corner){
+            const double xr = x - cx;
+            const double yr = y - cy;
+            const double r  = sqrt(xr*xr + yr*yr);
+
+            if(r > 1.0e-30 && r >= rInner && r <= rOuter){
+                /* counterclockwise tangent */
+                tx = -yr / r;
+                ty =  xr / r;
+            }
+        }
+    }
+
+    T0[0] = s * tx;
+    T0[1] = s * ty;
+    T0[2] = 0.0;
 }
 
 /* =========================================================
@@ -304,34 +357,6 @@ void set_element_mat_nedelec_Aphi_team7(
         }
 
         /* ---------------------------------------------
-           node-node block:
-             j*w*mu ∫ grad(Nm).grad(Nn)
-           --------------------------------------------- */
-        for(int m = 0; m < fe->local_num_nodes; ++m){
-            const int gm = fe->conn[e][m];
-
-            for(int n = 0; n < fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-
-                for(int p = 0; p < np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += (0.0 + 1.0*I) * omega_team7 * mu
-                        * BBFE_elemmat_mag_mat_mass(
-                            fe->geo[e][p].grad_N[m],
-                            fe->geo[e][p].grad_N[n],
-                            1.0
-                        );
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(
-                    np, val_ip_C, basis->integ_weight, J_ip
-                );
-
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
-            }
-        }
-
-        /* ---------------------------------------------
            edge-node block:
              -j*w*mu ∫ Nj_edge . grad(Nn)
            --------------------------------------------- */
@@ -390,6 +415,51 @@ void set_element_mat_nedelec_Aphi_team7(
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
             }
         }
+
+        /* ---------------------------------------------
+        node-node block:
+            j*w*mu ∫ grad(Nm).grad(Nn)
+        + alpha_phi ∫ Nm*Nn          (stabilization)
+        --------------------------------------------- */
+        for(int m = 0; m < fe->local_num_nodes; ++m){
+            const int gm = fe->conn[e][m];
+
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
+
+                for(int p = 0; p < np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+
+                    /* original grad-grad term */
+                    val_ip_C[p] += (0.0 + 1.0*I) * omega_team7 * mu
+                        * BBFE_elemmat_mag_mat_mass(
+                            fe->geo[e][p].grad_N[m],
+                            fe->geo[e][p].grad_N[n],
+                            1.0
+                        );
+
+                    /* Phi stabilization:
+                    add only on aluminum for now.
+                    To match NGSolve's dx("hole|plate") exactly,
+                    the hole region must be separated as its own prop. */
+                    if(prop == 4||prop == 5){
+                        val_ip_C[p] += TEAM7_PHI_STAB
+                            * BBFE_elemmat_convdiff_mat_mass(
+                                basis->N[p][m],
+                                basis->N[p][n],
+                                1.0
+                            );
+                    }
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(
+                    np, val_ip_C, basis->integ_weight, J_ip
+                );
+
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
+            }
+        }
+
     }
 
     BB_std_free_1d_double(J_ip, np);
@@ -445,7 +515,7 @@ void set_element_vec_nedelec_Aphi_team7(
                 double x_ip[3];
                 double T0[3];
                 get_interp_coords(e, p, fe, basis, x_ip);
-                get_team7_T0_vector(prop, &coil, x_ip, T0);
+                get_team7_T0_vector( &coil, x_ip, T0);
 
                 val_ip_C[p] = rhs_scale * dot3_team7(T0, ned->N_edge[e][p][i]);
             }
@@ -467,7 +537,7 @@ void set_element_vec_nedelec_Aphi_team7(
                 double x_ip[3];
                 double T0[3];
                 get_interp_coords(e, p, fe, basis, x_ip);
-                get_team7_T0_vector(prop, &coil, x_ip, T0);
+                get_team7_T0_vector( &coil, x_ip, T0);
 
                 val_ip_C[p] = -rhs_scale * dot3_team7(T0, fe->geo[e][p].grad_N[m]);
             }
@@ -538,31 +608,118 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
                 0.0 + 0.0*I
             );
         }
+
+        const int prop = ned->elem_prop[e];
+        for(int i = 0; i < n_local_edges; ++i){
+            const int ged = ned->nedelec_conn[e][i];
+            if(prop==1||prop==2||prop==3||prop==5||prop==6){
+                monolis_set_Dirichlet_bc_C(
+                    monolis,
+                    monolis->mat.C.B,
+                    ged,
+                    0,
+                    0.0 + 0.0*I
+                );
+            }
+        }
+
+
     }
 
     /* node Dirichlet for Phi:
        pin ONE node in the conducting plate (prop==4) */
-    int ref_node = -1;
+    if(monolis_mpi_get_global_my_rank()==7){
+        int ref_node = -1;
 
-    for(int e = 0; e < fe->total_num_elems && ref_node < 0; ++e){
-        const int prop = ned->elem_prop[e];
-        if(prop != 4) continue;
+        for(int e = 0; e < fe->total_num_elems && ref_node < 0; ++e){
+            const int prop = ned->elem_prop[e];
+            if(prop != 4) continue;
 
-        for(int k = 0; k < fe->local_num_nodes; ++k){
-            ref_node = fe->conn[e][k];
-            break;
+            for(int k = 0; k < fe->local_num_nodes; ++k){
+                ref_node = fe->conn[e][k];
+                break;
+            }
+        }
+
+        if(ref_node >= 0){
+            printf("\n\nadd D_bc\n\n");
+            monolis_set_Dirichlet_bc_C(
+                monolis,
+                monolis->mat.C.B,
+                ref_node,
+                0,
+                0.0 + 0.0*I
+            );
         }
     }
 
-    if(ref_node >= 0){
-        monolis_set_Dirichlet_bc_C(
-            monolis,
-            monolis->mat.C.B,
-            ref_node,
-            0,
-            0.0 + 0.0*I
+    BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
+}
+
+double calc_aluminum_loss_team7_freq(
+    FE_SYSTEM* sys,
+    const double _Complex* x_c,
+    double freq_hz,
+    const char* directory
+){
+    (void)directory;   /* not needed if fe->total_num_elems is valid */
+    (void)freq_hz;     /* loss formula below does not explicitly need omega */
+
+    BBFE_DATA*  fe    = &(sys->fe);
+    BBFE_BASIS* basis = &(sys->basis);
+    NEDELEC*    ned   = &(sys->ned);
+
+    const int np = basis->num_integ_points;
+    const int ne = fe->total_num_elems;
+
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    double loss_local = 0.0;
+
+    for(int e = 0; e < ne; ++e){
+        /* aluminum only */
+        if(ned->elem_prop[e] != 4) continue;
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        for(int p = 0; p < np; ++p){
+            double _Complex Jp[3] = {0.0 + 0.0*I, 0.0 + 0.0*I, 0.0 + 0.0*I};
+
+            /* J = curl(T_h) */
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                const int gi = ned->nedelec_conn[e][i];
+                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+                const double _Complex ti = (double)si * x_c[gi];
+
+                Jp[0] += ti * ned->curl_N_edge[e][p][i][0];
+                Jp[1] += ti * ned->curl_N_edge[e][p][i][1];
+                Jp[2] += ti * ned->curl_N_edge[e][p][i][2];
+            }
+
+            const double J2 = creal(
+                Jp[0] * conj(Jp[0]) +
+                Jp[1] * conj(Jp[1]) +
+                Jp[2] * conj(Jp[2])
+            );
+
+            /* average Joule loss density
+               If x_c is a peak phasor:   p = 0.5 * |J|^2 / sigma
+               If x_c is an RMS phasor:   p =       |J|^2 / sigma
+            */
+            val_ip[p] = 0.5 * (1.0 / Sigma_al) * J2;
+        }
+
+        loss_local += BBFE_std_integ_calc(
+            np, val_ip, basis->integ_weight, Jacobian_ip
         );
     }
 
-    BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+
+    double loss_global = loss_local;
+    monolis_allreduce_R(1, &loss_global, MONOLIS_MPI_SUM, sys->monolis_com.comm);
+
+    return loss_global;
 }

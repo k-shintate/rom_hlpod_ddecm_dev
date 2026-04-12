@@ -39,6 +39,7 @@ mv ./mesh_tmp/All_node_coordinates.dat ./node.dat
 mv ./mesh_tmp/All_tetra_connectivity.dat ./elem.dat
 mv ./mesh_tmp/AIR_tetra_connectivity.dat ./elem_air.dat
 mv ./mesh_tmp/ALUMINUM_tetra_connectivity.dat ./elem_iron.dat
+mv ./mesh_tmp/HOLE_tetra_connectivity.dat ./elem_widing4.dat
 
 mv ./mesh_tmp/COIL_INNER_tetra_connectivity.dat ./elem_widing1.dat
 mv ./mesh_tmp/COIL_LIMB_tetra_connectivity.dat ./elem_widing2.dat
