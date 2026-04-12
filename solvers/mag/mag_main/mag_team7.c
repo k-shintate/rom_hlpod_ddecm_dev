@@ -830,7 +830,7 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
   
-        solver_fom_NR_Aphi_team21a2(
+        solver_fom_NR_Aphi_team7(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,

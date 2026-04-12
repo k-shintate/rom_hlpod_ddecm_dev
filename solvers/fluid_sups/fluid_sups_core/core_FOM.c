@@ -1901,7 +1901,7 @@ void solver_fom_NR(
     const double rel_tol_p = 1.0e-6;
     const double abs_tol_p = 1.0e-12;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 1;
+    int max_iter_NR = 3;
 
     for(int i = 0; i < max_iter_NR; i++){
         printf("\n%s ----------------- TIme step %d : NR step %d ----------------\n", CODENAME, step, i);

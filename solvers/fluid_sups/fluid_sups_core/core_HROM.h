@@ -80,20 +80,17 @@ void HROM_hierarchical_parallel(
     const int 		step_POD,
     const double 	t);
 
-void HROM_hierarchical_parallel_NR(
-    FE_SYSTEM   sys,
-    ROM*        rom,
-    HROM*       hrom,
-    const int   step_HR,
-    const int   step_POD,
-    const double t);
-
 void HROM_pre(
     FE_SYSTEM* sys,
     ROM*        rom,
     HROM*       hrom);
 
 void HROM_memory_allocation(
+    FE_SYSTEM* sys,
+    ROM*        rom,
+    HROM*       hrom);
+
+void HROM_memory_allocation_write_data(
     FE_SYSTEM* sys,
     ROM*        rom,
     HROM*       hrom);
@@ -165,6 +162,12 @@ void HROM_pre_offline_inc_svd3(
     const int num_2nd_subdomains);
 
 void solver_hrom_NR(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);
+
+void read_NNLS_data(
     FE_SYSTEM *  sys,
     double      t,
     const int   step,

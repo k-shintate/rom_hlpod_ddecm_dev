@@ -3772,6 +3772,232 @@ void HROM_ddecm_set_residuals_NR_vec(
 }
 
 
+void HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
+    BBFE_DATA*      fe,
+    BBFE_BASIS*     basis,
+    VALUES*         vals,
+    BBFE_BC*        bc,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_DDHR*     hlpod_ddhr,
+    const int       num_subdomains,
+    const int       index_snap,
+    const int       num_snapshot,
+    const int       num_neib,                       //1 + monolis_com->recv_n_neib
+    const double    dt,
+    double          t,
+    const char* directory)
+{
+    printf("\n\nindex_snap = %d, num_modes = %d, num_subdomains = %d\n\n", index_snap, hlpod_vals->n_neib_vec, num_subdomains);
+
+    int ns = index_snap;
+
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip;      double* Jacobian_ip;
+    val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+    Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+    double**  val_ip_vec   = BB_std_calloc_2d_double(val_ip_vec , 4 , np);
+    double*   integ_val_vec= BB_std_calloc_1d_double(integ_val_vec, 4);
+
+    double** local_v       = BB_std_calloc_2d_double(local_v, nl, 3);
+    double** v_ip          = BB_std_calloc_2d_double(v_ip   , np, 3);
+    double*** grad_v_ip    = BB_std_calloc_3d_double(grad_v_ip, np, 3, 3);
+
+    double** local_v_old   = BB_std_calloc_2d_double(local_v_old, nl, 3);
+    double** v_ip_old      = BB_std_calloc_2d_double(v_ip_old   , np, 3);
+
+    double*  local_p       = BB_std_calloc_1d_double(local_p, nl);
+    double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
+    double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
+
+    double vec[4];
+    double J_inv[3][3];
+
+    //for (int e = 0; e < fe->total_num_elems; ++e) {
+	for(int n=0; n < num_subdomains; n++) {
+		for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
+            int e = hlpod_ddhr->elem_id_local[m][n];
+
+            BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+            BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+            BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+
+            BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+
+            for (int p = 0; p < np; ++p) {
+                BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+                BBFE_std_mapping_vector3d_grad(grad_v_ip[p], nl, local_v, fe->geo[e][p].grad_N);
+                BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
+                p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+            }
+
+            double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+            double h_e = cbrt(vol);
+
+            for (int i = 0; i < nl; ++i) {
+                for (int p = 0; p < np; ++p)
+                    for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
+
+                for (int p = 0; p < np; ++p) {
+                        double du_time[3] = {
+                            v_ip[p][0] - v_ip_old[p][0],
+                            v_ip[p][1] - v_ip_old[p][1],
+                            v_ip[p][2] - v_ip_old[p][2]
+                            };
+
+                    BB_calc_mat3d_inverse(fe->geo[e][p].J, fe->geo[e][p].Jacobian, J_inv);
+
+                    const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
+                        J_inv, fe->geo[e][p].Jacobian,
+                        vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                    const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+                        J_inv, fe->geo[e][p].Jacobian,
+                        vals->density, vals->viscosity, v_ip[p], vals->dt);
+
+                    BBFE_elemmat_fluid_vec_rom_nonlinear(
+                        vec,
+                        basis->N[p][i],
+                        fe->geo[e][p].grad_N[i],
+                        v_ip[p],
+                        v_ip_old[p],
+                        grad_v_ip[p],
+                        p_ip[p],
+                        grad_p_ip[p],
+                        vals->density, vals->viscosity,
+                        tau, tau_c, vals->dt,
+                        du_time);
+
+                    for (int d = 0; d < 4; ++d) {
+                        val_ip_vec[d][p] = vec[d];
+                        vec[d] = 0.0;
+                    }
+                }
+
+                int index = fe->conn[e][i];
+
+                int subdomain_id = hlpod_mat->subdomain_id_in_nodes[index];
+                int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id];
+                int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id + 1];
+
+                for(int d=0; d<4; d++) {
+                    if( bc->D_bc_exists[index*4+d]) {
+                    }
+                    else{
+                        integ_val_vec[d] = BBFE_std_integ_calc(
+                                np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
+
+                        for(int k = IS; k < IE; k++){
+                            hlpod_ddhr->matrix[k][m][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                            hlpod_ddhr->RH[k][n] += integ_val_vec[d] * hlpod_mat->neib_vec[index*4 + d][k];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+	FILE* fp;
+	char fname[1024];
+
+	snprintf(fname, 1024, "DDECM_%s/NNLS_input_data_mat.%d.dat", monolis_mpi_get_global_my_rank());
+	fp = BBFE_sys_write_fopen(fp, fname, directory);
+
+    double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
+    for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
+        for(int m = 0; m < max_num_elem; m++) {
+            for(int n = 0; n < num_subdomains; n++){
+                fprintf(fp, "%lf\n", hlpod_ddhr->matrix[k][m][n]);
+            }
+        }
+    }
+    fclose(fp);
+
+
+	snprintf(fname, 1024, "DDECM_%s/NNLS_input_data_rhs.%d.dat", monolis_mpi_get_global_my_rank());
+	fp = BBFE_sys_write_fopen(fp, fname, directory);
+    for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
+        for(int n = 0; n < num_subdomains; n++){
+            fprintf(fp, "%lf\n", hlpod_ddhr->RH[k][n]);
+        }
+    }
+
+    fclose(fp);
+
+
+    BB_std_free_3d_double(val_ip , 4 , 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip   , np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old,   np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip   , np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+}
+
+
+void HROM_ddecm_read_NNLS_data(
+    BBFE_DATA*      fe,
+    BBFE_BASIS*     basis,
+    VALUES*         vals,
+    BBFE_BC*        bc,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_DDHR*     hlpod_ddhr,
+    const int       num_subdomains,
+    const int       index_snap,
+    const int       num_snapshot,
+    const int       num_neib,                       //1 + monolis_com->recv_n_neib
+    const double    dt,
+    double          t,
+    const char*     directory)
+{
+	FILE* fp;
+	char fname[1024];
+
+	snprintf(fname, 1024, "DDECM_%s/NNLS_input_data_mat.%d.dat", monolis_mpi_get_global_my_rank());
+	fp = BBFE_sys_write_fopen(fp, fname, directory);
+
+    double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
+
+    for(int s = 0; s < num_snapshot; s++) {
+        for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
+            for(int m = 0; m < max_num_elem; m++) {
+                for(int n = 0; n < num_subdomains; n++){
+                    fscanf(fp, "%lf\n", hlpod_ddhr->matrix[k + s*hlpod_vals->n_neib_vec][m][n]);
+                }
+            }
+        }
+    }
+    fclose(fp);
+
+	snprintf(fname, 1024, "DDECM_%s/NNLS_input_data_rhs.%d.dat", monolis_mpi_get_global_my_rank());
+	fp = BBFE_sys_write_fopen(fp, fname, directory);
+
+    for(int s = 0; s < num_snapshot; s++) {
+        for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
+            for(int n = 0; n < num_subdomains; n++){
+                fscanf(fp, "%lf\n", hlpod_ddhr->RH[k + s*hlpod_vals->n_neib_vec][n]);
+            }
+        }
+    }
+    fclose(fp);
+
+}
+
+
 void HROM_ddecm_set_residuals_NR_blas2_decoupled(
     BBFE_DATA*      fe,
     BBFE_BASIS*     basis,

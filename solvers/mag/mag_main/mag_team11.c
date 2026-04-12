@@ -12,7 +12,7 @@
 #include "core_ROM.h"
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
-const int DVAL_NUM_IP_EACH_AXIS = 4;
+const int DVAL_NUM_IP_EACH_AXIS = 3;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
 const double  DVAL_MAT_EPSILON  = 1.0e-7;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";

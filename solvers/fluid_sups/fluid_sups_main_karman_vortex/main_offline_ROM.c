@@ -468,7 +468,7 @@ if(sys.rom_prm_p.hot_start == 1) {
                     &(sys.rom_sups.hlpod_meta),
                     sys.cond.directory);
 
-		BB_std_free_1d_double(val, 4*sys.fe.total_num_nodes);
+		    BB_std_free_1d_double(val, 4*sys.fe.total_num_nodes);
         	printf("Hot start time: %lf\n", t_hotstart);
 /*
             step_hs = 0;
@@ -511,7 +511,8 @@ if(sys.rom_prm_p.hot_start == 1) {
             sys.vals_rom.num_cases);
 
     HROM_pre(&sys, &(sys.rom_sups), &(sys.hrom_sups));
-    HROM_memory_allocation(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    //HROM_memory_allocation(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    HROM_memory_allocation_write_data(&sys, &(sys.rom_sups), &(sys.hrom_sups));
 
     HROM_set_bc_id(
         &(sys.fe),

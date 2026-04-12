@@ -1,4 +1,6 @@
 
+#pragma once
+
 #include "3ph_tr_NR.h"
 
 void set_element_mat_NR_Aphi_team21c(
@@ -121,7 +123,9 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
 double calc_copper_shield_loss_EM1_freq(
     FE_SYSTEM* sys,
     const double _Complex* x_c,
-    double freq_hz);
+    double freq_hz,
+    const char* directory
+);
 
 void set_element_mat_nedelec_Aphi_team21a2_hom(
     MONOLIS*     monolis,

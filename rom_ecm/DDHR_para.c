@@ -46,6 +46,29 @@ void HROM_ddecm_memory_allocation_para(
     hlpod_ddhr->RH = BB_std_calloc_2d_double(hlpod_ddhr->RH, total_num_snapshot*hlpod_vals->n_neib_vec, num_subdomains);
 }
 
+void HROM_ddecm_memory_allocation_para_pre(
+        HLPOD_VALUES*   hlpod_vals,
+	    HLPOD_DDHR*     hlpod_ddhr,
+		HLPOD_MAT*      hlpod_mat,
+        const int       total_num_nodes,
+        const int       total_num_elem,
+        const int       total_num_snapshot,
+        const int       total_num_modes,
+		const int		num_subdomains)
+{
+	int max_num_elem = 0;
+	if(num_subdomains==1){
+		max_num_elem = total_num_elem;
+	}
+	else{
+		max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
+	}
+
+    //for NNLS
+    hlpod_ddhr->matrix = BB_std_calloc_3d_double(hlpod_ddhr->matrix, hlpod_vals->n_neib_vec, max_num_elem, num_subdomains);
+    hlpod_ddhr->RH = BB_std_calloc_2d_double(hlpod_ddhr->RH, hlpod_vals->n_neib_vec, num_subdomains);
+}
+
 void HROM_ddecm_memory_free_para(
         HLPOD_VALUES*   hlpod_vals,
 	    HLPOD_DDHR*     hlpod_ddhr,

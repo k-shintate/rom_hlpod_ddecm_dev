@@ -606,7 +606,7 @@ int main (
 		double calctime_rom_t2 = monolis_get_time_global_sync();
 		if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
 			//solver_rom(&(sys), step_rom, 0, t);
-            //solver_rom_NR5(&(sys), t, step_rom, 0);
+            solver_rom_NR5(&(sys), t, step_rom, 0);
 		}
 		else{
 			solver_rom_global_para(

@@ -926,6 +926,29 @@ void HROM_memory_allocation(
                 rom->hlpod_vals.num_2nd_subdomains);
 }
 
+void HROM_memory_allocation_write_data(
+        FE_SYSTEM* sys,
+        ROM*        rom,
+        HROM*       hrom)
+{
+        HROM_ddecm_set_element_para(
+                &(sys->fe),
+                &(hrom->hlpod_ddhr),
+                rom->hlpod_vals.num_2nd_subdomains,
+                sys->cond.directory);
+
+        HROM_ddecm_memory_allocation_para_pre(
+                &(rom->hlpod_vals),
+                &(hrom->hlpod_ddhr),
+                &(rom->hlpod_mat),
+                sys->fe.total_num_nodes,
+                sys->fe.total_num_elems,
+                rom->hlpod_vals.num_snapshot,
+                rom->hlpod_vals.num_modes_pre,
+                rom->hlpod_vals.num_2nd_subdomains);
+}
+
+
 
 void HROM_set_matvec(
         FE_SYSTEM* sys,
@@ -1222,3 +1245,24 @@ void HROM_pre_offline_inc_svd3(
 }
 
 
+void read_NNLS_data(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    HROM_ddecm_read_NNLS_data(
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom),
+            &(sys->bc),
+            &(sys->rom_sups.hlpod_mat),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->hrom_sups.hlpod_ddhr),
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            0,
+            sys->rom_sups.hlpod_vals.num_snapshot,
+            1 + sys->mono_com.recv_n_neib,
+            sys->vals.dt,
+            t);
+}

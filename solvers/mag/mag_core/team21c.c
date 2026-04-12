@@ -580,7 +580,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
 
     
     int num_nodes = fe->total_num_nodes;
-    double* node_is_conductor = (double*)calloc(num_nodes, sizeof(double));
+    int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
     
     for(int e=0; e<fe->total_num_elems; ++e){
         int prop = ned->elem_prop[e];
@@ -1920,7 +1920,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
 
     
     int num_nodes = fe->total_num_nodes;
-    double* node_is_conductor = (double*)calloc(num_nodes, sizeof(double));
+    int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
 
     for(int e=0; e<fe->total_num_elems; ++e){
         int prop = ned->elem_prop[e];

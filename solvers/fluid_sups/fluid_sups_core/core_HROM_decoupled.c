@@ -179,7 +179,7 @@ void solver_hrom_NR_decoupled(
     const double rel_tol_p = 1.0e-6;
     const double abs_tol_p = 1.0e-12;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 3;
+    int max_iter_NR = 5;
 
     monolis_com_initialize_by_self(&(sys->mono_com0));
 

@@ -1,3 +1,5 @@
+#pragma once
+
 #include "convdiff_core.h"
 #include "nedelec_core.h"
 #include "./../mag_core/elemmat.h"
