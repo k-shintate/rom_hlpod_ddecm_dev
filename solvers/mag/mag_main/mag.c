@@ -544,7 +544,17 @@ int main (
         sys.vals.num_ip_each_axis);
 
     const char* filename;
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "nedelec_elem.dat");
+/*
+    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
+
+    set_elem_prop(
+            &(sys.fe),
+            &(sys.ned),
+            sys.cond.directory,
+            filename);
+*/
+
+    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "nedelec_elem.dat");
 
     output_set_elems_nedelec_unstructured(
 			&(sys.fe),

@@ -9,9 +9,9 @@ ep=1
 #podモード数
 num_modes=(6)
 #POD計算領域数
-num_1stdd=(8)
+num_1stdd=(16)
 #並列計算領域数 (=並列数)
-num_parallel=(8)
+num_parallel=(16)
 #基底本数可変の閾値 1.0E-{pa}
 pa=0
 #solver type
