@@ -59,7 +59,7 @@ static const double TEAM7_PHI_STAB = 1.0e-1;
 
 static inline int is_team7_coil_prop(int prop)
 {
-    return (prop == 1 || prop == 2 || prop == 3);
+    return (prop == 1||prop == 2 || prop == 3);
 }
 
 static inline double clamp01_team7(double x)
@@ -90,7 +90,7 @@ void get_material_for_prop_team7_Tphi(
         *rho = 1.0 / Sigma_al;
     }
     else if(prop == 5){
-        *rho = 0.00;
+        *rho = 0.0;
     }
     else {
         /* coil + air: no conduction curl-curl coefficient */
@@ -115,7 +115,8 @@ static inline int get_coil_info_team7(int elem_prop, COIL_INFO* info)
     info->turns = 1.0;
 
     /* full coil cross-sectional area used for J0 = NI / area */
-    info->area = 2500.0 * (MM_TO_M * MM_TO_M);
+    info->area = 2500.0 * (MM_TO_M * MM_TO_M) / 40;
+    //info->area = 1;
 
     info->center[0] = 0.5 * (94.0 + 294.0) * MM_TO_M;
     info->center[1] = 0.5 * (0.0  + 200.0) * MM_TO_M;
@@ -147,6 +148,7 @@ static inline double get_coil_current_team7(int prop)
                 t = (-yr/r, xr/r)
    ========================================================= */
 
+
 static double get_team7_T0_scalar_from_prop(
     const int prop,
     const double x_ip[3],
@@ -158,101 +160,112 @@ static double get_team7_T0_scalar_from_prop(
     const double x = x_ip[0] - coil->center[0];
     const double y = x_ip[1] - coil->center[1];
 
-    /* TEAM-7 geometry */
+    /* geometry consistent with the provided .geo */
     const double rOuter = 50.0 * MM;
     const double rInner = 25.0 * MM;
-    const double xs = 75.0 * MM;
-    const double ys = 75.0 * MM;
-    const double thickness = rOuter - rInner;
+    const double thickness = rOuter - rInner;   /* 25 mm */
 
-    /* GitHub/NGSolve style:
-       coil_inner  -> 1
-       coil_limb   -> piecewise linear on each of 4 limbs
-       coil_corner -> piecewise radial on each of 4 corners
-    */
+    /* inner rectangle half sizes */
+    const double inner_hx = 75.0 * MM;
+    const double inner_hy = 75.0 * MM;
+
+    /* straight limb half length */
+    const double limb_half_len = 50.0 * MM;
+
+    /* quarter-annulus centers = corners of the center rectangle */
+    const double corner_hx = 50.0 * MM;
+    const double corner_hy = 50.0 * MM;
 
     if(prop == 1){
         /* coil_inner */
-        return 1.0;
+        if(x >= -inner_hx && x <= inner_hx &&
+           y >= -inner_hy && y <= inner_hy){
+            return 1.0;
+        }
+        return 0.0;
     }
 
     if(prop == 2){
-        /* coil_limb : define 4 limbs individually */
-
-        /* top limb: y in [ys, ys+thickness], x in [-xs, xs] */
-        if(x >= -xs && x <= xs && y >= ys && y <= ys + thickness){
-            return clamp01_team7((ys + thickness - y) / thickness);
+        /* top limb: x in [-50, 50], y in [75, 100] */
+        if(x >= -limb_half_len && x <= limb_half_len &&
+           y >=  inner_hy && y <= inner_hy + thickness){
+            return clamp01_team7((inner_hy + thickness - y) / thickness);
         }
 
-        /* bottom limb: y in [-ys-thickness, -ys], x in [-xs, xs] */
-        if(x >= -xs && x <= xs && y >= -ys - thickness && y <= -ys){
-            return clamp01_team7((y + ys + thickness) / thickness);
+        /* bottom limb: x in [-50, 50], y in [-100, -75] */
+        if(x >= -limb_half_len && x <= limb_half_len &&
+           y >= -inner_hy - thickness && y <= -inner_hy){
+            return clamp01_team7((y + inner_hy + thickness) / thickness);
         }
 
-        /* right limb: x in [xs, xs+thickness], y in [-ys, ys] */
-        if(x >= xs && x <= xs + thickness && y >= -ys && y <= ys){
-            return clamp01_team7((xs + thickness - x) / thickness);
+        /* right limb: x in [75, 100], y in [-50, 50] */
+        if(x >= inner_hx && x <= inner_hx + thickness &&
+           y >= -limb_half_len && y <= limb_half_len){
+            return clamp01_team7((inner_hx + thickness - x) / thickness);
         }
 
-        /* left limb: x in [-xs-thickness, -xs], y in [-ys, ys] */
-        if(x >= -xs - thickness && x <= -xs && y >= -ys && y <= ys){
-            return clamp01_team7((x + xs + thickness) / thickness);
+        /* left limb: x in [-100, -75], y in [-50, 50] */
+        if(x >= -inner_hx - thickness && x <= -inner_hx &&
+           y >= -limb_half_len && y <= limb_half_len){
+            return clamp01_team7((x + inner_hx + thickness) / thickness);
         }
 
         return 0.0;
     }
 
     if(prop == 3){
-        /* coil_corner : define 4 corners individually */
-
-        /* top-right corner, center = ( xs,  ys) */
+        /* top-right corner, center = ( 50,  50) mm */
         {
-            const double cx =  xs;
-            const double cy =  ys;
+            const double cx =  corner_hx;
+            const double cy =  corner_hy;
             const double xr = x - cx;
             const double yr = y - cy;
             const double r  = sqrt(xr*xr + yr*yr);
 
-            if(x >= xs && y >= ys && r >= rInner && r <= rOuter){
+            if(x >= corner_hx && y >= corner_hy &&
+               r >= rInner && r <= rOuter){
                 return clamp01_team7((rOuter - r) / thickness);
             }
         }
 
-        /* top-left corner, center = (-xs,  ys) */
+        /* top-left corner, center = (-50,  50) mm */
         {
-            const double cx = -xs;
-            const double cy =  ys;
+            const double cx = -corner_hx;
+            const double cy =  corner_hy;
             const double xr = x - cx;
             const double yr = y - cy;
             const double r  = sqrt(xr*xr + yr*yr);
 
-            if(x <= -xs && y >= ys && r >= rInner && r <= rOuter){
+            if(x <= -corner_hx && y >= corner_hy &&
+               r >= rInner && r <= rOuter){
                 return clamp01_team7((rOuter - r) / thickness);
             }
         }
 
-        /* bottom-left corner, center = (-xs, -ys) */
+        /* bottom-left corner, center = (-50, -50) mm */
         {
-            const double cx = -xs;
-            const double cy = -ys;
+            const double cx = -corner_hx;
+            const double cy = -corner_hy;
             const double xr = x - cx;
             const double yr = y - cy;
             const double r  = sqrt(xr*xr + yr*yr);
 
-            if(x <= -xs && y <= -ys && r >= rInner && r <= rOuter){
+            if(x <= -corner_hx && y <= -corner_hy &&
+               r >= rInner && r <= rOuter){
                 return clamp01_team7((rOuter - r) / thickness);
             }
         }
 
-        /* bottom-right corner, center = ( xs, -ys) */
+        /* bottom-right corner, center = ( 50, -50) mm */
         {
-            const double cx =  xs;
-            const double cy = -ys;
+            const double cx =  corner_hx;
+            const double cy = -corner_hy;
             const double xr = x - cx;
             const double yr = y - cy;
             const double r  = sqrt(xr*xr + yr*yr);
 
-            if(x >= xs && y <= -ys && r >= rInner && r <= rOuter){
+            if(x >= corner_hx && y <= -corner_hy &&
+               r >= rInner && r <= rOuter){
                 return clamp01_team7((rOuter - r) / thickness);
             }
         }
@@ -339,7 +352,7 @@ void set_element_mat_nedelec_Aphi_team7(
             }
         }
 
-    if(prop==4||prop==5)
+    if(prop==4)
     {
         for(int j = 0; j < ned->local_num_edges; ++j){
             const int gj = ned->nedelec_conn[e][j];
@@ -410,7 +423,7 @@ void set_element_mat_nedelec_Aphi_team7(
                             1.0
                         );
 
-                    if(prop == 4||prop == 5){
+                    if(prop == 4){
                         val_ip_C[p] += TEAM7_PHI_STAB
                             * BBFE_elemmat_convdiff_mat_mass(
                                 basis->N[p][m],
@@ -492,7 +505,7 @@ void set_element_vec_nedelec_Aphi_team7(
                 np, val_ip_C, basis->integ_weight, Jacobian_ip
             );
 
-            monolis->mat.C.B[gi] += (double)si * integ;
+            monolis->mat.C.B[gi] -= (double)si * integ;
         }
 
         /* node RHS: +j*w*mu*J0*t ∫ T0·grad(Nm)
@@ -514,7 +527,7 @@ void set_element_vec_nedelec_Aphi_team7(
                 np, val_ip_C, basis->integ_weight, Jacobian_ip
             );
 
-            monolis->mat.C.B[gm] += integ;
+            monolis->mat.C.B[gm] -= integ;
         }
     }
 
@@ -593,7 +606,7 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
         const int prop = ned->elem_prop[e];
         for(int i = 0; i < n_local_edges; ++i){
             const int ged = ned->nedelec_conn[e][i];
-            if(prop==1||prop==2||prop==3||prop==6){
+            if(prop==1||prop==2||prop==3 ||prop==5||prop==6){
                 monolis_set_Dirichlet_bc_C(
                     monolis,
                     monolis->mat.C.B,
