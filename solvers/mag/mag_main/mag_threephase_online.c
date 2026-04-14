@@ -915,25 +915,18 @@ int main (
         t += sys.vals.dt;
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-/*
-        solver_rom_NR_Aphi(
-        //solver_rom_global_para_NR_Aphi(
-            sys, t, count, 
-            sys.vals.Aphi_time_rom,
-            sys.vals.Aphi_time_curr_rom,
-            sys.fe.total_num_nodes);
-*/
-        solver_fom_NR_Aphi(
+
+        solver_fom_NR_Aphi_team21c(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
 
-        /*
-        log_accuracy_metrics(
-            &sys, sys.vals.Aphi_time,
-            sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
-        */
+        solver_rom_NR_Aphi_team21a2(
+            sys, t, count, 
+            sys.vals.Aphi_time_rom,
+            sys.vals.Aphi_time_curr_rom,
+            sys.fe.total_num_nodes);
         
         log_accuracy_metrics(
             &sys, sys.vals.Aphi_time_rom,
@@ -942,9 +935,6 @@ int main (
         for(int i=0; i<sys.fe.total_num_nodes; ++i){
             sys.vals.Aphi_time[i] = sys.vals.Aphi_time_curr[i];
             sys.vals.Aphi_time_rom[i] = sys.vals.Aphi_time_curr_rom[i];
-            //if(monolis_mpi_get_global_my_rank() == 0){
-                //printf("Aphi_time[%d]=%lf, Aphi_time_rom[%d]=%lf\n", i, sys.vals.Aphi_time[i], i, sys.vals.Aphi_time_rom[i]);
-            //}
         }
 
         count ++;

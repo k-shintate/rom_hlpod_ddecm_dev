@@ -485,7 +485,7 @@ void set_element_mat_NR_Aphi_team21c(
                             fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], sigma_phi);
                     }
                     double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                    monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, v);
+                    monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, v * inv_dt);
                 }
             }
         }
@@ -503,7 +503,7 @@ void set_element_mat_NR_Aphi_team21c(
                             fe->geo[e][p].grad_N[n], ned->N_edge[e][p][j], sigma_cpl);
                     }
                     double v = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                    monolis_add_scalar_to_sparse_matrix_R(monolis, gj, gn, 0, 0, (double)sj * v);
+                    monolis_add_scalar_to_sparse_matrix_R(monolis, gj, gn, 0, 0, (double)sj * v * inv_dt);
                 }
             }
         }
@@ -716,21 +716,18 @@ static inline double get_coil_current_team21c(int prop, double t)
     const double omega = 2.0 * M_PI * FREQ_HZ_team21c;
     const double Iamp  = sqrt(2.0) * I_RMS;  /* peak value */
 
-    /*
     if(prop == 1){
         return  Iamp * sin(omega * t);   
     } else if(prop == 2){
         return  -Iamp * sin(omega * t); 
-    }
-    */
-    
-
+    }  
+/*
     if(prop == 1){
         return  Iamp;   
     } else if(prop == 2){
         return  -Iamp;   
     }
-
+*/
     return 0.0;
 }
 
@@ -919,31 +916,30 @@ void set_element_vec_NR_Aphi_team21c(
         /* ==========================================================
          * [4] A-Phi coupling in A-equation
          * ========================================================== */
-        if(sigma_cpl > 0.0){
-            for(int j = 0; j < ned->local_num_edges; ++j){
-                int gj = ned->nedelec_conn[e][j];
-                int sj = ned->edge_sign[e][j];
+        for(int j = 0; j < ned->local_num_edges; ++j){
+            int gj = ned->nedelec_conn[e][j];
+            int sj = ned->edge_sign[e][j];
 
-                double acc = 0.0;
-                for(int n = 0; n < fe->local_num_nodes; ++n){
-                    int gn = fe->conn[e][n];
-                    double phi_val = x_curr[gn];
+            double acc = 0.0;
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                int gn = fe->conn[e][n];
+                double phi_val = x_curr[gn] - x_prev[gn];
 
-                    for(int p = 0; p < np; ++p){
-                        val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
-                            fe->geo[e][p].grad_N[n],
-                            ned->N_edge[e][p][j],
-                            sigma_cpl
-                        );
-                    }
-
-                    double cjn = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                    acc += (double)sj * cjn * phi_val;
+                for(int p = 0; p < np; ++p){
+                    val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
+                        fe->geo[e][p].grad_N[n],
+                        ned->N_edge[e][p][j],
+                        sigma_cpl
+                    );
                 }
 
-                monolis->mat.R.B[gj] -= acc;
+                double cjn = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)sj * cjn * phi_val * inv_dt;
             }
+
+            monolis->mat.R.B[gj] -= acc;
         }
+    
 
         /* ==========================================================
          * [5] Phi-A-equation
@@ -984,7 +980,7 @@ void set_element_vec_NR_Aphi_team21c(
                 double acc = 0.0;
                 for(int m = 0; m < fe->local_num_nodes; ++m){
                     int gm = fe->conn[e][m];
-                    double phi_m = x_curr[gm];
+                    double phi_m = x_curr[gm] - x_prev[gm];
 
                     for(int p = 0; p < np; ++p){
                         val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
@@ -995,7 +991,7 @@ void set_element_vec_NR_Aphi_team21c(
                     }
 
                     double knm = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                    acc += knm * phi_m;
+                    acc += knm * phi_m * inv_dt;
                 }
 
                 monolis->mat.R.B[gn] -= acc;
@@ -1194,7 +1190,7 @@ SHIELD_LOSS_DIAG calc_copper_shield_loss_EM1_diag(
 
             for(int n = 0; n < fe->local_num_nodes; ++n){
                 int gn = fe->conn[e][n];
-                double phi_n = x_curr[gn];
+                double phi_n = (x_curr[gn] - x_prev[gn]) * inv_dt;
 
                 grad_phi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
                 grad_phi[1] += phi_n * fe->geo[e][p].grad_N[n][1];

@@ -833,6 +833,12 @@ int main (
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
+        
+        solver_fom_NR_Aphi_team21c_collect_snapmat(
+            sys, t, count, 
+            sys.vals.Aphi_time,
+            sys.vals.Aphi_time_curr,
+            sys.fe.total_num_nodes);
 
 /*        
         solver_fom_NR_Aphi(

@@ -49,7 +49,6 @@ static const double NI_RMS_team7 = 2742.0;        /* [A.turn rms] */
      -j*w*mu*J0*0.025*T0*(...)
    where 0.025 is the radial thickness factor used there.
 */
-static const double TEAM7_T0_THICKNESS = 0.025;   /* [m] */
 
 static const double TEAM7_PHI_STAB = 1.0e-1;
 
@@ -59,7 +58,7 @@ static const double TEAM7_PHI_STAB = 1.0e-1;
 
 static inline int is_team7_coil_prop(int prop)
 {
-    return (prop == 1||prop == 2 || prop == 3);
+    return (prop==1 || prop == 2 || prop == 3);
 }
 
 static inline double clamp01_team7(double x)
@@ -90,7 +89,7 @@ void get_material_for_prop_team7_Tphi(
         *rho = 1.0 / Sigma_al;
     }
     else if(prop == 5){
-        *rho = 0.0;
+        *rho = 0.00;
     }
     else {
         /* coil + air: no conduction curl-curl coefficient */
@@ -104,6 +103,7 @@ void get_material_for_prop_team7_Tphi(
      outer y :  0 ... 200 mm
      z-center: zCoil0 + 50 mm = 19 + 30 + 50 mm
 */
+
 static inline int get_coil_info_team7(int elem_prop, COIL_INFO* info)
 {
     if(!is_team7_coil_prop(elem_prop)) return 0;
@@ -176,13 +176,9 @@ static double get_team7_T0_scalar_from_prop(
     const double corner_hx = 50.0 * MM;
     const double corner_hy = 50.0 * MM;
 
+
     if(prop == 1){
-        /* coil_inner */
-        if(x >= -inner_hx && x <= inner_hx &&
-           y >= -inner_hy && y <= inner_hy){
-            return 1.0;
-        }
-        return 0.0;
+        return 1.0;
     }
 
     if(prop == 2){
@@ -352,7 +348,7 @@ void set_element_mat_nedelec_Aphi_team7(
             }
         }
 
-    if(prop==4)
+    if(prop==4||prop==5)
     {
         for(int j = 0; j < ned->local_num_edges; ++j){
             const int gj = ned->nedelec_conn[e][j];
@@ -423,7 +419,7 @@ void set_element_mat_nedelec_Aphi_team7(
                             1.0
                         );
 
-                    if(prop == 4){
+                    if(prop == 4||prop == 5){
                         val_ip_C[p] += TEAM7_PHI_STAB
                             * BBFE_elemmat_convdiff_mat_mass(
                                 basis->N[p][m],
@@ -483,7 +479,7 @@ void set_element_vec_nedelec_Aphi_team7(
         const double NI_t = get_coil_current_team7(prop);
         const double J0   = NI_t / fmax(coil.area, 1.0e-30);
         const double _Complex rhs_scale =
-            -(0.0 + 1.0*I) * omega_team7 * mu * J0 * TEAM7_T0_THICKNESS;
+            -(0.0 + 1.0*I) * omega_team7 * mu * J0 * 0.025;
 
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
@@ -606,7 +602,7 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
         const int prop = ned->elem_prop[e];
         for(int i = 0; i < n_local_edges; ++i){
             const int ged = ned->nedelec_conn[e][i];
-            if(prop==1||prop==2||prop==3 ||prop==5||prop==6){
+            if(prop==1||prop==2||prop==3||prop==6){
                 monolis_set_Dirichlet_bc_C(
                     monolis,
                     monolis->mat.C.B,

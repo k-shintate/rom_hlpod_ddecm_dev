@@ -46,3 +46,12 @@ void solver_fom_NR_Aphi_team7(
     double* x_prev,
     double* x_curr,
     int n_dof_total);
+
+void solver_fom_NR_Aphi_team21c_collect_snapmat(
+    FE_SYSTEM sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total);
+

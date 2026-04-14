@@ -110,3 +110,11 @@ void solver_rom_global_para_NR_Aphi(
     double* x_prev,
     double* x_curr,
     int n_dof_total);
+
+void solver_rom_NR_Aphi_team21a2(
+    FE_SYSTEM sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total);
