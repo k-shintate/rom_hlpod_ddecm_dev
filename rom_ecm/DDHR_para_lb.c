@@ -646,8 +646,8 @@ void HROM_ddecm_write_selected_elems_svd(
 	bool_elem = BB_std_calloc_2d_bool(bool_elem, max_ITER, num_subdomains);
 	total_num_selected_elems = BB_std_calloc_1d_int(total_num_selected_elems, num_subdomains);
 
-    double global_norm = ddhr_calc_tol(monolis_com,
-        hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
+    //double global_norm = ddhr_calc_tol(monolis_com,
+    //    hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
 
 	int Index1 = 0;
 	int Index2 = 0;
@@ -674,7 +674,7 @@ void HROM_ddecm_write_selected_elems_svd(
 			local_norm += RH[j]*RH[j];
 		}
 
-        double input_TOL = TOL * sqrt(global_norm) / (num_subdomains  * sqrt(local_norm));
+        //double input_TOL = TOL * sqrt(global_norm) / (num_subdomains  * sqrt(local_norm));
 
         double** S = BB_std_calloc_2d_double(S, NNLS_row, hlpod_ddhr->num_elems[m]);
         double* V = BB_std_calloc_1d_double(V, hlpod_ddhr->num_elems[m]);
@@ -1207,8 +1207,8 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
 	int index_NNLS1 = 0;
 	int index_NNLS2 = 0;
 
-    double global_norm = ddhr_calc_tol(monolis_com,
-        hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
+    // global_norm = ddhr_calc_tol(monolis_com,
+    //    hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
 
 	for (int m = 0; m < num_subdomains; m++) {
 		int NNLS_row = hlpod_ddhr->num_modes_1stdd[m] * total_num_snapshot; //2は残差ベクトル＋右辺ベクトルを採用しているため
@@ -2522,8 +2522,8 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd(
 	int index_NNLS1 = 0;
 	int index_NNLS2 = 0;
 
-    double global_norm = ddhr_calc_tol(monolis_com,
-        hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
+    //double global_norm = ddhr_calc_tol(monolis_com,
+    //    hlpod_vals, hlpod_ddhr,	hlpod_mat, hlpod_meta, total_num_elem, total_num_snapshot, num_subdomains);
 
 	for (int m = 0; m < num_subdomains; m++) {
 		int NNLS_row = hlpod_ddhr->num_modes_1stdd[m] * total_num_snapshot; //2は残差ベクトル＋右辺ベクトルを採用しているため

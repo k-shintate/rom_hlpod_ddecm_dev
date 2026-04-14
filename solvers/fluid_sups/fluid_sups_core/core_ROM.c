@@ -1496,7 +1496,7 @@ void solver_rom_NR3(
             t);
   */  
     //HROM_ddecm_set_residuals_NR_blas2(
-    HROM_ddecm_set_residuals_NR_vec(
+    HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
     //HROM_ddecm_set_residuals_NR_PSPG(
             &(sys->fe),
             &(sys->basis),
@@ -1510,7 +1510,8 @@ void solver_rom_NR3(
             sys->rom_sups.hlpod_vals.num_snapshot,
             1 + sys->mono_com.recv_n_neib,
             sys->vals.dt,
-            t);
+            t,
+            sys->cond.directory);
 
 	    }
 

@@ -1264,5 +1264,6 @@ void read_NNLS_data(
             sys->rom_sups.hlpod_vals.num_snapshot,
             1 + sys->mono_com.recv_n_neib,
             sys->vals.dt,
-            t);
+            t,
+            sys->cond.directory);
 }

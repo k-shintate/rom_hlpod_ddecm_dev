@@ -511,8 +511,8 @@ if(sys.rom_prm_p.hot_start == 1) {
             sys.vals_rom.num_cases);
 
     HROM_pre(&sys, &(sys.rom_sups), &(sys.hrom_sups));
-    //HROM_memory_allocation(&sys, &(sys.rom_sups), &(sys.hrom_sups));
-    HROM_memory_allocation_write_data(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    HROM_memory_allocation(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+    //HROM_memory_allocation_write_data(&sys, &(sys.rom_sups), &(sys.hrom_sups));
 
     HROM_set_bc_id(
         &(sys.fe),
@@ -618,9 +618,12 @@ if(sys.rom_prm_p.hot_start == 1) {
         solver_rom_NR4(&(sys), t, step_rom, 0);
         add_reduced_mat_linear(&(sys), t, step_rom, 0);
 
-//HROM_pre_offline3(&sys, &(sys.rom_sups), &(sys.hrom_sups));
-//double tt3 = monolis_mpi_get_global_my_rank();
-//exit(1);
+        
+read_NNLS_data(&(sys), t, step_rom, step_hrom);
+HROM_pre_offline3(&sys, &(sys.rom_sups), &(sys.hrom_sups));
+double tt3 = monolis_mpi_get_global_my_rank();
+exit(1);
+
 
         while (t < sys.vals.rom_finish_time - t_hotstart) {
             t += sys.vals.dt;

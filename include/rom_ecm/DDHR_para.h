@@ -17,6 +17,16 @@ void HROM_ddecm_memory_allocation_para_online(
     HLPOD_MAT*      hlpod_mat,
     const int       total_num_nodes);
 
+void HROM_ddecm_memory_allocation_para_pre(
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_DDHR*     hlpod_ddhr,
+    HLPOD_MAT*      hlpod_mat,
+    const int       total_num_nodes,
+    const int       total_num_elem,
+    const int       total_num_snapshot,
+    const int       total_num_modes,
+    const int		num_subdomains);
+
 void HROM_ddecm_memory_allocation_para(
     HLPOD_VALUES*   hlpod_vals,
     HLPOD_DDHR*     hlpod_ddhr,
