@@ -17,7 +17,7 @@ SRC_DIR := ./mag_core ./mag_matvec
 SRC     := $(wildcard $(addsuffix /*.c,$(SRC_DIR)))
 OBJ1    := $(patsubst %.c,%.o,$(SRC)) ./mag_main/mag.o
 OBJ2    := $(patsubst %.c,%.o,$(SRC)) ./mag_main/mag_ns.o
-OBJ3    := $(patsubst %.c,%.o,$(SRC)) ./mag_main/mag_team7.o
+OBJ3    := $(patsubst %.c,%.o,$(SRC)) ./mag_main/mag_threephase.o
 OBJ4    := $(patsubst %.c,%.o,$(SRC)) ./mag_main/mag_threephase_online.o
 
 TARGET1 := mag

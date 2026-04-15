@@ -1,7 +1,7 @@
-
 #include "core_ROM.h"
 #include "3ph_tr_NR.h"
 #include "set_matvec.h"
+#include "team21c.h"
 
 /*for ROM*/
 const char*     ROM_ID_FINISH_TIME      = "#rom_finish_time";
@@ -1043,6 +1043,27 @@ void solver_rom_global_para_NR_Aphi(
     BB_std_free_1d_double(phi_old,   sys.fe.total_num_nodes);
 }
 
+void solver_rom_NR4(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    ROM_std_hlpod_calc_reduced_mat2(
+        &(sys->monolis),
+        &(sys->monolis_rom),
+        &(sys->monolis_com),
+        &(sys->mono_com0),
+        &(sys->mono_com_rom_solv),
+        &(sys->rom_sups),
+        sys->fe.total_num_nodes,
+        4);
+
+}
+
+
 void solver_rom_NR_Aphi_team21a2(
     FE_SYSTEM sys,
     double t,
@@ -1078,11 +1099,10 @@ void solver_rom_NR_Aphi_team21a2(
     const double abs_tol_p = 1.0e-12;
     const double rel_tol_r = 1.0e-6;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 20;
+    int max_iter_NR = 1;
 
-    for(int it=0; it<max_iter; ++it){
 
-        debug_max_B_and_nu_core(&sys, x_curr, n_dof_total, it, step, t, sys.cond.directory);
+        //debug_max_B_and_nu_core(&sys, x_curr, n_dof_total, it, step, t, sys.cond.directory);
 
         monolis_clear_mat_value_R(&(sys.monolis));
         monolis_clear_mat_value_R(&(sys.monolis_rom));
@@ -1095,17 +1115,27 @@ void solver_rom_NR_Aphi_team21a2(
         }
 
         /* 組み立て */
+        /*
+	set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+                                x_curr, sys.vals.dt);
+
+        
         set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_curr, sys.vals.dt);
-        set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+        */
+
+        monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
+        
+
+	set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t);
         apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
         /* 残差ベクトルを保存（B = -F） */
-        if(it==0){
-            for(int i=0; i<n_dof_total; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
-        }
-
+//        if(it==0){
+//            for(int i=0; i<n_dof_total; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
+ //       }
+/*
         ROM_std_hlpod_calc_reduced_mat(
             &(sys.monolis),
             &(sys.monolis_rom),
@@ -1115,7 +1145,7 @@ void solver_rom_NR_Aphi_team21a2(
             &(sys.rom_sups),
             sys.fe.total_num_nodes,
             1);
-
+*/
         ROM_std_hlpod_solve_ROM(
             &(sys.monolis),
             &(sys.monolis_rom),
@@ -1138,6 +1168,8 @@ void solver_rom_NR_Aphi_team21a2(
         //update_Aphi_NR(x_curr, dx, n_dof_total, relaxation);
         update_Aphi_NR(x_curr, sys.rom_sups.hlpod_vals.sol_vec, n_dof_total, relaxation);
 
+
+
         /* 残差ベクトルを保存（B = -F） */
         for(int i=0; i<n_dof_total; ++i){
             sys.monolis.mat.R.B[i] = 0.0;
@@ -1153,98 +1185,6 @@ void solver_rom_NR_Aphi_team21a2(
         fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
         output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.rom_sups.hlpod_vals.sol_vec, fn1, sys.cond.directory);
 
-        set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                                x_prev, x_curr, sys.vals.dt, t);
-        apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
-
-        for(int i=0; i<n_dof_total; ++i) rvec[i] = sys.monolis.mat.R.B[i];
-
-        /*収束判定 別の関数にまとめたい*/
-        double norm_v = calc_internal_norm_1d(
-            A,
-            sys.monolis_com.n_internal_vertex,
-            1);
-
-        double norm_delta_v = calc_internal_norm_1d(
-            A_delta,
-            sys.monolis_com.n_internal_vertex,
-            1);
-        
-        double norm_r_old = calc_internal_norm_1d(
-            rvec_old,
-            sys.monolis_com.n_internal_vertex,
-            1);
-        
-        double norm_r = calc_internal_norm_1d(
-            rvec,
-            sys.monolis_com.n_internal_vertex,
-            1);
-
-        /* 圧力の L2 ノルム（内部自由度のみ） */
-        double norm_p = 0.0, norm_delta_p = 0.0;
-        for (int ii = 0; ii < sys.monolis_com.n_internal_vertex; ++ii) {
-            double pv  = phi[ii];
-            double dpv = phi_delta[ii];
-            norm_p       += pv  * pv;
-            norm_delta_p += dpv * dpv;
-        }
-
-        /* L∞（最大変化量）：速度は3成分、圧力は1成分 */
-        double linf_delta_v_local = 0.0;
-        double linf_delta_p_local = 0.0;
-        for (int i_node = 0; i_node < sys.monolis_com.n_internal_vertex; ++i_node) {
-            double av = fabs(A_delta[i_node]);
-            if (av > linf_delta_v_local) linf_delta_v_local = av;
-        
-            double ap = fabs(phi_delta[i_node]);
-            if (ap > linf_delta_p_local) linf_delta_p_local = ap;
-        }
-
-        monolis_allreduce_R(1, &norm_v,       MONOLIS_MPI_SUM, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &norm_delta_v, MONOLIS_MPI_SUM, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &norm_p,       MONOLIS_MPI_SUM, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &norm_delta_p, MONOLIS_MPI_SUM, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &norm_r,       MONOLIS_MPI_SUM, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &norm_r_old, MONOLIS_MPI_SUM, sys.monolis_com.comm);
-
-        double linf_delta_v = linf_delta_v_local;
-        double linf_delta_p = linf_delta_p_local;
-        monolis_allreduce_R(1, &linf_delta_v, MONOLIS_MPI_MAX, sys.monolis_com.comm);
-        monolis_allreduce_R(1, &linf_delta_p, MONOLIS_MPI_MAX, sys.monolis_com.comm);
-
-        double nrm_v        = sqrt(norm_v);
-        double nrm_dv       = sqrt(norm_delta_v);
-        double nrm_p        = sqrt(norm_p);
-        double nrm_dp       = sqrt(norm_delta_p);
-        double nrm_r        = sqrt(norm_r);
-        double nrm_r_old       = sqrt(norm_r_old);
-
-        double denom_v = fmax(nrm_v,  tiny);
-        double denom_p = fmax(nrm_p,  tiny);
-
-        //int conv_v = (nrm_dv <= abs_tol_v) || (nrm_dv/denom_v <= rel_tol_v) || (linf_delta_v <= abs_tol_v);
-        //int conv_p = (nrm_dp <= abs_tol_p) || (nrm_dp/denom_p <= rel_tol_p) || (linf_delta_p <= abs_tol_p);
-
-        int conv_v = (nrm_dv <= abs_tol_v) || (nrm_dv/denom_v <= rel_tol_v) || (linf_delta_v <= abs_tol_v) || (nrm_r/nrm_r_old <= rel_tol_r);
-        int conv_p = (nrm_dp <= abs_tol_p) || (nrm_dp/denom_p <= rel_tol_p) || (linf_delta_p <= abs_tol_p) || (nrm_r/nrm_r_old <= rel_tol_r);
-
-        if(monolis_mpi_get_global_my_rank() == 0){
-            printf("[NR %2d] ||dv||2=%.3e  ||v||2=%.3e  rel=%.3e  Linf(dv)=%.3e\n",
-                it, nrm_dv, nrm_v, nrm_dv/denom_v, linf_delta_v);
-            printf("[NR %2d] ||dp||2=%.3e  ||p||2=%.3e  rel=%.3e  Linf(dp)=%.3e  |r_old| = %.3e |r| = %.3e  |r|/|r_old| = %.3e\n", 
-                it, nrm_dp, nrm_p, nrm_dp/denom_p, linf_delta_p, nrm_r_old, nrm_r, nrm_r / nrm_r_old);
-        }
-
-        //if (conv_v && conv_p) {
-        if(it == max_iter_NR -1 || (conv_v && conv_p)) {
-            double max_du = 0.0;
-            for (int ii = 0; ii < sys.fe.total_num_nodes; ++ii) {    
-                double du = fabs(A[ii] - A_old[ii]);
-                    if (du > max_du) max_du = du;
-            }
-            if(monolis_mpi_get_global_my_rank() == 0){
-                printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
-            }
 
             ROM_BB_vec_copy_1d(
                 A,
@@ -1252,10 +1192,6 @@ void solver_rom_NR_Aphi_team21a2(
                 sys.fe.total_num_nodes,
                 1);
 
-            break;
-        }
-
-    }
 
     //free(dx);
     free(rvec);
@@ -1268,4 +1204,49 @@ void solver_rom_NR_Aphi_team21a2(
     BB_std_free_1d_double(phi,       sys.fe.total_num_nodes);
     BB_std_free_1d_double(A_old,     sys.fe.total_num_nodes);
     BB_std_free_1d_double(phi_old,   sys.fe.total_num_nodes);
+}
+
+
+void calc_reduced_mat_linear_team21a2(
+    FE_SYSTEM* sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total)
+{
+    monolis_clear_mat_value_R(&(sys->monolis));
+    monolis_clear_mat_value_R(&(sys->monolis_rom));
+    monolis_clear_mat_value_R(&(sys->monolis_rom0));
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    double t1 = monolis_get_time_global_sync();
+    printf("test1");
+
+    set_element_mat_NR_Aphi_team21c(&(sys->monolis), &(sys->fe), &(sys->basis), &(sys->ned),
+                            x_curr, sys->vals.dt);
+
+        double t2 = monolis_get_time_global_sync();
+    printf("test2");
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+        &(sys->monolis),
+        sys->fe.total_num_nodes,
+        1,
+        &(sys->bc_NR),
+        sys->monolis.mat.R.B);
+
+    double t3 = monolis_get_time_global_sync();
+    printf("test3");
+
+    ROM_std_hlpod_calc_reduced_mat(
+        &(sys->monolis),
+        &(sys->monolis_rom0),
+        &(sys->monolis_com),
+        &(sys->mono_com0),
+        &(sys->mono_com_rom_solv),
+        &(sys->rom_sups),
+        sys->fe.total_num_nodes,
+        1);
+
 }

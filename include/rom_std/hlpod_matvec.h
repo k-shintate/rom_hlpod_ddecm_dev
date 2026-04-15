@@ -107,16 +107,6 @@ void ROM_std_hlpod_calloc_mode_coef_rhs(
     const int		total_num_bases,
     const int		num_2nddd);
 
-void ROM_std_hlpod_calloc_mode_coef_rhs(
-    MONOLIS*     	monolis,
-    MONOLIS_COM*  	monolis_com,
-    HLPOD_VALUES*   hlpod_vals,
-    HLPOD_MAT* 	    hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int 		max_num_bases,
-    const int		total_num_bases,
-    const int		num_2nddd);
-
 void ROM_std_hlpod_calc_reduced_rhs_add(
     MONOLIS*		monolis,
     HLPOD_MAT*      hlpod_mat,

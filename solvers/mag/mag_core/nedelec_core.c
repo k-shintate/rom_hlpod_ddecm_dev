@@ -1,4 +1,3 @@
-
 #include "convdiff_core.h"
 #include "nedelec_core.h"
 #include "./../mag_core/elemmat.h"
@@ -39,7 +38,7 @@ void compute_B_cell_average(
             double Hp[3];
             double Bp[3];
 
-            if(ned->elem_prop==4){
+            
                 for(int j = 0; j < ned->local_num_edges; ++j){
                     const int ge = ned->nedelec_conn[e][j];
                     const double cj =
@@ -49,7 +48,7 @@ void compute_B_cell_average(
                     Tp[1] += cj * ned->N_edge[e][p][j][1];
                     Tp[2] += cj * ned->N_edge[e][p][j][2];
                 }
-            }
+           
 
             for(int n = 0; n < fe->local_num_nodes; ++n){
                 const int gn = fe->conn[e][n];

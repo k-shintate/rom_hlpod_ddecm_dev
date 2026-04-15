@@ -19,7 +19,7 @@ void get_sigmas_for_prop_team21c(
         *sigma_mass_A = Sigma_coil * 0.1256/3.2;
         //*sigma_cpl    = Sigma_coil* 0.119;
         //*sigma_phi    = Sigma_coil* 0.119;
-	    *sigma_cpl    = 0.0;
+	*sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
@@ -628,7 +628,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
     }
     */
 
-
+/*
     int count = 0;
     if(monolis_mpi_get_global_my_rank()==0){
         for (int i = 0; i < num_nodes; ++i){
@@ -697,7 +697,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
             }
         }
     }
-
+*/
 
     BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 }
@@ -708,7 +708,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   prop==2 : Coil 2
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
-static const double I_RMS = 10.0;   /* TEAM benchmark rated current [A rms] */
+static const double I_RMS = 20.0;   /* TEAM benchmark rated current [A rms] */
 static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)

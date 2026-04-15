@@ -69,6 +69,12 @@ void output_B_node_ROM(
     const double* Aphi_rom, const double t,
     const char* filename, const char* directory);
 
+void solver_rom_NR4(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);
+
 void solver_rom(
     FE_SYSTEM*      sys,
     const int       step_HR,
@@ -118,3 +124,12 @@ void solver_rom_NR_Aphi_team21a2(
     double* x_prev,
     double* x_curr,
     int n_dof_total);
+
+void calc_reduced_mat_linear_team21a2(
+    FE_SYSTEM* sys,
+    double t,
+    int step,
+    double* x_prev,
+    double* x_curr,
+    int n_dof_total);
+

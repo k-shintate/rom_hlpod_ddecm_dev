@@ -27,6 +27,9 @@ cd parted.0/parted.1
 ./../../../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np -i metagraph.dat -d ./metagraphparted.0
 cd ../..
 
+cp -r parted.0/parted.1/metagraphparted.0/* ./metagraph_parted.0/
+cp -r metagraph_parted.0/* ./parted.0/
+
 mpirun -np $np ./../../utils/load_balancing/hddm $nd
 
 for i in $(seq 0 $((np-1)))

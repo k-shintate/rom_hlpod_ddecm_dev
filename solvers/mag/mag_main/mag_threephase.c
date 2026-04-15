@@ -1,4 +1,3 @@
-
 #include "./../mag_core/convdiff_core.h"
 #include "./../mag_core/nedelec_core.h"
 
@@ -713,7 +712,7 @@ int main (
 
     const char* metagraph_name;
     metagraph_name = ROM_std_hlpod_get_metagraph_name(sys.rom_prm_v.solver_type);
-/*
+
 	ROM_std_hlpod_pre(
             &(sys.rom_v),
 			sys.fe.total_num_nodes,
@@ -740,7 +739,7 @@ int main (
             metagraph_name,
             parted_file_name,
 			sys.cond.directory);
-*/
+
             /******************/
 
     /*for offline******/
@@ -748,28 +747,28 @@ int main (
 
     ROM_std_hlpod_offline_set_num_snapmat(
         &(sys.rom_p),
-        //sys.vals.finish_time,
-        1.0e-6,
+        sys.vals.finish_time,
+        //1.0e-6,
         sys.vals.dt,
         sys.vals.snapshot_interval,
         1);
     
     ROM_std_hlpod_offline_set_num_snapmat(
         &(sys.rom_v),
-        //sys.vals.finish_time,
-        1.0e-6,
+        sys.vals.finish_time,
+        //1.0e-6,
         sys.vals.dt,
         sys.vals.snapshot_interval,
         1);
-/*
+
     ROM_std_hlpod_offline_set_num_snapmat(
         &(sys.rom_sups),
-        //sys.vals.finish_time,
-        1.0e-6,
+        sys.vals.finish_time,
+        //1.0e-6,
         sys.vals.dt,
         sys.vals.snapshot_interval,
         1);
-*/
+
 	/****************** solver ********************/
     int step = 0;
     //double t = 1.5e-3;
@@ -797,7 +796,7 @@ int main (
     printf("Hot start step: %d\n", step_hs);
     t = t_hs;
     printf("sys.vals.finish_time - t = %lf\n", ((double)sys.vals.finish_time - t));
-
+*/
 	ROM_std_hlpod_offline_memory_allocation_snapmat(
 			&(sys.rom_v),
 			sys.fe.total_num_nodes,
@@ -817,7 +816,7 @@ int main (
             sys.vals.snapshot_interval,
             1,
 			1);
-    */
+    
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis), &(sys.monolis_mass));
 
     //ja_init_states_zero();
@@ -827,13 +826,13 @@ int main (
         t += sys.vals.dt;
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-  
+/*  
         solver_fom_NR_Aphi_team21c(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
-        
+ */      
         solver_fom_NR_Aphi_team21c_collect_snapmat(
             sys, t, count, 
             sys.vals.Aphi_time,

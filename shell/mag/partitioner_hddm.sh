@@ -28,9 +28,8 @@ mv cond.dat rom_cond.dat
 
 ./../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.000001 "#output_interval" int 1 10  "#finish_time" double 1 1.0
 
-
 python3 ./../../shell/mag/node2bc.py ./node.dat > node_bc.dat
-python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat  ./graph.dat
+python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat graph.dat
 
 #python3 ./../../shell/mag/node2bc.py ./nedelec_node.dat > nedelec_node_bc.dat
 #python3 ./../../shell/mag/node2dist_val.py ./nedelec_node.dat nedelec_node_distval.dat 773300
@@ -53,8 +52,9 @@ cp -r parted.0/parted.1/metagraph.dat ./parted.0
 ./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_bc_partitioner_R -n $nd -i D_bc.dat -ig graph.dat -d ./parted.0/parted.1
 #./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_bc_partitioner_R -n $nd -i InnerSphere_quad_bc.dat -ig graph.dat
 
+
 cd parted.0/parted.1
-./../../../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np -i ../parted.0/metagraph.dat -d ./
+./../../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np -i ../parted.0/metagraph.dat -d ./
 cd ../..
 
 cd ../..

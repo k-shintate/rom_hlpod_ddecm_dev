@@ -1,4 +1,3 @@
-
 #include "./../mag_core/convdiff_core.h"
 #include "./../mag_core/nedelec_core.h"
 
@@ -896,7 +895,7 @@ int main (
     snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);
     const char* fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
     output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
-
+/*
     char fname[BUFFER_SIZE];         
     snprintf(fname, BUFFER_SIZE, "hot_start/%s.%d.dat", "velosity_pressure", monolis_mpi_get_global_my_rank());
     t_hs = hot_start_read_initialize_val(sys.vals.Aphi_time, fname, sys.cond.directory);
@@ -909,6 +908,13 @@ int main (
     for(int i=0; i<sys.fe.total_num_nodes; ++i){
         sys.vals.Aphi_time_rom[i] = sys.vals.Aphi_time[i];
     }
+*/
+
+        solver_rom_NR4(&(sys), t, 0, 0);
+        calc_reduced_mat_linear_team21a2(&(sys), t, count,
+            sys.vals.Aphi_time,
+            sys.vals.Aphi_time_curr,
+            sys.fe.total_num_nodes);
 
 
     for (step = step_hs; step <= nsteps; ++step) {
@@ -916,13 +922,13 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
 
-        solver_fom_NR_Aphi_team21c(
+        solver_rom_NR_Aphi_team21a2(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.fe.total_num_nodes);
 
-        solver_rom_NR_Aphi_team21a2(
+        solver_fom_NR_Aphi_team21c(
             sys, t, count, 
             sys.vals.Aphi_time_rom,
             sys.vals.Aphi_time_curr_rom,
@@ -944,9 +950,12 @@ int main (
             file_num += 1;
         }
 
+            output_B_node_ROM(&sys, sys.vals.Aphi_time, sys.vals.Aphi_time_rom, t, fn1, sys.cond.directory);
+
+
         // 可視化・ログ
         if (step % sys.vals.output_interval == 0) {
-            output_B_node_ROM(&sys, sys.vals.Aphi_time, sys.vals.Aphi_time_rom, t, fn1, sys.cond.directory);
+            //output_B_node_ROM(&sys, sys.vals.Aphi_time, sys.vals.Aphi_time_rom, t, fn1, sys.cond.directory);
 
             sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.fe.total_num_nodes);
             sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
@@ -968,9 +977,9 @@ int main (
             copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.vals.Aphi_time_rom, sys.vals.V, sys.vals.phi, sys.fe.total_num_elems);
 
             //char fnode[BUFFER_SIZE];
-            //snprintf(fnode, BUFFER_SIZE, "B_node_rom_%06d.vtk", step);
-            //fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
-            //output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time_rom, fn1, sys.cond.directory);
+            snprintf(fnode, BUFFER_SIZE, "B_node_rom_%06d.vtk", step);
+            fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
+            output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time_rom, fn1, sys.cond.directory);
 
             BB_std_free_1d_double(sys.vals.V, sys.fe.total_num_nodes);
             BB_std_free_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
