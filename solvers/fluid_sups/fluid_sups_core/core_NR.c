@@ -3905,25 +3905,25 @@ void HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
 	FILE* fp;
 	char fname[1024];
 
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.dat", monolis_mpi_get_global_my_rank());
+	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
 	fp = BBFE_sys_write_fopen(fp, fname, directory);
 
     double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
     for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
         for(int m = 0; m < max_num_elem; m++) {
             for(int n = 0; n < num_subdomains; n++){
-                fprintf(fp, "%lf\n", hlpod_ddhr->matrix[k][m][n]);
+                fprintf(fp, "%.17g\n", hlpod_ddhr->matrix[k][m][n]);
             }
         }
     }
     fclose(fp);
 
 
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.dat", monolis_mpi_get_global_my_rank());
+	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
 	fp = BBFE_sys_write_fopen(fp, fname, directory);
     for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
         for(int n = 0; n < num_subdomains; n++){
-            fprintf(fp, "%lf\n", hlpod_ddhr->RH[k][n]);
+            fprintf(fp, "%.17g\n", hlpod_ddhr->RH[k][n]);
         }
     }
 
@@ -3966,36 +3966,34 @@ void HROM_ddecm_read_NNLS_data(
 {
 	FILE* fp;
 	char fname[1024];
-
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.dat", monolis_mpi_get_global_my_rank());
-	fp = BBFE_sys_read_fopen(fp, fname, directory);
-
     double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
 
     printf("num_snapshot = %d\n", num_snapshot);
 
     for(int s = 0; s < num_snapshot-1; s++) {
+    	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", monolis_mpi_get_global_my_rank());
+    	fp = BBFE_sys_read_fopen(fp, fname, directory);
+
         for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
             for(int m = 0; m < max_num_elem; m++) {
                 for(int n = 0; n < num_subdomains; n++){
-                    fscanf(fp, "%lf\n", &(hlpod_ddhr->matrix[k + s*hlpod_vals->n_neib_vec][m][n]));
+                    fscanf(fp, "%lf", &(hlpod_ddhr->matrix[k + s*hlpod_vals->n_neib_vec][m][n]));
                 }
             }
         }
+        fclose(fp);
     }
-    fclose(fp);
-
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.dat", monolis_mpi_get_global_my_rank());
-	fp = BBFE_sys_read_fopen(fp, fname, directory);
 
     for(int s = 0; s < num_snapshot-1; s++) {
+    	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", monolis_mpi_get_global_my_rank());
+    	fp = BBFE_sys_read_fopen(fp, fname, directory);
         for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
             for(int n = 0; n < num_subdomains; n++){
-                fscanf(fp, "%lf\n", &(hlpod_ddhr->RH[k + s*hlpod_vals->n_neib_vec][n]));
+                fscanf(fp, "%lf", &(hlpod_ddhr->RH[k + s*hlpod_vals->n_neib_vec][n]));
             }
         }
+        fclose(fp);
     }
-    fclose(fp);
 
 }
 

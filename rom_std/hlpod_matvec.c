@@ -314,121 +314,6 @@ void ROM_std_hlpod_set_reduced_mat(
 }
 
 
-/*
-void ROM_std_hlpod_set_reduced_mat_para(
-    MONOLIS*     	monolis,
-    MONOLIS_COM*  	monolis_com,
-    HLPOD_VALUES*   hlpod_vals,
-    HLPOD_MAT* 	    hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int 		max_num_bases,
-    const int		total_num_bases,
-    const int		num_2nddd)
-{
-    const int M = max_num_bases;
-    const int n_neib_vec = hlpod_vals->n_neib_vec;
-
-    double** mat;
-    mat = BB_std_calloc_2d_double(mat, M , M );
-
-    int index1 = 0;
-    int index2 = 0;
-    int num_modes = 0;
-
-double t7 = monolis_get_time_global_sync();
-        printf("test7");
-
-
-    for(int k = 0; k < monolis_com->n_internal_vertex; k++){
-        int iS = hlpod_mat->num_modes_1stdd[k];
-        int iE = hlpod_mat->num_modes_1stdd[k+1];
-
-        index1 = 0; 
-        for(int m = iS; m < iE; m++){
-            index2 = 0;
-            for(int n = iS; n < iE; n++){
-                mat[index1][index2] = hlpod_mat->VTKV[m][n];
-            
-                monolis_add_scalar_to_sparse_matrix_R(
-                    monolis,
-                    k,
-                    k,
-                    index1,
-                    index2,
-                    mat[index1][index2]);
-
-                index2++;
-            }
-            index1++;
-        }
-    }
-    
-double t8 = monolis_get_time_global_sync();
-        printf("test8");
-
-
-    for(int k = 0; k < monolis_com->n_internal_vertex; k++){
-
-        int iS = hlpod_meta->index[k];
-        int iE = hlpod_meta->index[k + 1];
-
-        for(int i = iS; i < iE; i++){
-            for(int j = 0; j < hlpod_meta->n_internal_sum + monolis_com->n_internal_vertex; j++){
-
-                if (hlpod_meta->subdomain_id[hlpod_meta->item[i]] == hlpod_meta->subdomain_id_neib[j]){
-                    
-                    int IS = hlpod_mat->num_modes_1stdd[k];
-                    int IE = hlpod_mat->num_modes_1stdd[k+1];
-
-                    index1 = 0;
-                    for(int m = IS; m < IE; m++){					
-
-                        int IIS = hlpod_mat->num_modes_1stdd[j];
-                        int IIE = hlpod_mat->num_modes_1stdd[j + 1];
-                        num_modes += IIE - IIS;
-                        
-                        index2 = 0;
-
-                        for(int n = IIS; n < IIE; n++){		
-                            mat[index1][index2] = hlpod_mat->VTKV[m][n];
-                            
-                            monolis_add_scalar_to_sparse_matrix_R(
-                                monolis,
-                                k,
-                                hlpod_meta->item[i],
-                                index1,
-                                index2,
-                                mat[index1][index2]);
-                            
-                            index2++;
-                        }
-                        index1++;
-
-                    }
-
-                }
-
-            }
-
-        }
-
-    }
-
-    //hlpod_mat->mode_coef = BB_std_calloc_1d_double(hlpod_mat->mode_coef, num_modes);
-    //hlpod_mat->VTf = BB_std_calloc_1d_double(hlpod_mat->VTf, num_modes);
-   
-
-    //BB_std_free_2d_double(hlpod_mat->VTKV, total_num_bases , n_neib_vec);
-    BB_std_free_2d_double(mat, M, M);
-
-double t6 = monolis_get_time_global_sync();
-        printf("test6");
-
-
-}
-*/
-
-
 void ROM_std_hlpod_set_reduced_mat_para(
     MONOLIS*        monolis,
     MONOLIS_COM*    monolis_com,
@@ -647,8 +532,7 @@ void ROM_std_hlpod_calloc_mode_coef_rhs(
 
     }
 
-printf("num_modes= %d\n", num_modes);
-
+    printf("num_modes= %d\n", num_modes);
 	double tt = monolis_get_time_global_sync();
 
     hlpod_mat->mode_coef = BB_std_calloc_1d_double(hlpod_mat->mode_coef, num_modes);
@@ -808,34 +692,6 @@ void ROM_std_hlpod_calc_sol_global_para(
 
 }
 
-/*
-void ROM_std_hlpod_update_global_modes(
-    MONOLIS_COM*	monolis_com,
-    HLPOD_MAT*		hlpod_mat,
-    const int 		total_num_nodes,
-    const int 		n_internal_vertex,
-    const int 		num_modes,
-    const int		ndof)
-{
-    double* vec;
-    vec = BB_std_calloc_1d_double(vec, total_num_nodes*ndof);
-
-    for(int j = 0; j < num_modes; j++){
-        for(int i = 0; i < n_internal_vertex * ndof; i++){
-            vec[i] = hlpod_mat->pod_modes[i][j];
-        }
-
-        monolis_mpi_update_R(monolis_com, total_num_nodes, 4, vec);
-
-        for(int i = 0; i < total_num_nodes*4; i++){
-            hlpod_mat->pod_modes[i][j] = vec[i];
-        }
-    }
-
-    BB_std_free_1d_double(vec, total_num_nodes*ndof);
-}
-*/
-
 void ROM_std_hlpod_update_global_modes(
     MONOLIS_COM*	monolis_com,
     HLPOD_MAT*		hlpod_mat,
@@ -860,4 +716,155 @@ void ROM_std_hlpod_update_global_modes(
     }
 
     BB_std_free_1d_double(vec, total_num_nodes*ndof);
+}
+
+
+void ROM_std_hlpod_calc_reduced_rhs(
+    MONOLIS*		monolis,
+    HLPOD_MAT*      hlpod_mat,
+    const int 		max_num_bases,
+    const int		num_2nddd,
+    const int 		dof)
+{
+    int index = 0;
+    int index_row = 0;
+    int sum = 0;
+    int index_column = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i] = 0.0;
+            //printf("%lf ", hlpod_mat->VTf[index + i]);
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+    
+    index_row = 0;
+    sum = 0;
+    index_column = 0;
+    index = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    index_row = hlpod_mat->node_id[j + sum] * dof + l;
+                    hlpod_mat->VTf[index + i] += hlpod_mat->pod_modes[index_row][index_column + i] * monolis->mat.R.B[index_row];
+                }
+            }
+        }
+        index_column += hlpod_mat->num_modes_internal[k];
+        index += hlpod_mat->num_modes_internal[k];
+        sum += hlpod_mat->n_internal_vertex_subd[k];
+
+    }
+
+}
+
+void ROM_std_hlpod_calc_reduced_rhs2(
+    MONOLIS*        monolis,
+    HLPOD_MAT*      hlpod_mat,
+    const int       max_num_bases,
+    const int       num_2nddd,
+    const int       dof)
+{
+    int total_modes = 0;
+    for(int k = 0; k < num_2nddd; k++){
+        total_modes += hlpod_mat->num_modes_internal[k];
+    }
+
+    int index = 0;
+    int index_row = 0;
+    int sum = 0;
+    int index_column = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i] = 0.0;
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+    
+    index_row = 0;
+    sum = 0;
+    index_column = 0;
+    index = 0;
+
+    set_element_vec_NR_Aphi_team21c();
+
+    for(int k = 0; k < num_2nddd; k++){
+
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    index_row = hlpod_mat->node_id[j + sum] * dof + l;
+                    hlpod_mat->VTf[index + i] += hlpod_mat->pod_modes[index_row][index_column + i] * monolis->mat.R.B[index_row];
+                }
+            }
+        }
+        index_column += hlpod_mat->num_modes_internal[k];
+        index += hlpod_mat->num_modes_internal[k];
+        sum += hlpod_mat->n_internal_vertex_subd[k];
+
+    }
+
+    int col_b = 0;
+    int sum_b = 0;
+
+    for(int kb = 0; kb < num_2nddd; kb++){
+        for(int ib = 0; ib < hlpod_mat->num_modes_internal[kb]; ib++){
+
+            int b = col_b + ib;
+
+            /* x_prev = φ_b */
+            for(int k = 0; k < num_2nddd; k++){
+                int sum = 0;
+                int col = 0;
+
+                for(int kk = 0; kk < k; kk++){
+                    sum += hlpod_mat->n_internal_vertex_subd[kk];
+                    col += hlpod_mat->num_modes_internal[kk];
+                }
+
+                for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                    for(int l = 0; l < dof; l++){
+                        int row = hlpod_mat->node_id[j + sum] * dof + l;
+                        x_prev[row] = hlpod_mat->pod_modes[row][b];
+                    }
+                }
+            }
+
+            /* f_prev(φ_b) を monolis->mat.R.B に構築 */
+            set_element_vec_NR_Aphi_team21c();
+
+            /* reduced_prev_rhs[:, b] = V^T f_prev(φ_b) */
+            int row_offset = 0;
+            int col_a = 0;
+
+            for(int ka = 0; ka < num_2nddd; ka++){
+                for(int ia = 0; ia < hlpod_mat->num_modes_internal[ka]; ia++){
+
+                    int a = col_a + ia;
+                    //hlpod_mat->VTf[a][b] = 0.0;
+
+                    for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[ka]; j++){
+                        for(int l = 0; l < dof; l++){
+                            int row = hlpod_mat->node_id[j + row_offset] * dof + l;
+
+                            hlpod_mat->VTf[a][b] +=
+                                hlpod_mat->pod_modes[row][a]
+                              * monolis->mat.R.B[row];
+                        }
+                    }
+                }
+
+                col_a     += hlpod_mat->num_modes_internal[ka];
+                row_offset += hlpod_mat->n_internal_vertex_subd[ka];
+            }
+        }
+
+        col_b += hlpod_mat->num_modes_internal[kb];
+        sum_b += hlpod_mat->n_internal_vertex_subd[kb];
+    }
 }

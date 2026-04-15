@@ -577,8 +577,6 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
         }
     }
 
-
-    
     int num_nodes = fe->total_num_nodes;
     int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
     
@@ -708,7 +706,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   prop==2 : Coil 2
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
-static const double I_RMS = 20.0;   /* TEAM benchmark rated current [A rms] */
+static const double I_RMS = 10.0;   /* TEAM benchmark rated current [A rms] */
 static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)
