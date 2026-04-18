@@ -359,3 +359,22 @@ void solver_rom(
     ROM_BB_vec_copy(sys->rom.hlpod_vals.sol_vec, sys->vals_rom.T, sys->fe.total_num_nodes);
 }
 
+void solver_rom_NR4(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    ROM_std_hlpod_calc_reduced_mat2(
+        &(sys->monolis),
+        &(sys->monolis_rom),
+        &(sys->mono_com),
+        &(sys->mono_com0),
+        &(sys->mono_com_rom_solv),
+        &(sys->rom_sups),
+        sys->fe.total_num_nodes,
+        4);
+
+}

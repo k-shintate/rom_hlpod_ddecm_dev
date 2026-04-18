@@ -577,6 +577,8 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
         }
     }
 
+
+    
     int num_nodes = fe->total_num_nodes;
     int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
     
@@ -706,7 +708,7 @@ void apply_dirichlet_bc_for_A_and_phi_team21c(
  *   prop==2 : Coil 2
  *   I1 = +Iamp*sin(wt), I2 = -Iamp*sin(wt)
  * ============================================================ */
-static const double I_RMS = 10.0;   /* TEAM benchmark rated current [A rms] */
+static const double I_RMS = 20.0;   /* TEAM benchmark rated current [A rms] */
 static const double FREQ_HZ_team21c = 50.0; /* [Hz] */
 
 static inline double get_coil_current_team21c(int prop, double t)
@@ -840,7 +842,8 @@ void set_element_vec_NR_Aphi_team21c(
         /* ==========================================================
          * [2] A-mass term
          * ========================================================== */
-        if(sigma_mass_A > 0.0){
+/*
+	if(sigma_mass_A > 0.0){
             int use_history = (prop == 1 || prop == 2 || prop == 3 || prop == 5);
 
             for(int i = 0; i < ned->local_num_edges; ++i){
@@ -874,11 +877,12 @@ void set_element_vec_NR_Aphi_team21c(
                 monolis->mat.R.B[gi] -= acc;
             }
         }
-
+*/
         /* ==========================================================
          * [3] Curl-curl stiffness term
          * ========================================================== */
-        for(int i = 0; i < ned->local_num_edges; ++i){
+
+	for(int i = 0; i < ned->local_num_edges; ++i){
             int gi = ned->nedelec_conn[e][i];
             int si = ned->edge_sign[e][i];
 
@@ -914,7 +918,8 @@ void set_element_vec_NR_Aphi_team21c(
         /* ==========================================================
          * [4] A-Phi coupling in A-equation
          * ========================================================== */
-        for(int j = 0; j < ned->local_num_edges; ++j){
+/*
+	for(int j = 0; j < ned->local_num_edges; ++j){
             int gj = ned->nedelec_conn[e][j];
             int sj = ned->edge_sign[e][j];
 
@@ -937,12 +942,13 @@ void set_element_vec_NR_Aphi_team21c(
 
             monolis->mat.R.B[gj] -= acc;
         }
-    
+*/  
 
         /* ==========================================================
          * [5] Phi-A-equation
          * ========================================================== */
-        if(sigma_cpl > 0.0){
+/*
+	if(sigma_cpl > 0.0){
             for(int n = 0; n < fe->local_num_nodes; ++n){
                 int gn = fe->conn[e][n];
 
@@ -967,11 +973,12 @@ void set_element_vec_NR_Aphi_team21c(
                 monolis->mat.R.B[gn] -= acc;
             }
         }
-
+*/
         /* ==========================================================
          * [6] Phi-equation
          * ========================================================== */
-        if(sigma_phi > 0.0){
+/*
+	if(sigma_phi > 0.0){
             for(int n = 0; n < fe->local_num_nodes; ++n){
                 int gn = fe->conn[e][n];
 
@@ -995,7 +1002,9 @@ void set_element_vec_NR_Aphi_team21c(
                 monolis->mat.R.B[gn] -= acc;
             }
         }
+*/
     }
+
 
     BB_std_free_1d_double(Jacobian_ip, np);
     BB_std_free_1d_double(val_ip_C, np);
@@ -2961,3 +2970,241 @@ void set_element_mat_nedelec_Aphi_team21a2_hom(
     BB_std_free_1d_double(J_ip, np);
     BB_std_free_1d_double_C(val_ip_C, np);
 }
+
+
+
+
+static inline double get_coil_current_team21c_without_freq(int prop, double t)
+{
+    const double omega = 2.0 * M_PI * FREQ_HZ_team21c;
+    const double Iamp  = sqrt(2.0) * I_RMS;  /* peak value */
+
+    if(prop == 1){
+        return  Iamp;
+    } else if(prop == 2){
+        return  -Iamp;
+    }
+
+    return 0.0;
+}
+
+void set_element_vec_NR_Aphi_team21c_source(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* x_prev,   /* time n */
+    const double* x_curr,   /* time n+1 (Newton iter) */
+    double dt,
+    double current_time     /* time n+1 */
+){
+    const int np = basis->num_integ_points;
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
+
+    const double inv_dt = 1.0 / dt;
+    const double epsB   = 1.0e-14;
+    const double eps_r  = 1.0e-14;
+
+    const int nEdge = fe->total_num_nodes;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+
+        double sigma_mass_A, sigma_cpl, sigma_phi;
+        get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
+
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
+
+        /* coil info */
+        COIL_INFO coil;
+        int is_coil = get_coil_info_team21(prop, &coil);
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* ==========================================================
+         * [1] Source term (coil excitation)
+         *     current source amplitude is no longer prescribed by CURRENT_AMP
+         *     use updated phase current g_phase_current3[phase]
+         * ========================================================== */
+        if(is_coil){
+            double I_t = get_coil_current_team21c_without_freq(prop, current_time);
+            double J_mag = (coil.turns * I_t) / coil.area;
+
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                int gi = ned->nedelec_conn[e][i];
+                int si = ned->edge_sign[e][i];
+
+                for(int p = 0; p < np; ++p){
+                    double x_ip[3];
+                    get_interp_coords(e, p, fe, basis, x_ip);
+
+                    double tdir[3];
+                    double Js[3] = {0.0, 0.0, 0.0};
+                    int ok_tdir = 0;
+
+                    if (USE_SIMPLE_TDIR_TEST) {
+                        ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
+                    } else {
+                        ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
+                    }
+
+                    if (ok_tdir) {
+                        Js[0] = J_mag * tdir[0];
+                        Js[1] = J_mag * tdir[1];
+                        Js[2] = J_mag * tdir[2];
+                    }
+
+                    val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
+                }
+
+                double integ = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                monolis->mat.R.B[gi] += (double)si * integ;
+            }
+        }
+
+
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip_C, np);
+}
+
+
+void set_element_vec_NR_Aphi_team21c_curl_curl(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* x_prev,   /* time n */
+    const double* x_curr,   /* time n+1 (Newton iter) */
+    double dt,
+    double current_time     /* time n+1 */
+){
+    const int np = basis->num_integ_points;
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
+
+    const double inv_dt = 1.0 / dt;
+    const double epsB   = 1.0e-14;
+    const double eps_r  = 1.0e-14;
+
+    const int nEdge = fe->total_num_nodes;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+
+        double sigma_mass_A, sigma_cpl, sigma_phi;
+        get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
+
+        //int nonlinear_mu = (prop == 4) ? 1 : 0;
+        int nonlinear_mu = 0;
+
+        /* coil info */
+        COIL_INFO coil;
+        int is_coil = get_coil_info_team21(prop, &coil);
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        /* ==========================================================
+         * [3] Curl-curl stiffness term
+         * ========================================================== */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            double acc = 0.0;
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+                double a_val = x_curr[gj];
+
+                for(int p = 0; p < np; ++p){
+                    const double* ci = ned->curl_N_edge[e][p][i];
+                    const double* cj = ned->curl_N_edge[e][p][j];
+
+                    double nu_val;
+                    if(nonlinear_mu){
+                        double B[3];
+                        compute_B_ip(ned, e, p, x_curr, nEdge, B);
+                        nu_val = get_reluctivity_nu_team21c(fmax(norm3(B), epsB));
+                    }else{
+                        nu_val = NU_LIN;
+                    }
+
+                    val_ip_C[p] = nu_val * dot3(ci, cj);
+                }
+
+                double kij = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
+                acc += (double)(si * sj) * kij * a_val;
+            }
+
+            monolis->mat.R.B[gi] -= acc;
+        }
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip_C, np);
+}
+
+
+void set_element_mat_NR_Aphi_team21c_curl_curl(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    double current_time
+){
+    const int np = basis->num_integ_points;
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        int prop = ned->elem_prop[e];
+
+        double sigma_mass_A, sigma_cpl, sigma_phi;
+        get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
+
+        int nonlinear_mu = 0;
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            int gi = ned->nedelec_conn[e][i];
+            int si = ned->edge_sign[e][i];
+
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                int gj = ned->nedelec_conn[e][j];
+                int sj = ned->edge_sign[e][j];
+
+                for(int p = 0; p < np; ++p){
+                    const double* ci = ned->curl_N_edge[e][p][i];
+                    const double* cj = ned->curl_N_edge[e][p][j];
+
+                    double nu_val;
+                    if(nonlinear_mu){
+                        /* 非線形化するならここでB依存評価 */
+                        nu_val = NU_LIN;
+                    }
+                    else{
+                        nu_val = NU_LIN;
+                    }
+
+                    val_ip[p] = nu_val * dot3(ci, cj);
+                }
+
+                double kij = BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);
+                kij *= (double)(si * sj);
+
+                monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, kij);
+            }
+        }
+    }
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+}
+

@@ -251,6 +251,12 @@ int main (
             &(sys.rom),
             sys.fe.total_num_nodes,
             1);
+        
+    solver_rom_NR4(&(sys), 0, 0, 0);
+    double tt2 = monolis_get_time_global_sync();
+	printf("done solver ROM");
+    add_reduced_mat_linear(&(sys), 0, 0, 0);
+    double tt3 = monolis_get_time_global_sync();
 
     int file_num = 0;
     int step = 0;
