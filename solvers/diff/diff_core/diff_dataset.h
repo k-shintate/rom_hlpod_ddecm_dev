@@ -62,6 +62,7 @@ typedef struct
     /*for ROM*/
 	MONOLIS      monolis_rom;
 	MONOLIS      monolis_rom0;
+    MONOLIS      monolis_rom_mass;
 	
 	VALUES       vals_rom;
 

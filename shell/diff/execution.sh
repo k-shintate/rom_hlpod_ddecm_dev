@@ -26,12 +26,29 @@ cp -r hlpod_diff_online ./../../$directory
 
 cd ./../../$directory
 
-mkdir -p {pod_modes_vtk,pod_modes,fem_solver_prm,pod_solver_prm,calctime}
+mkdir -p {pod_modes_vtk,pod_modes,fem_solver_prm,pod_solver_prm,calctime,DDECM}
 for ((i=0; i<nd; i++))
 do
     mkdir -p "pod_modes/subdomain${i}"
 done
 
 mpirun -np $np  ./hlpod_diff_offline ./ -nd $nd -nm $nm -pa $pa -st $st
-mpirun -np $np  ./hlpod_diff_online ./ -nd $nd -nm $nm -pa $pa -st $st
+#mpirun -np $np  ./hlpod_diff_online ./ -nd $nd -nm $nm -pa $pa -st $st
+#cd ../..
+
+
+fname="gdb_cmd"
+rm $fname
+touch $fname
+echo "run ./ -nd ${nd} -nm ${nm} -pa ${pa} -st ${st}" >> $fname
+echo "backtrace" >> $fname
+echo "exit" >> $fname
+
+#mpirun -np $np  ./hlpod_diff_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
+#mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline
+mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_online
+#mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_online_HROM
+#mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
+#mpirun -np $np  ./hlpod_diff_online_HROM ./ -nd $nd -nm $nm -pa $pa -st $st
+
 cd ../..

@@ -117,3 +117,20 @@ void set_element_vec_mass(
 		BBFE_BASIS* basis,
 		//VALUES*      vals,
 		double       t);
+
+void set_element_mat_mass(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		VALUES*      vals);
+
+void ROM_set_D_bc_rhs_para(
+		//MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int		num_modes,
+		const int 		num_subdomains,
+		const double    dt);

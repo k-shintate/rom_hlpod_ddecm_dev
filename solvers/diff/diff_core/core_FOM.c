@@ -38,7 +38,7 @@ double manusol_get_sol(
 	return val;
 }
 
-double manusol_get_sol(
+double manusol_get_sol_without_time(
 		double x,
 		double y,
 		double z,
@@ -211,7 +211,7 @@ void manusol_set_theo_sol_without_time(
 		double   t)
 {
 	for(int i=0; i<(fe->total_num_nodes); i++) {
-		theo_sol[i] = manusol_get_sol(fe->x[i][0], fe->x[i][1], fe->x[i][2], t);
+		theo_sol[i] = manusol_get_sol_without_time(fe->x[i][0], fe->x[i][1], fe->x[i][2], t);
 	}
 }
 
@@ -698,7 +698,7 @@ void set_element_vec_source(
 }
 
 
-void set_element_mat(
+void set_element_mat_mass(
 		MONOLIS*     monolis,
 		BBFE_DATA*     fe,
 		BBFE_BASIS* basis,
@@ -768,6 +768,7 @@ void set_element_mat(
 	BB_std_free_1d_double(k_ip, np);
 	BB_std_free_1d_double(a_ip, np);
 }
+
 void ROM_set_D_bc_rhs_para(
 		//MONOLIS*     	monolis,
 		BBFE_DATA*     	fe,
@@ -795,7 +796,7 @@ void ROM_set_D_bc_rhs_para(
 	k_ip = BB_std_calloc_1d_double(k_ip, np);
 	a_ip = BB_std_calloc_1d_double(a_ip, np);
 
-    for(int e = 0; e < fe->total_num_nodes; e++) {
+    for(int e = 0; e < fe->total_num_elems; e++) {
 		BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
 		double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);

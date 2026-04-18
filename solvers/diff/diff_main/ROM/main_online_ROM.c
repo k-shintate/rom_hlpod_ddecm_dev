@@ -1,5 +1,6 @@
 
 #include "core_ROM.h"
+#include "core_HROM.h"
 
 static const char* OPTION_NUM_MODES = "-nm";
 static const char* OPTION_NUM_1STDD = "-nd";
@@ -172,6 +173,7 @@ int main (
 
 	monolis_initialize(&(sys.monolis_rom0));
     monolis_initialize(&(sys.monolis_rom));
+    monolis_initialize(&(sys.monolis_rom_mass));
 	monolis_com_initialize_by_self(&(sys.mono_com_rom));
 	monolis_com_initialize_by_self(&(sys.mono_com_rom_solv));
 
@@ -217,6 +219,7 @@ int main (
             sys.cond.directory);
     
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom_mass));
     monolis_com_initialize_by_self(&(sys.mono_com0));
     /******************/
     
@@ -233,6 +236,13 @@ int main (
             &(sys.rom),
             sys.fe.total_num_nodes,
             1);
+
+    solver_rom_NR4(&(sys), 0, 0, 0);
+    double tt2 = monolis_get_time_global_sync();
+	printf("done solver ROM");
+    add_reduced_mat_linear(&(sys), 0, 0, 0);
+    double tt3 = monolis_get_time_global_sync();
+
 
     int file_num = 0;
     int step = 0;
@@ -261,7 +271,7 @@ int main (
 
         /****************** ROM solver ****************/
         double calctime_rom_t1 = monolis_get_time();
-        solver_rom(&(sys), step, t);        
+        solver_rom2(&(sys), step, t);        
         double calctime_rom_t2 = monolis_get_time();
 		/**********************************************/
 

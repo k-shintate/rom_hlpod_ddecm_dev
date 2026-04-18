@@ -808,7 +808,7 @@ void HROM_pre(
     if(monolis_mpi_get_global_comm_size() == 1){
     }
     else{
-        HROM_pre_offline(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
+        HROM_pre_offline3(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
     }
 }
 

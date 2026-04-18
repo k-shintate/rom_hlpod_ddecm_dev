@@ -63,3 +63,21 @@ void solver_rom(
     FE_SYSTEM* sys,
     const int step,
     const double t);
+
+void solver_rom_NR4(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);
+
+void add_reduced_mat_linear(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);
+
+
+void solver_rom2(
+    FE_SYSTEM* sys,
+    const int step,
+    const double t);
