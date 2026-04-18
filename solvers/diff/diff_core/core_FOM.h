@@ -27,7 +27,19 @@ double manusol_get_source(
 		double v[3],
 		double k);
 
+double manusol_get_source_without_time(
+        double x[3],
+        double t,
+        double a,
+        double v[3],
+        double k);
+
 void manusol_set_theo_sol(
+		BBFE_DATA* fe,
+		double*  theo_sol,
+		double   t);
+
+void manusol_set_theo_sol_without_time(
 		BBFE_DATA* fe,
 		double*  theo_sol,
 		double   t);
@@ -91,3 +103,17 @@ void solver_fom_collect_snapmat(
 		FE_SYSTEM sys,
 		double t,
 		const int step);
+
+void set_element_vec_source(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		//VALUES*      vals,
+		double       t);
+
+void set_element_vec_mass(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		//VALUES*      vals,
+		double       t);

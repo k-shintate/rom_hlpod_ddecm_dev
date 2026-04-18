@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 typedef struct
 {
@@ -40,6 +41,8 @@ typedef struct
     double** VTKV;                  //reduced matrix (VTKV)
     double* VTf;                    //reduced rhs vector
     double* VTf_tmp;                    //reduced rhs vector
+    double* VTf_D_bc;                    //reduced rhs vector
+    double* VTf_source;                    //reduced rhs vector
 
     double* mode_coef;              //coefficients for pod modes
     double* mode_coef_old;              //coefficients for pod modes

@@ -539,6 +539,8 @@ void ROM_std_hlpod_calloc_mode_coef_rhs(
     hlpod_mat->mode_coef_old = BB_std_calloc_1d_double(hlpod_mat->mode_coef_old, num_modes);
     hlpod_mat->VTf = BB_std_calloc_1d_double(hlpod_mat->VTf, num_modes);
     hlpod_mat->VTf_tmp = BB_std_calloc_1d_double(hlpod_mat->VTf_tmp, num_modes);
+    hlpod_mat->VTf_D_bc = BB_std_calloc_1d_double(hlpod_mat->VTf_D_bc, num_modes);
+    hlpod_mat->VTf_source = BB_std_calloc_1d_double(hlpod_mat->VTf_source, num_modes);
 
 }
 
@@ -569,49 +571,6 @@ void ROM_std_hlpod_reduced_rhs_to_monollis(
     
 }
 
-
-void ROM_std_hlpod_calc_reduced_rhs(
-    MONOLIS*		monolis,
-    HLPOD_MAT*      hlpod_mat,
-    const int 		max_num_bases,
-    const int		num_2nddd,
-    const int 		dof)
-{
-    int index = 0;
-    int index_row = 0;
-    int sum = 0;
-    int index_column = 0;
-
-    for(int k = 0; k < num_2nddd; k++){
-        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
-            hlpod_mat->VTf[index + i] = 0.0;
-            //printf("%lf ", hlpod_mat->VTf[index + i]);
-        }
-        index += hlpod_mat->num_modes_internal[k];
-    }
-    
-    index_row = 0;
-    sum = 0;
-    index_column = 0;
-    index = 0;
-
-    for(int k = 0; k < num_2nddd; k++){
-
-        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
-            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
-                for(int l = 0; l < dof; l++){
-                    index_row = hlpod_mat->node_id[j + sum] * dof + l;
-                    hlpod_mat->VTf[index + i] += hlpod_mat->pod_modes[index_row][index_column + i] * monolis->mat.R.B[index_row];
-                }
-            }
-        }
-        index_column += hlpod_mat->num_modes_internal[k];
-        index += hlpod_mat->num_modes_internal[k];
-        sum += hlpod_mat->n_internal_vertex_subd[k];
-
-    }
-
-}
 
 void ROM_std_hlpod_calc_reduced_rhs_add(
     MONOLIS*		monolis,

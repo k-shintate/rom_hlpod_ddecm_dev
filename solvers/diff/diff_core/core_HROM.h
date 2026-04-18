@@ -6,7 +6,7 @@
 
 #include "BBFE/manusol/manusol.h"
 
-#include "ecm_write.h"
+//#include "ecm_write.h"
 #include "hlpod_dataset.h"
 #include "diff_dataset.h"
 
@@ -56,7 +56,7 @@ void HROM_pre_offline(
     const int num_snapshot,
     const int num_2nd_subdomains);
 
-void HROM_pre_offline2(
+void HROM_pre_offline3(
     FE_SYSTEM* 		sys,
     ROM*            rom,
     HROM*           hrom,
@@ -64,7 +64,7 @@ void HROM_pre_offline2(
     const int 		num_snapshot,
     const int 		num_2nd_subdomains);
 
-void HROM_pre_online(
+void HROM_pre_online2(
     FE_SYSTEM* sys,
     ROM*            rom,
     HROM*           hrom,

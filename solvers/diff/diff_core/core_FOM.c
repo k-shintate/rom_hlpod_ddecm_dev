@@ -33,9 +33,18 @@ double manusol_get_sol(
 		double z,
 		double t)
 {
-	//double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z ) * (0.5*t + sin( 1.0*t ));
-
 	double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z ) * sin( 1.0*t );
+
+	return val;
+}
+
+double manusol_get_sol(
+		double x,
+		double y,
+		double z,
+		double t)
+{
+	double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z );
 
 	return val;
 }
@@ -106,6 +115,28 @@ double manusol_get_source(
         return val;
 }
 
+double manusol_get_source_without_time(
+                double x[3],
+                double t,
+                double a,
+                double v[3],
+                double k)
+{
+        double val = 0.0;
+
+        if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
+                val = 1000;
+        }
+        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 2.45 && x[1] < 2.55 &&x[2] > 2.45 && x[2] < 2.55){
+                val = 1000;
+        }
+        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
+                val = 1000;
+        }
+
+        return val;
+}
+
 /*
 double manusol_get_source(
 		double x[3],
@@ -165,6 +196,16 @@ double manusol_get_source(
 
 
 void manusol_set_theo_sol(
+		BBFE_DATA* fe,
+		double*  theo_sol,
+		double   t)
+{
+	for(int i=0; i<(fe->total_num_nodes); i++) {
+		theo_sol[i] = manusol_get_sol(fe->x[i][0], fe->x[i][1], fe->x[i][2], t);
+	}
+}
+
+void manusol_set_theo_sol_without_time(
 		BBFE_DATA* fe,
 		double*  theo_sol,
 		double   t)
@@ -572,6 +613,265 @@ void set_element_vec(
 	BB_std_free_1d_double(a_ip, np);
 	BB_std_free_1d_double(T_ip, np);
 	BB_std_free_1d_double(f_ip, np);
+}
+
+void set_element_vec_source(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		//VALUES*      vals,
+		double       t)
+{
+	int nl = fe->local_num_nodes;
+	int np = basis->num_integ_points;
+
+	double* val_ip;
+	double* Jacobian_ip;
+	val_ip      = BB_std_calloc_1d_double(val_ip     , np);
+	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+	double** local_x;  double* local_T;
+	local_x = BB_std_calloc_2d_double(local_x, nl, 3);
+	local_T = BB_std_calloc_1d_double(local_T, nl);
+
+	double** x_ip;  double* a_ip;  double** v_ip;  double* k_ip;  double* T_ip;  double* f_ip;
+	x_ip = BB_std_calloc_2d_double(x_ip, np, 3);
+	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+	k_ip = BB_std_calloc_1d_double(k_ip, np);
+	a_ip = BB_std_calloc_1d_double(a_ip, np);
+	T_ip = BB_std_calloc_1d_double(T_ip, np);
+	f_ip = BB_std_calloc_1d_double(f_ip, np);
+
+	for(int e=0; e<(fe->total_num_elems); e++) {
+		BBFE_elemmat_set_Jacobian_array(
+				Jacobian_ip,
+				basis->num_integ_points,
+				e,
+				fe);
+
+		double vol = BBFE_std_integ_calc_volume(
+				basis->num_integ_points,
+				basis->integ_weight,
+				Jacobian_ip);
+
+		double h_e = cbrt(vol);
+
+		BBFE_elemmat_set_local_array_vector(local_x, fe, fe->x,   e, 3);
+		//BBFE_elemmat_set_local_array_scalar(local_T, fe, vals->T, e);
+
+		for(int p=0; p<np; p++) {
+			BBFE_std_mapping_vector3d(x_ip[p], nl, local_x, basis->N[p]);
+			manusol_get_conv_vel(v_ip[p], x_ip[p]);
+			a_ip[p] = manusol_get_mass_coef(x_ip[p]);
+			k_ip[p] = manusol_get_diff_coef(x_ip[p]);
+			//T_ip[p] = BBFE_std_mapping_scalar(nl, local_T, basis->N[p]);
+			f_ip[p] = manusol_get_source_without_time(x_ip[p], t, a_ip[p], v_ip[p], k_ip[p]);
+		}
+
+		for(int i=0; i<nl; i++) {
+			for(int p=0; p<np; p++) {
+				val_ip[p] = 0.0;
+
+				val_ip[p] += BBFE_elemmat_convdiff_vec_source(
+						basis->N[p][i], f_ip[p]);
+			}
+
+			double integ_val = BBFE_std_integ_calc(
+					np, val_ip, basis->integ_weight, Jacobian_ip);
+
+			monolis->mat.R.B[ fe->conn[e][i] ] += integ_val;
+		}
+	}
+
+	BB_std_free_1d_double(val_ip,      basis->num_integ_points);
+	BB_std_free_1d_double(Jacobian_ip, basis->num_integ_points);
+
+	BB_std_free_2d_double(local_x, fe->local_num_nodes, 3);
+	//BB_std_free_1d_double(local_T, fe->local_num_nodes);
+
+	BB_std_free_2d_double(x_ip, np, 3);
+	BB_std_free_2d_double(v_ip, np, 3);
+	BB_std_free_1d_double(k_ip, np);
+	BB_std_free_1d_double(a_ip, np);
+	//BB_std_free_1d_double(T_ip, np);
+	BB_std_free_1d_double(f_ip, np);
+}
+
+
+void set_element_mat(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		VALUES*      vals)
+{
+	int nl = fe->local_num_nodes;
+	int np = basis->num_integ_points;
+
+	double* val_ip;  double* Jacobian_ip;
+	val_ip      = BB_std_calloc_1d_double(val_ip     , np);
+	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+	double** local_x;
+	local_x   = BB_std_calloc_2d_double(local_x, nl, 3);
+
+	double** x_ip;  double* a_ip;  double** v_ip;  double* k_ip;
+	x_ip = BB_std_calloc_2d_double(x_ip, np, 3);
+	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+	k_ip = BB_std_calloc_1d_double(k_ip, np);
+	a_ip = BB_std_calloc_1d_double(a_ip, np);
+
+	for(int e=0; e<(fe->total_num_elems); e++) {
+		BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+		double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+		double h_e = cbrt(vol);
+
+		BBFE_elemmat_set_local_array_vector(local_x, fe, fe->x, e, 3);
+
+		for(int p=0; p<np; p++) {
+			BBFE_std_mapping_vector3d(x_ip[p], nl, local_x, basis->N[p]);
+			a_ip[p] = manusol_get_mass_coef(x_ip[p]);
+			manusol_get_conv_vel(v_ip[p], x_ip[p]);
+			k_ip[p] = manusol_get_diff_coef(x_ip[p]);
+
+		}
+
+		for(int i=0; i<nl; i++) {
+			for(int j=0; j<nl; j++) {
+
+				for(int p=0; p<np; p++) {
+					val_ip[p] = 0.0;
+
+					val_ip[p] += 1.0/(vals->dt) * BBFE_elemmat_convdiff_mat_mass(
+								basis->N[p][i], basis->N[p][j], a_ip[p]);
+
+				}
+
+				double integ_val = BBFE_std_integ_calc(
+						np, val_ip, basis->integ_weight, Jacobian_ip);
+
+				monolis_add_scalar_to_sparse_matrix_R(
+						monolis,
+						fe->conn[e][i], fe->conn[e][j], 0, 0,
+						integ_val);
+			}
+		}
+	}
+
+	BB_std_free_1d_double(val_ip,      basis->num_integ_points);
+	BB_std_free_1d_double(Jacobian_ip, basis->num_integ_points);
+
+	BB_std_free_2d_double(local_x,   fe->local_num_nodes, 3);
+
+	BB_std_free_2d_double(x_ip, np, 3);
+	BB_std_free_2d_double(v_ip, np, 3);
+	BB_std_free_1d_double(k_ip, np);
+	BB_std_free_1d_double(a_ip, np);
+}
+void ROM_set_D_bc_rhs_para(
+		//MONOLIS*     	monolis,
+		BBFE_DATA*     	fe,
+		BBFE_BASIS* 	basis,
+    	BBFE_BC*     	bc,
+    	HLPOD_MAT*      hlpod_mat,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int		num_modes,
+		const int 		num_subdomains,
+		const double    dt)
+{
+	int nl = fe->local_num_nodes;
+	int np = basis->num_integ_points;
+
+	double* val_ip;  double* Jacobian_ip;
+	val_ip      = BB_std_calloc_1d_double(val_ip     , np);
+	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+	double** local_x;
+	local_x   = BB_std_calloc_2d_double(local_x, nl, 3);
+
+	double** x_ip;  double* a_ip;  double** v_ip;  double* k_ip;
+	x_ip = BB_std_calloc_2d_double(x_ip, np, 3);
+	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+	k_ip = BB_std_calloc_1d_double(k_ip, np);
+	a_ip = BB_std_calloc_1d_double(a_ip, np);
+
+    for(int e = 0; e < fe->total_num_nodes; e++) {
+		BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+		double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+		double h_e = cbrt(vol);
+
+		BBFE_elemmat_set_local_array_vector(local_x, fe, fe->x, e, 3);
+
+		for(int p=0; p<np; p++) {
+			BBFE_std_mapping_vector3d(x_ip[p], nl, local_x, basis->N[p]);
+			a_ip[p] = manusol_get_mass_coef(x_ip[p]);
+			manusol_get_conv_vel(v_ip[p], x_ip[p]);
+			k_ip[p] = manusol_get_diff_coef(x_ip[p]);
+
+		}
+
+		for(int j=0; j<nl; j++) {       //六面体一次要素は8
+			int index_j = fe->conn[e][j];
+			if( bc->D_bc_exists[index_j]) {
+
+			for(int i=0; i<nl; i++) {
+				
+				for(int p=0; p<np; p++) {
+					val_ip[p] = 0.0;
+/*
+					double tau = BBFE_elemmat_convdiff_stab_coef_ns(
+							k_ip[p], v_ip[p], a_ip[p], h_e, vals->dt);
+*/
+/*
+					val_ip[p] += BBFE_elemmat_convdiff_mat_conv(
+							basis->N[p][i], fe->geo[e][p].grad_N[j], a_ip[p], v_ip[p]);
+*/
+					val_ip[p] -= BBFE_elemmat_convdiff_mat_diff(
+							fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], k_ip[p]);
+/*
+					val_ip[p] += BBFE_elemmat_convdiff_mat_stab_conv(
+							fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], a_ip[p], v_ip[p], tau);
+*/
+					//val_ip[p] += 1.0/(vals->dt) * BBFE_elemmat_convdiff_mat_mass(
+                    val_ip[p] += 1.0/ dt  * BBFE_elemmat_convdiff_mat_mass(
+								basis->N[p][i], basis->N[p][j], a_ip[p]);
+/*
+					val_ip[p] += 1.0/(vals->dt) *  BBFE_elemmat_convdiff_mat_stab_mass(
+								fe->geo[e][p].grad_N[i], basis->N[p][j], a_ip[p], v_ip[p], tau);
+*/
+				}
+
+				double integ_val = BBFE_std_integ_calc(
+						np, val_ip, basis->integ_weight, Jacobian_ip);
+                
+                int index_i = fe->conn[e][i];
+                int index_j = fe->conn[e][j];
+
+				int subdomain_id = hlpod_mat->subdomain_id_in_nodes[index_i];
+				int IS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id];
+				int IE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id + 1];
+
+                for(int k1 = IS; k1 < IE; k1++){
+                    double val = hlpod_mat->pod_modes[index_i][k1] * integ_val * bc->imposed_D_val[index_j];
+                    hlpod_mat->VTf_D_bc[k1] += - val;
+                }
+			}
+
+			}
+		}
+	}
+
+
+	BB_std_free_1d_double(val_ip,      basis->num_integ_points);
+	BB_std_free_1d_double(Jacobian_ip, basis->num_integ_points);
+
+	BB_std_free_2d_double(local_x,   fe->local_num_nodes, 3);
+
+	BB_std_free_2d_double(x_ip, np, 3);
+	BB_std_free_2d_double(v_ip, np, 3);
+	BB_std_free_1d_double(k_ip, np);
+	BB_std_free_1d_double(a_ip, np);
 }
 
 //右辺ベクトルのアップデートと解ベクトルの求解
