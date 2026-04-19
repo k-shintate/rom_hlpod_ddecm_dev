@@ -697,6 +697,87 @@ void set_element_vec_source(
 	BB_std_free_1d_double(f_ip, np);
 }
 
+void set_element_vec_mass(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		VALUES*      vals,
+		double       t)
+{
+	int nl = fe->local_num_nodes;
+	int np = basis->num_integ_points;
+
+	double* val_ip;
+	double* Jacobian_ip;
+	val_ip      = BB_std_calloc_1d_double(val_ip     , np);
+	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+
+	double** local_x;  double* local_T;
+	local_x = BB_std_calloc_2d_double(local_x, nl, 3);
+	local_T = BB_std_calloc_1d_double(local_T, nl);
+
+	double** x_ip;  double* a_ip;  double** v_ip;  double* k_ip;  double* T_ip;  double* f_ip;
+	x_ip = BB_std_calloc_2d_double(x_ip, np, 3);
+	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+	k_ip = BB_std_calloc_1d_double(k_ip, np);
+	a_ip = BB_std_calloc_1d_double(a_ip, np);
+	T_ip = BB_std_calloc_1d_double(T_ip, np);
+	f_ip = BB_std_calloc_1d_double(f_ip, np);
+
+	for(int e=0; e<(fe->total_num_elems); e++) {
+		BBFE_elemmat_set_Jacobian_array(
+				Jacobian_ip,
+				basis->num_integ_points,
+				e,
+				fe);
+
+		double vol = BBFE_std_integ_calc_volume(
+				basis->num_integ_points,
+				basis->integ_weight,
+				Jacobian_ip);
+
+		double h_e = cbrt(vol);
+
+		BBFE_elemmat_set_local_array_vector(local_x, fe, fe->x,   e, 3);
+		BBFE_elemmat_set_local_array_scalar(local_T, fe, vals->T, e);
+
+		for(int p=0; p<np; p++) {
+			BBFE_std_mapping_vector3d(x_ip[p], nl, local_x, basis->N[p]);
+			manusol_get_conv_vel(v_ip[p], x_ip[p]);
+			a_ip[p] = manusol_get_mass_coef(x_ip[p]);
+			k_ip[p] = manusol_get_diff_coef(x_ip[p]);
+			T_ip[p] = BBFE_std_mapping_scalar(nl, local_T, basis->N[p]);
+			f_ip[p] = manusol_get_source(x_ip[p], t, a_ip[p], v_ip[p], k_ip[p]);
+		}
+
+		for(int i=0; i<nl; i++) {
+			for(int p=0; p<np; p++) {
+				val_ip[p] = 0.0;
+
+				val_ip[p] += 1.0/(vals->dt) * BBFE_elemmat_convdiff_vec_mass(
+						basis->N[p][i], T_ip[p], a_ip[p]);
+			}
+
+			double integ_val = BBFE_std_integ_calc(
+					np, val_ip, basis->integ_weight, Jacobian_ip);
+
+			monolis->mat.R.B[ fe->conn[e][i] ] += integ_val;
+		}
+	}
+
+	BB_std_free_1d_double(val_ip,      basis->num_integ_points);
+	BB_std_free_1d_double(Jacobian_ip, basis->num_integ_points);
+
+	BB_std_free_2d_double(local_x, fe->local_num_nodes, 3);
+	BB_std_free_1d_double(local_T, fe->local_num_nodes);
+
+	BB_std_free_2d_double(x_ip, np, 3);
+	BB_std_free_2d_double(v_ip, np, 3);
+	BB_std_free_1d_double(k_ip, np);
+	BB_std_free_1d_double(a_ip, np);
+	BB_std_free_1d_double(T_ip, np);
+	BB_std_free_1d_double(f_ip, np);
+}
 
 void set_element_mat_mass(
 		MONOLIS*     monolis,

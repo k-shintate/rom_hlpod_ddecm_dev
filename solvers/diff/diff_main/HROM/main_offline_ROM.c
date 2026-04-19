@@ -273,7 +273,7 @@ int main (
 
         /****************** ROM solver ****************/
         double calctime_rom_t1 = monolis_get_time();
-        solver_rom(&(sys), step, t);        
+        solver_rom2(&(sys), step, t);        
         double calctime_rom_t2 = monolis_get_time();
 		/**********************************************/
 

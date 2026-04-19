@@ -115,7 +115,7 @@ void set_element_vec_mass(
 		MONOLIS*     monolis,
 		BBFE_DATA*     fe,
 		BBFE_BASIS* basis,
-		//VALUES*      vals,
+		VALUES*      vals,
 		double       t);
 
 void set_element_mat_mass(
