@@ -310,14 +310,14 @@ void solver_rom(
     if(step == 102){
         exit(1);
     }
-
+/*
    set_element_vec(
             &(sys->monolis),
             &(sys->fe),
             &(sys->basis),
             &(sys->vals_rom),
             t);
-
+*/
     manusol_set_theo_sol(&(sys->fe), sys->vals.theo_sol, t);
     BBFE_manusol_set_bc_scalar(
             &(sys->fe),
@@ -498,7 +498,8 @@ void ROM_std_hlpod_calc_reduced_rhs5(
                     hlpod_mat->VTf[a] +=
                         hlpod_mat->pod_modes[row][index_column + i]
                       * monolis->mat.R.B[row];
-                }
+
+                      }
             }
         }
 
@@ -638,7 +639,7 @@ void solver_rom2(
                 sys->rom.hlpod_vals.num_modes_pre,
                 sys->rom.hlpod_vals.num_modes, 1);
 
-        //exit(1);
+        exit(1);
         }
 
         /*for ROM*/

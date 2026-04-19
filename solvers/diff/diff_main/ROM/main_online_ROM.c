@@ -264,15 +264,16 @@ int main (
 		step += 1;
 
 		printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-        double calctime_fem_t1 = monolis_get_time();
-        solver_fom(sys, t, step);	
-        double calctime_fem_t2 = monolis_get_time();
-		/**********************************************/
 
         /****************** ROM solver ****************/
         double calctime_rom_t1 = monolis_get_time();
         solver_rom2(&(sys), step, t);        
         double calctime_rom_t2 = monolis_get_time();
+		/**********************************************/
+
+        double calctime_fem_t1 = monolis_get_time();
+        solver_fom(sys, t, step);	
+        double calctime_fem_t2 = monolis_get_time();
 		/**********************************************/
 
         if(step%sys.vals.output_interval == 0) {
