@@ -508,7 +508,7 @@ printf("\n\nn_basis=%d rom_epsilon = %lf\n", n_basis, rom_epsilon);
 }
 */
 
-
+/*
 void ROM_std_hlpod_read_podmodes_local_para(
     HLPOD_VALUES*       hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
@@ -555,7 +555,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
                 V,
                 num_snapshots1,
                 rom_epsilon);
-        n_basis = 5;
+        //n_basis = 5;
 //printf("\n\nn_basis=%d rom_epsilon = %lf\n", n_basis, rom_epsilon);
         if(n_basis > num_modes){
                 n_basis = num_modes;
@@ -599,9 +599,10 @@ void ROM_std_hlpod_read_podmodes_local_para(
     hlpod_vals->num_modes = index_column;
 
 }
+    */
 
 
-/*
+
 void ROM_std_hlpod_read_podmodes_local_para(
     HLPOD_VALUES*       hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
@@ -647,7 +648,9 @@ void ROM_std_hlpod_read_podmodes_local_para(
             label,
             directory);
 
-    	n_basis = 10;
+    	//n_basis = 10;
+
+        printf("n_basis = %d\n", n_basis);
 
         hlpod_mat->num_modes_internal[m] = n_basis;
 
@@ -678,8 +681,9 @@ void ROM_std_hlpod_read_podmodes_local_para(
 
     hlpod_vals->num_modes = index_column;
 
+
+    //exit(1);
 }
-*/
 
 
 void ROM_std_hlpod_set_podmodes_global_para(

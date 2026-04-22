@@ -2050,8 +2050,6 @@ void HROM_ddecm_calc_block_mat_bcsr(
 
 	BB_std_free_2d_double(L_in, M, M);
 }
-
-
 */
 
 void HROM_ddecm_calc_block_mat_bcsr(

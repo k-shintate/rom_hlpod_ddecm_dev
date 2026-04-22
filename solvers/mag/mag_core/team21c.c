@@ -16,11 +16,14 @@ void get_sigmas_for_prop_team21c(
 ){
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil * 0.1256/3.2;
+        //*sigma_mass_A = Sigma_coil * 0.1256/3.2;
         //*sigma_cpl    = Sigma_coil* 0.119;
         //*sigma_phi    = Sigma_coil* 0.119;
-	*sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
+	    //*sigma_cpl    = 0.0;
+        //*sigma_phi    = 0.0;
+        *sigma_mass_A = Sigma_coil;
+        *sigma_cpl    = Sigma_coil;
+        *sigma_phi    = Sigma_coil;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
         *sigma_mass_A = Sigma_steel;
@@ -1635,6 +1638,145 @@ const double freq  = 50.0;               // Hz
 const double Omega = 2.0*M_PI*freq;      // rad/s  ★これが正しい
 
 
+/* penalty factor for total current constraint */
+static const double ETA_COIL_CURRENT_team21a2 = 1.0e4;
+
+static inline double get_coil_current_team21a2(int prop, double t)
+{
+    const double omega = 2.0 * M_PI * FREQ_HZ_team21c;
+    const double Iamp  = sqrt(2.0) * I_RMS;  /* peak value */
+
+    if(prop == 1){
+        return  Iamp ;   
+    } else if(prop == 2){
+        return  -Iamp ; 
+    }  
+
+    return 0.0;
+}
+
+
+static inline double get_target_total_current_team21a2(int prop)
+{
+    COIL_INFO coil;
+    if(!get_coil_info_team21(prop, &coil)) return 0.0;
+    return coil.turns * get_coil_current_team21a2(prop, 0.0);
+}
+
+static void add_total_current_penalty_team21a2(
+    MONOLIS*      monolis,
+    BBFE_DATA*    fe,
+    BBFE_BASIS*   basis,
+    NEDELEC*      ned,
+    int           e,
+    const double* Jacobian_ip)
+{
+    int prop = ned->elem_prop[e];
+
+    COIL_INFO coil;
+    if(!get_coil_info_team21(prop, &coil)) return;
+
+    double sigma_mass_A, sigma_cpl, sigma_phi;
+    get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
+
+    const int np = basis->num_integ_points;
+    const int ne = ned->local_num_edges;
+    const int nn = fe->local_num_nodes;
+
+    /* 必要ならサイズをあなたの要素に合わせて拡張 */
+    double _Complex dI_dA[64];
+    double _Complex dI_dphi[64];
+
+    for(int i = 0; i < ne; ++i) dI_dA[i] = 0.0 + 0.0*I;
+    for(int n = 0; n < nn; ++n) dI_dphi[n] = 0.0 + 0.0*I;
+
+    for(int p = 0; p < np; ++p){
+        double x_ip[3];
+        double tdir[3];
+        int ok_tdir;
+        const double wgp = basis->integ_weight[p] * Jacobian_ip[p];
+
+        get_interp_coords(e, p, fe, basis, x_ip);
+
+        if(USE_SIMPLE_TDIR_TEST){
+            ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
+        } else {
+            ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
+        }
+        if(!ok_tdir) continue;
+
+        for(int j = 0; j < ne; ++j){
+            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+            const double Nj_dot_t = dot3(ned->N_edge[e][p][j], tdir);
+
+            /* I = ∫ σ(-iωA - ∇φ)·t dV */
+            dI_dA[j] += (-sigma_mass_A * I * Omega * (double)sj * Nj_dot_t) * wgp;
+        }
+
+        for(int n = 0; n < nn; ++n){
+            const double gN_dot_t = dot3(fe->geo[e][p].grad_N[n], tdir);
+
+            /* dI/dphi : ∫ -σ (grad N · t) dV */
+            dI_dphi[n] += (-sigma_cpl * gN_dot_t) * wgp * I * Omega;
+        }
+    }
+
+    {
+        const double I0  = get_target_total_current_team21a2(prop);
+        const double eta = ETA_COIL_CURRENT_team21a2;
+
+        /*
+         * Linear harmonic form:
+         *   I(u) = dI/du * u
+         *   Πpen  = (η/2) | I - I0 |^2
+         *
+         * 実装簡略化として
+         *   K_pen = η (dI)(dI)^T
+         *   f_pen = η I0 dI
+         *
+         * ※ もし全体系の符号規約が residual-based で逆なら、
+         *    下の B 加算は -= に変えてください。
+         */
+
+        for(int i = 0; i < ne; ++i){
+            const int gi = ned->nedelec_conn[e][i];
+
+            for(int j = 0; j < ne; ++j){
+                const int gj = ned->nedelec_conn[e][j];
+                monolis_add_scalar_to_sparse_matrix_C(
+                    monolis, gi, gj, 0, 0, eta * dI_dA[i] * dI_dA[j]);
+            }
+
+            for(int n = 0; n < nn; ++n){
+                const int gn = fe->conn[e][n];
+                monolis_add_scalar_to_sparse_matrix_C(
+                    monolis, gi, gn, 0, 0, eta * dI_dA[i] * dI_dphi[n]);
+            }
+
+            monolis->mat.C.B[gi] += eta * I0 * dI_dA[i];
+        }
+
+        for(int m = 0; m < nn; ++m){
+            const int gm = fe->conn[e][m];
+
+            for(int j = 0; j < ne; ++j){
+                const int gj = ned->nedelec_conn[e][j];
+                monolis_add_scalar_to_sparse_matrix_C(
+                    monolis, gm, gj, 0, 0, eta * dI_dphi[m] * dI_dA[j]);
+            }
+
+            for(int n = 0; n < nn; ++n){
+                const int gn = fe->conn[e][n];
+                monolis_add_scalar_to_sparse_matrix_C(
+                    monolis, gm, gn, 0, 0, eta * dI_dphi[m] * dI_dphi[n]);
+            }
+
+            monolis->mat.C.B[gm] += eta * I0 * dI_dphi[m];
+        }
+    }
+}
+
+
 void set_element_mat_nedelec_Aphi_team21a2(
     MONOLIS*     monolis,
     BBFE_DATA*   fe,
@@ -1655,10 +1797,13 @@ void set_element_mat_nedelec_Aphi_team21a2(
         double sigma_massA, sigma_cpl, sigma_phi;
         get_sigmas_for_prop_team21c(prop, &sigma_massA, &sigma_cpl, &sigma_phi);
 
+
         int nonlinear_mu = 0;
+        (void)nonlinear_mu;
 
         BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
 
+        /* curl-curl block (A-A) */
         for(int i=0; i<ned->local_num_edges; ++i){
             const int gi = ned->nedelec_conn[e][i];
             const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
@@ -1677,12 +1822,13 @@ void set_element_mat_nedelec_Aphi_team21a2(
                 }
 
                 double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si*sj);  // ★ edge_sign
+                v *= (double)(si*sj);
 
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
             }
         }
 
+        /* sigma * iω * A mass block */
         for(int i=0; i<ned->local_num_edges; ++i){
             const int gi = ned->nedelec_conn[e][i];
             const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
@@ -1706,11 +1852,12 @@ void set_element_mat_nedelec_Aphi_team21a2(
             }
         }
 
+        /* phi-phi block */
         for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm =  fe->conn[e][m];
+            const int gm = fe->conn[e][m];
 
             for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn =  fe->conn[e][n];
+                const int gn = fe->conn[e][n];
 
                 for(int p=0; p<np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
@@ -1718,7 +1865,7 @@ void set_element_mat_nedelec_Aphi_team21a2(
                         fe->geo[e][p].grad_N[m],
                         fe->geo[e][p].grad_N[n],
                         sigma_phi
-                    )*I*Omega;
+                    ) * I * Omega;
                 }
 
                 double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
@@ -1726,12 +1873,13 @@ void set_element_mat_nedelec_Aphi_team21a2(
             }
         }
 
+        /* A-phi block */
         for(int j=0; j<ned->local_num_edges; ++j){
             const int gj = ned->nedelec_conn[e][j];
             const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
             for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn =  fe->conn[e][n];
+                const int gn = fe->conn[e][n];
 
                 for(int p=0; p<np; ++p){
                     val_ip_C[p] = 0.0 + 0.0*I;
@@ -1739,7 +1887,7 @@ void set_element_mat_nedelec_Aphi_team21a2(
                         fe->geo[e][p].grad_N[n],
                         ned->N_edge[e][p][j],
                         sigma_cpl
-                    ) *I*Omega;
+                    ) * I * Omega;
                 }
 
                 double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
@@ -1749,8 +1897,9 @@ void set_element_mat_nedelec_Aphi_team21a2(
             }
         }
 
+        /* phi-A block */
         for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm =  fe->conn[e][m];
+            const int gm = fe->conn[e][m];
 
             for(int i=0; i<ned->local_num_edges; ++i){
                 const int gi = ned->nedelec_conn[e][i];
@@ -1762,7 +1911,7 @@ void set_element_mat_nedelec_Aphi_team21a2(
                         ned->N_edge[e][p][i],
                         fe->geo[e][p].grad_N[m],
                         sigma_cpl
-                    )*I*Omega;
+                    ) * I * Omega;
                 }
 
                 double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
@@ -1771,28 +1920,13 @@ void set_element_mat_nedelec_Aphi_team21a2(
                 monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
             }
         }
+
+        /* total-current penalty on each coil block */
+        add_total_current_penalty_team21a2(monolis, fe, basis, ned, e, J_ip);
     }
 
     BB_std_free_1d_double(J_ip, np);
     BB_std_free_1d_double_C(val_ip_C, np);
-}
-
-
-static const double I_RMS_team21a2 = 10.0;   /* TEAM benchmark rated current [A rms] */
-static const double FREQ_HZ_team21a2 = 50.0; /* [Hz] */
-
-static inline double get_coil_current_team21a2(int prop, double t)
-{
-    const double omega = 2.0 * M_PI * FREQ_HZ_team21a2;
-    const double Iamp  = sqrt(2.0) * I_RMS_team21a2;  /* peak value */    
-
-    if(prop == 1){
-        return  Iamp;   
-    } else if(prop == 2){
-        return  -Iamp;   
-    }
-
-    return 0.0;
 }
 
 
@@ -1803,14 +1937,19 @@ void set_element_vec_nedelec_Aphi_team21a2(
     BBFE_BC*     bc,
     NEDELEC*     ned)
 {
+    (void)bc;
+
     const int np = basis->num_integ_points;
     double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
     double* val_ip_C    = BB_std_calloc_1d_double(val_ip_C, np);
 
     const double epsB   = 1.0e-14;
     const double eps_r  = 1.0e-14;
+    (void)epsB;
+    (void)eps_r;
 
     const int nEdge = fe->total_num_nodes;
+    (void)nEdge;
 
     for(int e = 0; e < fe->total_num_elems; ++e){
 
@@ -1818,63 +1957,26 @@ void set_element_vec_nedelec_Aphi_team21a2(
 
         double sigma_mass_A, sigma_cpl, sigma_phi;
         get_sigmas_for_prop_team21c(prop, &sigma_mass_A, &sigma_cpl, &sigma_phi);
+        (void)sigma_mass_A;
+        (void)sigma_cpl;
+        (void)sigma_phi;
 
-        //int nonlinear_mu = (prop == 4) ? 1 : 0;
         int nonlinear_mu = 0;
+        (void)nonlinear_mu;
 
-        /* coil info */
         COIL_INFO coil;
         int is_coil = get_coil_info_team21(prop, &coil);
+        (void)coil;
+        (void)is_coil;
 
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-        /* ==========================================================
-         * [1] Source term (coil excitation)
-         *     current source amplitude is no longer prescribed by CURRENT_AMP
-         *     use updated phase current g_phase_current3[phase]
-         * ========================================================== */
-        if(is_coil){
-            double I_t = get_coil_current_team21a2(prop, 0.0);
-            double J_mag = (coil.turns * I_t) / coil.area;
-
-            for(int i = 0; i < ned->local_num_edges; ++i){
-                int gi = ned->nedelec_conn[e][i];
-                int si = ned->edge_sign[e][i];
-
-                for(int p = 0; p < np; ++p){
-                    double x_ip[3];
-                    get_interp_coords(e, p, fe, basis, x_ip);
-
-                    double tdir[3];
-                    double Js[3] = {0.0, 0.0, 0.0};
-                    int ok_tdir = 0;
-
-                    if (USE_SIMPLE_TDIR_TEST) {
-                        ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
-                    } else {
-                        ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
-                    }
-
-                    if (ok_tdir) {
-                        Js[0] = J_mag * tdir[0];
-                        Js[1] = J_mag * tdir[1];
-                        Js[2] = J_mag * tdir[2];
-                    }
-
-                    val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
-                }
-
-                double integ = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                double _Complex val = (double)si * integ;
-                monolis->mat.C.B[gi] -= val;
-            }
-        }
+        /* direct impressed Js is removed when total-current penalty is used */
     }
 
     BB_std_free_1d_double(Jacobian_ip, np);
     BB_std_free_1d_double(val_ip_C, np);
 }
-
 
 void apply_dirichlet_bc_for_A_and_phi_team21a2(
     MONOLIS* monolis,
@@ -1981,10 +2083,9 @@ void apply_dirichlet_bc_for_A_and_phi_team21a2(
 
 
     for (int i = 0; i < num_nodes; ++i){
-        if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4) {
+        //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4) {
         //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
-	//if (node_is_conductor[i] == 4) {
-
+	    if (node_is_conductor[i] == 4) {
 
 	    monolis_set_Dirichlet_bc_C(
                 monolis, 
@@ -2079,11 +2180,9 @@ double calc_copper_shield_loss_EM1_freq(
             //double _Complex E1 = -A[1] - grad_phi[1];
             //double _Complex E2 = -A[2] - grad_phi[2];
 
-	    double _Complex E0 = -(I*omega)*A[0] - (I*omega)*grad_phi[0];
+	        double _Complex E0 = -(I*omega)*A[0] - (I*omega)*grad_phi[0];
             double _Complex E1 = -(I*omega)*A[1] - (I*omega)*grad_phi[1];
             double _Complex E2 = -(I*omega)*A[2] - (I*omega)*grad_phi[2];
-
-
 
             double e2 =
                 creal(E0*conj(E0) + E1*conj(E1) + E2*conj(E2));
@@ -3207,4 +3306,3 @@ void set_element_mat_NR_Aphi_team21c_curl_curl(
     BB_std_free_1d_double(Jacobian_ip, np);
     BB_std_free_1d_double(val_ip, np);
 }
-

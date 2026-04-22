@@ -81,3 +81,8 @@ void solver_rom2(
     FE_SYSTEM* sys,
     const int step,
     const double t);
+
+void solver_rom_NR2(
+    FE_SYSTEM* sys,
+    const int step,
+    const double t);
