@@ -17,6 +17,7 @@ typedef struct
 	double* T;
 	double* error;
 	double* theo_sol;
+	double* theo_sol_old;
 
     /*for ROM input data*/
     double  rom_finish_time;

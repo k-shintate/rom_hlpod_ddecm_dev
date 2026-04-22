@@ -116,22 +116,25 @@ def read_bnode_x_sorted_by_z(vtp_path: str, array_name: str = "B_node"):
 def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
     plt.figure(figsize=(9, 6))
 
+    signs = ["+", "-"]
+
     # --- plot VTP results ---
     for i, vtp_path in enumerate(vtp_paths, start=1):
         z_sorted, bnode_x_sorted = read_bnode_x_sorted_by_z(vtp_path, array_name=array_name)
+
+        sign = signs[i - 1] if i - 1 < len(signs) else "?"
+
         plt.plot(
             z_sorted,
             bnode_x_sorted,
             marker="o",
             linestyle="-",
             markersize=3,
-            label=f"{array_name}_x from VTP #{i}: {vtp_path}"
+            label=f"X={sign}5.76mm (proposed)"
         )
 
     # --- reference data from Table A3-2 ---
     z_ref, xp_meas, xp_calc, xm_meas, xm_calc = get_table_a3_2_in_si()
-
-
 
     plt.xlim(0.0, 0.4)
     plt.xlabel("z [m]")

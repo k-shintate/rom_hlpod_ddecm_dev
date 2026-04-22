@@ -307,31 +307,34 @@ void solver_rom(
     monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
 
 
-    if(step == 102){
+    if(step == 104){
         exit(1);
     }
-/*
+
    set_element_vec(
             &(sys->monolis),
             &(sys->fe),
             &(sys->basis),
             &(sys->vals_rom),
             t);
-*/
+
     manusol_set_theo_sol(&(sys->fe), sys->vals.theo_sol, t);
     BBFE_manusol_set_bc_scalar(
             &(sys->fe),
             &(sys->bc),
             sys->vals.theo_sol,
             t);
-
-    BBFE_sys_monowrap_set_Dirichlet_bc(
+    if(step == 101||step==102){
+            BBFE_sys_monowrap_set_Dirichlet_bc(
             &(sys->monolis),
             sys->fe.total_num_nodes,
             BLOCK_SIZE,
             &(sys->bc),
             sys->monolis.mat.R.B);
+    }
+/*
 
+*/
     double t2 = monolis_get_time_global_sync();
 
     sys->rom.hlpod_vals.time_calc_reduced_matvec = t2 - t1;
@@ -368,13 +371,17 @@ void solver_rom(
 void ROM_std_hlpod_calc_reduced_rhs5(
     MONOLIS* monolis,
     MONOLIS* monolis_rom,
+    MONOLIS_COM* monolis_com,
     MONOLIS_COM* mono_com0,
+    MONOLIS_COM* monolis_com_solv,
     BBFE_DATA* fe,
     BBFE_BASIS* basis,
     VALUES* vals,
     BBFE_BC*   	bc,
     double current_time,
     HLPOD_MAT* hlpod_mat,
+    HLPOD_VALUES* hlpod_vals,
+        HLPOD_META* hlpod_meta,
     const int num_2nddd,
     const int       n_neib_vec,
     const int       num_modes,
@@ -397,6 +404,7 @@ void ROM_std_hlpod_calc_reduced_rhs5(
         hlpod_mat->VTf[a] = 0.0;
         hlpod_mat->VTf_source[a] = 0.0;
         hlpod_mat->VTf_D_bc[a] = 0.0;
+        hlpod_mat->VTf_tmp[a] = 0.0;
     }
 
     for(int r = 0; r < ndof_total; r++){
@@ -417,11 +425,11 @@ void ROM_std_hlpod_calc_reduced_rhs5(
             for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
                 for(int l = 0; l < dof; l++){
                     int row = hlpod_mat->node_id[j + sum] * dof + l;
-
+/*
                     hlpod_mat->VTf[a] +=
                         hlpod_mat->pod_modes[row][index_column + i]
-                      * monolis->mat.R.B[row]  * (1+sin(current_time));
-
+                      * monolis->mat.R.B[row]  * (1 + sin(current_time));
+*/
                     hlpod_mat->VTf_source[a] += hlpod_mat->pod_modes[row][index_column + i]
                       * monolis->mat.R.B[row];
                 }
@@ -479,6 +487,52 @@ void ROM_std_hlpod_calc_reduced_rhs5(
         sum          += hlpod_mat->n_internal_vertex_subd[k];
     }
 
+        monolis_clear_mat_value_R(monolis);
+    manusol_set_theo_sol_without_time(fe, theo_sol, current_time);
+    
+    monolis_clear_mat_value_R(monolis);
+    set_element_mat_mass(monolis, fe, basis, vals);
+
+    BBFE_manusol_set_bc_scalar(
+                fe,
+                bc,
+                theo_sol,
+                current_time);
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+            monolis,
+            fe->total_num_nodes,
+            BLOCK_SIZE,
+            bc,
+            monolis->mat.R.B);
+
+     index = 0;
+     index_column = 0;
+     sum = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            int a = index + i;
+
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    int row = hlpod_mat->node_id[j + sum] * dof + l;
+/*
+                    hlpod_mat->VTf[a] +=
+                        hlpod_mat->pod_modes[row][index_column + i]
+                      * monolis->mat.R.B[row]  * sin(current_time);
+*/
+                    hlpod_mat->VTf_tmp[a] += hlpod_mat->pod_modes[row][index_column + i]
+                      * monolis->mat.R.B[row];
+                }
+            }
+        }
+
+        index_column += hlpod_mat->num_modes_internal[k];
+        index        += hlpod_mat->num_modes_internal[k];
+        sum          += hlpod_mat->n_internal_vertex_subd[k];
+    }
+
     monolis_clear_mat_value_R(monolis);
     set_element_vec_mass(
         monolis, fe, basis, vals, current_time);
@@ -508,7 +562,6 @@ void ROM_std_hlpod_calc_reduced_rhs5(
         sum          += hlpod_mat->n_internal_vertex_subd[k];
     }
 
-
     printf("done Vtf source term\n");
 
     double* monolis_out2 = BB_std_calloc_1d_double(monolis_out2, n_neib_vec);
@@ -532,6 +585,7 @@ void ROM_std_hlpod_calc_reduced_rhs6(
     const int       num_modes,
     const int       max_num_bases,
     const int       total_num_bases,
+    const double dt,
     const int dof)
 {
     int total_modes = 0;
@@ -552,7 +606,8 @@ void ROM_std_hlpod_calc_reduced_rhs6(
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
                 int a = index + i;
                 hlpod_mat->VTf[a] += hlpod_mat->VTf_D_bc[a] * sin(current_time);
-                hlpod_mat->VTf[a] += hlpod_mat->VTf_source[a] * ( 1 + sin(current_time));
+                hlpod_mat->VTf[a] -= hlpod_mat->VTf_tmp[a] * sin(current_time-dt);
+                //hlpod_mat->VTf[a] += hlpod_mat->VTf_source[a] * ( 1 + sin(current_time));
             }
         index_column += hlpod_mat->num_modes_internal[k];
         index        += hlpod_mat->num_modes_internal[k];
@@ -560,9 +615,10 @@ void ROM_std_hlpod_calc_reduced_rhs6(
     }
 
     double* monolis_out2 = BB_std_calloc_1d_double(monolis_out2, n_neib_vec);
-    monolis_matvec_product_R(monolis_rom, mono_com0, hlpod_mat->mode_coef_old, monolis_out2);
+    monolis_matvec_product_R(monolis_rom, mono_com0, hlpod_mat->mode_coef, monolis_out2);
     for(int a = 0; a < total_modes; a++){
         hlpod_mat->VTf[a] += monolis_out2[a];
+        //hlpod_mat->VTf[a] += hlpod_mat->VTf_tmp[a];
     }
 
 }
@@ -582,7 +638,11 @@ void solver_rom2(
     //monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
     //monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
 
-    if(step == 101){
+    if(step == 104){
+        //exit(1);
+    }
+
+    if(step == 101||step == 102){
         monolis_copy_mat_value_R(&(sys->monolis0), &(sys->monolis));
         monolis_clear_mat_value_R(&(sys->monolis));
 		//monolis_clear_mat_value_R(&(sys->monolis_rom_mass));
@@ -612,13 +672,13 @@ void solver_rom2(
 
         ROM_std_hlpod_calc_reduced_rhs5(
                 &(sys->monolis),
-                &(sys->monolis_rom_mass),
-                &(sys->mono_com0),
+                &(sys->monolis_rom_mass),&(sys->monolis_com),
+                &(sys->mono_com0),&(sys->mono_com_rom_solv),
                 &(sys->fe),
                 &(sys->basis),
-                &(sys->vals),
+                &(sys->vals_rom),
                 &(sys->bc),
-                t,&(sys->rom.hlpod_mat),
+                t,&(sys->rom.hlpod_mat),&(sys->rom.hlpod_vals),&(sys->rom.hlpod_meta),
                 sys->rom.hlpod_vals.num_2nd_subdomains,
                 sys->rom.hlpod_vals.n_neib_vec,
                 sys->rom.hlpod_vals.num_modes,
@@ -628,18 +688,20 @@ void solver_rom2(
     }
     else{
         monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
+        monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
+        monolis_clear_mat_value_rhs_R(&(sys->monolis_rom_mass));
 
         ROM_std_hlpod_calc_reduced_rhs6(
                 //&(sys->monolis),
                 &(sys->monolis_rom_mass),
-                &(sys->mono_com0),t,&(sys->rom.hlpod_mat),
+                &(sys->mono_com_rom_solv),t,&(sys->rom.hlpod_mat),
                 sys->rom.hlpod_vals.num_2nd_subdomains,
                 sys->rom.hlpod_vals.n_neib_vec,
                 sys->rom.hlpod_vals.num_modes,
                 sys->rom.hlpod_vals.num_modes_pre,
-                sys->rom.hlpod_vals.num_modes, 1);
+                sys->rom.hlpod_vals.num_modes, sys->vals.dt, 1);
 
-        exit(1);
+        //exit(1);
         }
 
         /*for ROM*/
@@ -748,18 +810,18 @@ void add_reduced_mat_linear(
         &(sys->monolis),
         &(sys->fe),
         &(sys->basis),
-        &(sys->vals_rom));
-    
+        &(sys->vals));
+
     double t2 = monolis_get_time_global_sync();
     printf("test2");
-/*
+
     BBFE_sys_monowrap_set_Dirichlet_bc(
         &(sys->monolis),
         sys->fe.total_num_nodes,
         1,
-        &(sys->NR),
+        &(sys->bc),
         sys->monolis.mat.R.B);
-*/
+
     double t3 = monolis_get_time_global_sync();
     printf("test3");
 
@@ -773,4 +835,98 @@ void add_reduced_mat_linear(
         sys->fe.total_num_nodes,
         1);
 
+}
+
+
+
+void solver_rom_NR2(
+    FE_SYSTEM* sys,
+    const int step,
+    const double t)
+{
+    printf("\n%s ----------------- step ROM %d ----------------\n", CODENAME, step);
+
+    double t1 = monolis_get_time_global_sync();
+
+    monolis_copy_mat_value_R(&(sys->monolis0), &(sys->monolis));
+    monolis_clear_mat_value_R(&(sys->monolis));
+    monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
+    monolis_clear_mat_value_R(&(sys->monolis_rom));
+
+    if(step == 104){
+        exit(1);
+    }
+
+	set_element_mat_NR(
+			&(sys->monolis),
+			&(sys->fe),
+			&(sys->basis),
+			&(sys->vals_rom));
+
+    ROM_std_hlpod_calc_reduced_mat(
+            &(sys->monolis),
+            &(sys->monolis_rom),
+            &(sys->monolis_com),
+            &(sys->mono_com0),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom),
+            sys->fe.total_num_nodes,
+            1);
+
+    set_element_vec_NR(
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom),
+            t);
+
+    double* theo_sol_old = BB_std_calloc_1d_double(theo_sol_old, sys->fe.total_num_nodes);
+    manusol_set_theo_sol(&(sys->fe), theo_sol_old, t - sys->vals.dt);
+
+    manusol_set_theo_sol(&(sys->fe), sys->vals.theo_sol, t);
+
+    for(int i = 0; i < sys->fe.total_num_nodes; i++){
+        sys->vals.theo_sol[i] -= theo_sol_old[i];
+    }
+
+    BBFE_manusol_set_bc_scalar(
+            &(sys->fe),
+            &(sys->bc),
+            sys->vals.theo_sol,
+            t);
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+            &(sys->monolis),
+            sys->fe.total_num_nodes,
+            BLOCK_SIZE,
+            &(sys->bc),
+            sys->monolis.mat.R.B);
+
+    ROM_std_hlpod_solve_ROM(
+            &(sys->monolis),
+            &(sys->monolis_rom),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom),
+            sys->fe.total_num_nodes,
+            1,
+            sys->vals.mat_max_iter,
+            sys->vals.mat_epsilon,
+            MONOLIS_ITER_CG,
+            MONOLIS_PREC_DIAG);
+    
+    ROM_sys_hlpod_fe_add_Dbc(
+            sys->rom.hlpod_vals.sol_vec,
+            &(sys->bc),
+            sys->fe.total_num_nodes,
+            1);
+    
+    for(int i = 0; i < sys->fe.total_num_nodes; ++i){
+        sys->vals_rom.T[i] += sys->rom.hlpod_vals.sol_vec[i];
+    }
+
+    monolis_mpi_update_R(&(sys->monolis_com), sys->fe.total_num_nodes, 1, sys->vals_rom.T);
+
+    BB_std_free_1d_double(theo_sol_old, sys->fe.total_num_nodes);
+
+    //ROM_BB_vec_copy(sys->rom.hlpod_vals.sol_vec, sys->vals_rom.T, sys->fe.total_num_nodes);
 }

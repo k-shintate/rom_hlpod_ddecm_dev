@@ -85,7 +85,20 @@ void set_element_mat(
 		BBFE_BASIS* basis,
 		VALUES*      vals);
 
+void set_element_mat_NR(
+		MONOLIS*    monolis,
+		BBFE_DATA*  fe,
+		BBFE_BASIS* basis,
+		VALUES*     vals);
+
 void set_element_vec(
+		MONOLIS*     monolis,
+		BBFE_DATA*     fe,
+		BBFE_BASIS* basis,
+		VALUES*      vals,
+		double       t);
+
+void set_element_vec_NR(
 		MONOLIS*     monolis,
 		BBFE_DATA*     fe,
 		BBFE_BASIS* basis,
@@ -97,6 +110,11 @@ void solver_fom(
 		FE_SYSTEM sys,
 		double t,
 		const int step);
+
+void solver_fom_NR(
+    FE_SYSTEM sys,
+    double t,
+    const int step);
 
 //スナップショットの収集
 void solver_fom_collect_snapmat(

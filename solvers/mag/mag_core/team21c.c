@@ -16,10 +16,11 @@ void get_sigmas_for_prop_team21c(
 ){
     if(prop == 1 || prop == 2){
         /* exciting coil conductor */
-        *sigma_mass_A = Sigma_coil * 0.1256/3.2;
+        //*sigma_mass_A = Sigma_coil * 0.1256/3.2;
         //*sigma_cpl    = Sigma_coil* 0.119;
         //*sigma_phi    = Sigma_coil* 0.119;
-	*sigma_cpl    = 0.0;
+        *sigma_mass_A = 0.0;
+	    *sigma_cpl    = 0.0;
         *sigma_phi    = 0.0;
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
@@ -1796,6 +1797,113 @@ static inline double get_coil_current_team21a2(int prop, double t)
 }
 
 
+static int get_team21a2_known_Js_by_coord(
+    int prop,
+    const double x_ip[3],
+    double Jmag,
+    double Js[3]
+){
+    const double MM = MM_TO_M;
+
+    /* coil z ranges from the .geo */
+    const double coilHeight = 217.0 * MM;
+    const double coilGapZ   = 24.0  * MM;
+
+    const double zCoil1_0 = -(coilGapZ/2.0 + coilHeight);
+    const double zCoil1_1 = - coilGapZ/2.0;
+    const double zCoil2_0 =   coilGapZ/2.0;
+    const double zCoil2_1 =   coilGapZ/2.0 + coilHeight;
+
+    const double x = x_ip[0];
+    const double y = x_ip[1];
+    const double z = x_ip[2];
+
+    /* rounded-rectangle section parameters */
+    const double ao = 135.0 * MM;  /* outer half width  */
+    const double bo = 135.0 * MM;  /* outer half height */
+    const double ai = 100.0 * MM;  /* inner half width  */
+    const double bi = 100.0 * MM;  /* inner half height */
+    const double ro =  45.0 * MM;  /* outer corner radius */
+    const double ri =  10.0 * MM;  /* inner corner radius */
+
+    /* common corner centers */
+    const double cxp =  90.0 * MM;
+    const double cxm = -90.0 * MM;
+    const double cyp =  90.0 * MM;
+    const double cym = -90.0 * MM;
+
+    Js[0] = 0.0;
+    Js[1] = 0.0;
+    Js[2] = 0.0;
+
+    /* select coil by z */
+    if(prop == 1){
+        if(z < zCoil1_0 || z > zCoil1_1) return 0;
+    }else if(prop == 2){
+        if(z < zCoil2_0 || z > zCoil2_1) return 0;
+    }else{
+        return 0;
+    }
+
+    /* ---------- straight parts ---------- */
+
+    /* bottom */
+    if(fabs(x) <= 90.0*MM && y >= -135.0*MM && y <= -90.0*MM){
+        Js[0] =  Jmag; Js[1] = 0.0;  Js[2] = 0.0;
+        return 1;
+    }
+
+    /* right */
+    if(x >= 90.0*MM && x <= 135.0*MM && fabs(y) <= 90.0*MM){
+        Js[0] = 0.0;  Js[1] =  Jmag; Js[2] = 0.0;
+        return 1;
+    }
+
+    /* top */
+    if(fabs(x) <= 90.0*MM && y >= 90.0*MM && y <= 135.0*MM){
+        Js[0] = -Jmag; Js[1] = 0.0;  Js[2] = 0.0;
+        return 1;
+    }
+
+    /* left */
+    if(x >= -135.0*MM && x <= -90.0*MM && fabs(y) <= 90.0*MM){
+        Js[0] = 0.0;  Js[1] = -Jmag; Js[2] = 0.0;
+        return 1;
+    }
+
+    /* ---------- corner annular sectors ---------- */
+    {
+        struct Corner {
+            double cx, cy;
+            int sx, sy;
+        } cs[4] = {
+            { cxp, cym, +1, -1 }, /* bottom-right */
+            { cxp, cyp, +1, +1 }, /* top-right    */
+            { cxm, cyp, -1, +1 }, /* top-left     */
+            { cxm, cym, -1, -1 }  /* bottom-left  */
+        };
+
+        for(int k=0; k<4; ++k){
+            double dx = x - cs[k].cx;
+            double dy = y - cs[k].cy;
+            double r  = sqrt(dx*dx + dy*dy);
+
+            if(r < ri || r > ro) continue;
+            if(cs[k].sx * dx < 0.0) continue;
+            if(cs[k].sy * dy < 0.0) continue;
+
+            /* CCW tangential direction */
+            Js[0] = -Jmag * dy / r;
+            Js[1] =  Jmag * dx / r;
+            Js[2] =  0.0;
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+
 void set_element_vec_nedelec_Aphi_team21a2(
     MONOLIS*     monolis,
     BBFE_DATA*   fe,
@@ -1847,18 +1955,12 @@ void set_element_vec_nedelec_Aphi_team21a2(
 
                     double tdir[3];
                     double Js[3] = {0.0, 0.0, 0.0};
-                    int ok_tdir = 0;
+                    int ok_Js = get_team21a2_known_Js_by_coord(prop, x_ip, J_mag, Js);
 
-                    if (USE_SIMPLE_TDIR_TEST) {
-                        ok_tdir = get_team21c_simple_azimuthal_tangent(&coil, x_ip, tdir);
-                    } else {
-                        ok_tdir = get_team21c_rectcoil_tangent(&coil, x_ip, tdir);
-                    }
-
-                    if (ok_tdir) {
-                        Js[0] = J_mag * tdir[0];
-                        Js[1] = J_mag * tdir[1];
-                        Js[2] = J_mag * tdir[2];
+                    if(ok_Js){
+                        val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
+                    }else{
+                        val_ip_C[p] = 0.0;
                     }
 
                     val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
