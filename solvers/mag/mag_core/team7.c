@@ -185,50 +185,6 @@ static inline double get_coil_current_team7(int prop)
     /* z-range of the single extruded coil in the current .geo */
     if(z < zCoil0 || z > zCoil1) return 0;
 
-    /* -----------------------------------------------------
-       coil_inner : central rectangle
-       keep same circulation direction as outer path
-       ----------------------------------------------------- */
-    if(prop == 1){
-        const double cx = 0.5 * (ix0 + ix1);
-        const double cy = 0.5 * (iy0 + iy1);
-
-        if(x < ix0 || x > ix1 || y < iy0 || y > iy1) return 0;
-
-        /* simple piecewise tangential assignment by nearest side */
-        {
-            const double dL = fabs(x - ix0);
-            const double dR = fabs(ix1 - x);
-            const double dB = fabs(y - iy0);
-            const double dT = fabs(iy1 - y);
-
-            double dmin = dL;
-            int side = 0; /* 0:left, 1:right, 2:bottom, 3:top */
-
-            if(dR < dmin){ dmin = dR; side = 1; }
-            if(dB < dmin){ dmin = dB; side = 2; }
-            if(dT < dmin){ dmin = dT; side = 3; }
-
-            switch(side){
-            case 0: /* left */
-                Js[0] =  0.0;
-                Js[1] = -Jmag;
-                break;
-            case 1: /* right */
-                Js[0] =  0.0;
-                Js[1] =  Jmag;
-                break;
-            case 2: /* bottom */
-                break;
-            default: /* top */
-                Js[0] = -Jmag;
-                Js[1] =  0.0;
-                break;
-            }
-            Js[2] = 0.0;
-            return 1;
-        }
-    }
 
     /* -----------------------------------------------------
        coil_limb : 4 straight outer limbs from .geo
