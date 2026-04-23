@@ -26,7 +26,7 @@ def process_nodes(input_file, output_file, block_length, values):
         # 出力ファイルにフォーマットを保存
         with open(output_file, "w") as f_out:
             # ファイルヘッダーを記述
-            f_out.write(f"{boundary_condition_dofs * block_length} {block_length}\n")
+            f_out.write(f"{boundary_condition_dofs} {block_length}\n")
 
             # 各節点IDに対してデータを記述
             for node_id in node_ids:
