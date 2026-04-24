@@ -545,6 +545,8 @@ void ROM_std_hlpod_read_pod_modes_diag(
     }
 }
 
+
+
 void ROM_std_hlpod_read_pod_modes_Aphi(
         ROM* 		rom_v,
         ROM* 		rom_p,
@@ -1126,22 +1128,22 @@ void ROM_std_hlpod_pre_lpod_para(
             &(rom->hlpod_mat),
             &(rom->hlpod_meta),
             rom->hlpod_vals.num_modes_pre);
-/*
-        monolis_get_nonzero_pattern_by_nodal_graph_R(
+
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
             monolis_rom0,
             rom->hlpod_meta.num_meta_nodes,
             rom->hlpod_vals.num_modes_pre,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
-*/  
 
+/*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
             monolis_rom0,
             rom->hlpod_meta.num_meta_nodes,
             rom->hlpod_meta.n_dof_list,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
-
+*/
 }
 
 

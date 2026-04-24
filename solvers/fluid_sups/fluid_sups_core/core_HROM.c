@@ -464,11 +464,20 @@ void HROM_pre_online(
         &(rom->hlpod_mat),
         sys->fe.total_num_nodes,
         4);
-
+/*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
         &(sys->monolis_hr0),
         rom->hlpod_meta.num_meta_nodes,
         rom->hlpod_meta.n_dof_list,
+        rom->hlpod_meta.index,
+        rom->hlpod_meta.item);
+*/
+
+
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
+        &(sys->monolis_hr0),
+        rom->hlpod_meta.num_meta_nodes,
+        rom->hlpod_vals.num_modes_pre,
         rom->hlpod_meta.index,
         rom->hlpod_meta.item);
 }
@@ -978,7 +987,7 @@ void solver_hrom_NR2(
                 &(sys->monolis_linear_rom),
                 &(sys->mono_com0),
                 &(sys->rom_sups.hlpod_mat),
-                sys->rom_sups.hlpod_mat.mode_coef,
+                sys->rom_sups.hlpod_mat.mode_coef_pre,
                 sys->rom_sups.hlpod_mat.mode_coef_old,
                 sys->rom_sups.hlpod_vals.n_neib_vec,
                 sys->rom_sups.hlpod_vals.num_2nd_subdomains);
@@ -1008,10 +1017,10 @@ void solver_hrom_NR2(
         }
 
         if(step >= 2){
-            ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+            ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
                 &(sys->monolis_mass_rom),
                 &(sys->monolis_linear_rom),
-                &(sys->mono_com0),
+                &(sys->mono_com_rom_solv),
                 &(sys->rom_sups.hlpod_mat),
                 sys->rom_sups.hlpod_mat.mode_coef_pre,
                 sys->rom_sups.hlpod_mat.mode_coef_old,
@@ -1104,13 +1113,6 @@ void solver_hrom_NR2(
                 sys->vals_hrom.p,
                 sys->vals_hrom.delta_p,
                 sys->fe.total_num_nodes);
-
-            monolis_clear_mat_value_R(&(sys->monolis));
-
-            for(int i=0; i<sys->fe.total_num_nodes*4; ++i){
-                sys->monolis.mat.R.B[i] = 0.0;
-                sys->monolis.mat.R.X[i] = 0.0;
-            }
 
             if(it == max_iter_NR - 1){
 
@@ -1327,13 +1329,24 @@ void HROM_std_hlpod_pre_lpod_para(
             &(rom->hlpod_mat),
             &(rom->hlpod_meta),
             rom->hlpod_vals.num_modes_pre);
-
+/*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
             monolis_rom0,
             rom->hlpod_meta.num_meta_nodes,
             rom->hlpod_meta.n_dof_list,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
+*/
+            
+
+
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
+            monolis_rom0,
+            rom->hlpod_meta.num_meta_nodes,
+        rom->hlpod_vals.num_modes_pre,
+        rom->hlpod_meta.index,
+        rom->hlpod_meta.item);
+
 }
 
 

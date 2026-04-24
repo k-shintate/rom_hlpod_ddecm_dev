@@ -152,3 +152,13 @@ void ROM_std_hlpod_calc_reduced_rhs5(
     const int   num_2nddd,
     const int       n_neib_vec,
     const int dof);
+
+void ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
+    MONOLIS*		monolis_mass,
+    MONOLIS*		monolis_linear,
+    MONOLIS_COM*    monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    double*         mode_coeff,
+    double*         mode_coeff_old,
+    const int       n_neib_vec,
+    const int       num_2nd_subdomains);

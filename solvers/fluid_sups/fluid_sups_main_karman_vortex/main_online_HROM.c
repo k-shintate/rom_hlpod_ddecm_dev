@@ -580,7 +580,7 @@ int main (
 		printf("----------------- normal-FEM ----------------\n");
 		double calctime_fem_t2 = monolis_get_time_global_sync();
 		//solver_fom(sys, t, step_rom);
-        //solver_fom_NR(sys, t, step_rom);
+        solver_fom_NR(sys, t, step_rom);
 		double calctime_fem_t1 = monolis_get_time_global_sync();
 
         /**********************************/
@@ -616,7 +616,7 @@ int main (
         else{
 			//HROM_hierarchical_parallel(sys, &(sys.rom_sups), &(sys.hrom_sups), step_rom, 0, t);
             //solver_hrom_NR(&(sys), t, step_rom, 0);
-            solver_hrom_NR2(&(sys), t, step_rom, 0);
+            solver_hrom_NR(&(sys), t, step_rom, 0);
         }
 
 		double calctime_hrom_t1 = monolis_get_time_global_sync();

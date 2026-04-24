@@ -2701,13 +2701,15 @@ void ROM_std_hlpod_calc_reduced_rhs5(
 
     const int ndof_total = fe->total_num_nodes * dof;
 
-    double* vec  = BB_std_calloc_1d_double(vec, ndof_total);
+    //double* vec  = BB_std_calloc_1d_double(vec, ndof_total);
 
     for(int a = 0; a < total_modes; a++){
         hlpod_mat->VTf[a] = 0.0;
         hlpod_mat->VTf_source[a] = 0.0;
         hlpod_mat->VTf_D_bc[a] = 0.0;
         hlpod_mat->VTf_tmp[a] = 0.0;
+        hlpod_mat->VTf_linear[a] = 0.0;
+        hlpod_mat->VTf_mass[a] = 0.0;
     }
 
     for(int r = 0; r < ndof_total; r++){
@@ -2754,7 +2756,8 @@ void ROM_std_hlpod_calc_reduced_rhs5(
     }
     
     monolis_clear_mat_value_R(monolis);
-    set_element_mat_NR_mass(monolis, fe, basis, vals);
+
+    set_element_mat_NR_linear(monolis, fe, basis, vals);
 
     BBFE_sys_monowrap_set_Dirichlet_bc(
             monolis,
@@ -2763,9 +2766,9 @@ void ROM_std_hlpod_calc_reduced_rhs5(
             bc,
             monolis->mat.R.B);
 
-     index = 0;
-     index_column = 0;
-     sum = 0;
+    index = 0;
+    index_column = 0;
+    sum = 0;
 
     for(int k = 0; k < num_2nddd; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
@@ -2775,8 +2778,8 @@ void ROM_std_hlpod_calc_reduced_rhs5(
                 for(int l = 0; l < dof; l++){
                     int row = hlpod_mat->node_id[j + sum] * dof + l;
 
-                    //hlpod_mat->VTf_mass[a] -= hlpod_mat->pod_modes[row][index_column + i]
-                    //  * monolis->mat.R.B[row];
+                    hlpod_mat->VTf_mass[a] -= hlpod_mat->pod_modes[row][index_column + i]
+                      * monolis->mat.R.B[row];
                 }
             }
         }
@@ -2828,6 +2831,19 @@ void solver_rom_set_reduced_mass_linear(
     const int   step,
     const int   step_hrom)
 {
+
+    int dof = 4;
+    for(int j = 0; j < sys->rom_sups.hlpod_vals.n_neib_vec; j++){
+        for(int i = 0; i < sys->mono_com.n_internal_vertex; i++){
+            for(int k = 0; k < dof; k++){
+                if(sys->bc.D_bc_exists[i*dof + k]){
+                    sys->rom_sups.hlpod_mat.pod_modes[i*dof + k][j] = 0.0;
+                }
+            }
+        }
+    }
+
+
     monolis_com_initialize_by_self(&(sys->mono_com0));
 
     monolis_clear_mat_value_R(&(sys->monolis));
@@ -2835,7 +2851,7 @@ void solver_rom_set_reduced_mass_linear(
             &(sys->monolis),
             &(sys->fe),
             &(sys->basis),
-            &(sys->vals_rom));
+            &(sys->vals_hrom));
 
     ROM_std_hlpod_calc_reduced_mat(
         &(sys->monolis),
@@ -2849,11 +2865,11 @@ void solver_rom_set_reduced_mass_linear(
 
     monolis_clear_mat_value_R(&(sys->monolis));
 
-    set_element_mat_NR_linear(            
+    set_element_mat_NR_linear_withoutmass(            
             &(sys->monolis),
             &(sys->fe),
             &(sys->basis),
-            &(sys->vals_rom));
+            &(sys->vals_hrom));
 
     ROM_std_hlpod_calc_reduced_mat(
         &(sys->monolis),
@@ -2886,36 +2902,112 @@ void ROM_std_hlpod_reduced_rhs_to_monollis_linear(
         index += hlpod_mat->num_modes_internal[k];
     }
 
+    // M_mass u_old
     double* monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
     monolis_matvec_product_R(monolis_mass, monolis_com, mode_coeff_old, monolis_out);
 
     index = 0;
     for(int k = 0; k < num_2nd_subdomains; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
-            hlpod_mat->VTf[index + i]  -= hlpod_mat->VTf_mass[index + i] - monolis_out[index + i];
-            //hlpod_mat->VTf_mass[index + i] -= monolis_out[index + i];
-            //hlpod_mat->VTf[index + i]  -= hlpod_mat->VTf_mass[index + i];
+            hlpod_mat->VTf[index + i]  += monolis_out[index + i];
         }
         index += hlpod_mat->num_modes_internal[k];
     }
     BB_std_free_1d_double(monolis_out, n_neib_vec);
-    
 
+    
+    // M_mass u_pre
     monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
-    monolis_matvec_product_R(monolis_linear, monolis_com, mode_coeff, monolis_out);
+    monolis_matvec_product_R(monolis_mass, monolis_com, mode_coeff, monolis_out);
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  -= monolis_out[index + i];
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
     BB_std_free_1d_double(monolis_out, n_neib_vec);
 
+
+    // M u_pre
     monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
     monolis_matvec_product_R(monolis_linear, monolis_com, mode_coeff, monolis_out);
-
+    //BB_std_free_1d_double(monolis_out, n_neib_vec);
 
     index = 0;
     for(int k = 0; k < num_2nd_subdomains; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
             hlpod_mat->VTf[index + i]  += hlpod_mat->VTf_linear[index + i] - monolis_out[index + i];
-            //printf("hlpod_mat->VTf_linear[a] = %lf", hlpod_mat->VTf_linear[index + i]);
-            //hlpod_mat->VTf_linear[index + i] -= monolis_out[index + i];
-            //hlpod_mat->VTf[index + i]  += hlpod_mat->VTf_linear[index + i];
+            if(monolis_mpi_get_global_my_rank()==0){
+                printf("VTf_linear = %lf\n", hlpod_mat->VTf_linear[index + i]);
+            }
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+}
+
+
+void ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
+    MONOLIS*		monolis_mass,
+    MONOLIS*		monolis_linear,
+    MONOLIS_COM*    monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    double*         mode_coeff,
+    double*         mode_coeff_old,
+    const int       n_neib_vec,
+    const int       num_2nd_subdomains)
+{
+    int index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i] = 0.0;
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+
+    // M_mass u_old
+    double* monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_mass, monolis_com, mode_coeff_old, monolis_out);
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  += monolis_out[index + i];
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+
+    
+    // M_mass u_pre
+    monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_mass, monolis_com, mode_coeff, monolis_out);
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  -= monolis_out[index + i];
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+
+
+    // M u_pre
+    monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_linear, monolis_com, mode_coeff, monolis_out);
+    //BB_std_free_1d_double(monolis_out, n_neib_vec);
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  += hlpod_mat->VTf_linear[index + i] - monolis_out[index + i];
+            if(monolis_mpi_get_global_my_rank()==0){
+                printf("VTf_linear = %lf\n", hlpod_mat->VTf_linear[index + i]);
+            }
         }
         index += hlpod_mat->num_modes_internal[k];
     }

@@ -246,19 +246,19 @@ void BBFE_elemmat_fluid_mat_rom_linear_withoutmass(
     const double C2 =  dt * N_i * grad_N_j[1];
     const double C3 =  dt * N_i * grad_N_j[2];
 
-    mat[0][0] += M + D_11;
+    mat[0][0] +=  D_11;
     mat[0][1] +=     D_12;
     mat[0][2] +=     D_13;
     mat[0][3] +=     G1;
 
     mat[1][0] +=     D_21;
-    mat[1][1] += M + D_22;
+    mat[1][1] +=  D_22;
     mat[1][2] +=     D_23;
     mat[1][3] +=     G2;
 
     mat[2][0] +=     D_31;
     mat[2][1] +=     D_32;
-    mat[2][2] += M + D_33;
+    mat[2][2] +=  D_33;
     mat[2][3] +=     G3;
 
     mat[3][0] += C1;
@@ -849,7 +849,7 @@ void set_element_mat_NR_linear_withoutmass(
                         J_inv, fe->geo[e][p].Jacobian,
                         vals->density, vals->viscosity, v_ip[p], vals->dt);
 
-                    BBFE_elemmat_fluid_mat_rom_linear(
+                    BBFE_elemmat_fluid_mat_rom_linear_withoutmass(
                         A, J_inv,
                         basis->N[p][i], basis->N[p][j],
                         fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],

@@ -149,13 +149,20 @@ void HROM_pre_online_decoupled(
         &(rom->hlpod_mat),
         sys->fe.total_num_nodes,
         4);
-
+/*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
         &(sys->monolis_hr0),
         rom->hlpod_meta.num_meta_nodes,
         rom->hlpod_meta.n_dof_list,
         rom->hlpod_meta.index,
         rom->hlpod_meta.item);
+*/
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
+            &(sys->monolis_hr0),
+            rom->hlpod_meta.num_meta_nodes,
+            rom->hlpod_vals.num_modes_pre,
+            rom->hlpod_meta.index,
+            rom->hlpod_meta.item);
 
 }
 
@@ -576,11 +583,19 @@ void HROM_std_hlpod_pre_lpod_para_decoupled(
             &(rom->hlpod_mat),
             &(rom->hlpod_meta),
             rom->hlpod_vals.num_modes_pre);
-
+    /*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
             monolis_rom0,
             rom->hlpod_meta.num_meta_nodes,
             rom->hlpod_meta.n_dof_list,
+            rom->hlpod_meta.index,
+            rom->hlpod_meta.item);
+    */
+
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
+            monolis_rom0,
+            rom->hlpod_meta.num_meta_nodes,
+            rom->hlpod_vals.num_modes_pre,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
 }

@@ -17,6 +17,23 @@ void set_element_vec_NR_linear(
     BBFE_BASIS*  basis,
     VALUES*      vals);
 
+void BBFE_elemmat_fluid_mat_rom_linear_withoutmass(
+    double         mat[4][4],
+    const double   J_inv[3][3],
+    const double   N_i,
+    const double   N_j,
+    const double   grad_N_i[3],
+    const double   grad_N_j[3],
+    const double   v[3],
+    double**       grad_u,
+    const double   grad_p[3],
+    const double   density,
+    const double   viscosity,
+    const double   tau,
+    const double   tau_c,
+    const double   dt,
+    const double   du_time[3]);
+
 void set_element_mat_NR_nonlinear(
     MONOLIS*     monolis,
     BBFE_DATA*   fe,
@@ -83,6 +100,12 @@ void HROM_set_element_mat_NR(
     const int 		num_modes,
     const int 		num_subdomains,
     const double    dt);
+
+void set_element_mat_NR_linear_withoutmass(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    VALUES*      vals);
 
 void HROM_set_element_vec_NR(
     MONOLIS*     	monolis,
