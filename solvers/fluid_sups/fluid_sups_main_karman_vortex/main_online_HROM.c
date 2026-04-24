@@ -421,6 +421,17 @@ int main (
         
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom));
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_mass_rom0));
+
+    monolis_initialize(&(sys.monolis_mass_rom));
+    monolis_initialize(&(sys.monolis_linear_rom));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_mass_rom));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_linear_rom));
+
+
+    monolis_initialize(&(sys.monolis_mass_rom0));
+    monolis_initialize(&(sys.monolis_linear_rom0));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_mass_rom0));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_linear_rom0));
     /********************/
 
     /*for Hyper-reduction*/
@@ -457,14 +468,16 @@ int main (
     /******** */
 
     solver_rom_NR4(&(sys), 0, 0, 0);
-            double tt2 = monolis_get_time_global_sync();
-	    printf("done solver ROM");
+    double tt2 = monolis_get_time_global_sync();
+	printf("done solver ROM");
     add_reduced_mat_linear(&(sys), 0, 0, 0);
-            double tt3 = monolis_get_time_global_sync();
+    double tt3 = monolis_get_time_global_sync();
 
-//	    printf("done add_mat_linear");
+    solver_rom_set_reduced_mass_linear(&(sys), 0, 0, 0);
 
-        ROM_BB_vec_copy_2d(
+	printf("done add_mat_linear");
+
+    ROM_BB_vec_copy_2d(
                         sys.vals.v,
                         sys.vals_rom.v,
                         sys.fe.total_num_nodes,
@@ -476,7 +489,7 @@ int main (
                         sys.fe.total_num_nodes,
                         3);
 
-                ROM_BB_vec_copy_2d(
+    ROM_BB_vec_copy_2d(
                         sys.vals.v,
                         sys.vals_hrom.v,
                         sys.fe.total_num_nodes,
@@ -520,7 +533,7 @@ int main (
         }
 */
 
-if(sys.rom_prm_p.hot_start == 1) {
+    if(sys.rom_prm_p.hot_start == 1) {
             char fname[BUFFER_SIZE];
             snprintf(fname, BUFFER_SIZE, "hot_start/hot_start.dat.%d",
                     sys.rom_p.hlpod_meta.subdomain_id[0]);
@@ -551,7 +564,7 @@ if(sys.rom_prm_p.hot_start == 1) {
             BBFE_fluid_sups_renew_velocity(sys.vals_rom.v_old, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_pressure(sys.vals_rom.p, val, sys.fe.total_num_nodes);
 
-	    BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v, val, sys.fe.total_num_nodes);
+	        BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_velocity(sys.vals_hrom.v_old, val, sys.fe.total_num_nodes);
             BBFE_fluid_sups_renew_pressure(sys.vals_hrom.p, val, sys.fe.total_num_nodes);
 
@@ -564,11 +577,10 @@ if(sys.rom_prm_p.hot_start == 1) {
 		printf("\n%s ----------------- step-ROM %d ----------------\n", CODENAME, step_rom);
 
 		/***************FEM***************/
-		
 		printf("----------------- normal-FEM ----------------\n");
 		double calctime_fem_t2 = monolis_get_time_global_sync();
 		//solver_fom(sys, t, step_rom);
-        solver_fom_NR(sys, t, step_rom);
+        //solver_fom_NR(sys, t, step_rom);
 		double calctime_fem_t1 = monolis_get_time_global_sync();
 
         /**********************************/
@@ -579,8 +591,8 @@ if(sys.rom_prm_p.hot_start == 1) {
 		double calctime_rom_t2 = monolis_get_time_global_sync();
 		if(sys.rom_sups.hlpod_vals.bool_global_mode==false){
 			//solver_rom(&(sys), step_rom, 0, t);
-           solver_rom_NR5(&(sys), t, step_rom, 0);
-	   //solver_rom_NR2(&(sys), t, step_rom, 0);
+           //solver_rom_NR5(&(sys), t, step_rom, 0);
+	        //solver_rom_NR2(&(sys), t, step_rom, 0);
 		}
 		else{
 			solver_rom_global_para(
@@ -603,7 +615,8 @@ if(sys.rom_prm_p.hot_start == 1) {
         }
         else{
 			//HROM_hierarchical_parallel(sys, &(sys.rom_sups), &(sys.hrom_sups), step_rom, 0, t);
-            solver_hrom_NR(&(sys), t, step_rom, 0);
+            //solver_hrom_NR(&(sys), t, step_rom, 0);
+            solver_hrom_NR2(&(sys), t, step_rom, 0);
         }
 
 		double calctime_hrom_t1 = monolis_get_time_global_sync();

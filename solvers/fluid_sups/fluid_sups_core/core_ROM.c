@@ -2679,3 +2679,246 @@ void solver_rom_NR3_decoupled(
     BB_std_free_1d_double(rvec_c_old, sys->fe.total_num_nodes*4);
     
 }
+
+
+void ROM_std_hlpod_calc_reduced_rhs5(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals,
+    BBFE_BC*   	bc,
+    HLPOD_MAT* hlpod_mat,
+    const int   num_2nddd,
+    const int       n_neib_vec,
+    const int dof)
+{
+    int total_modes = 0;
+    for(int k = 0; k < num_2nddd; k++){
+        total_modes += hlpod_mat->num_modes_internal[k];
+    }
+
+    //printf("num_modes = %d, total_modes = %d\n", num_modes, total_modes);
+
+    const int ndof_total = fe->total_num_nodes * dof;
+
+    double* vec  = BB_std_calloc_1d_double(vec, ndof_total);
+
+    for(int a = 0; a < total_modes; a++){
+        hlpod_mat->VTf[a] = 0.0;
+        hlpod_mat->VTf_source[a] = 0.0;
+        hlpod_mat->VTf_D_bc[a] = 0.0;
+        hlpod_mat->VTf_tmp[a] = 0.0;
+    }
+
+    for(int r = 0; r < ndof_total; r++){
+        monolis->mat.R.B[r] = 0.0;
+    }
+
+    monolis_clear_mat_value_R(monolis);
+    //set_element_vec_NR_nonlinear(
+    //    monolis, fe, basis, vals);
+
+    set_element_vec_NR_linear(
+        monolis, fe, basis, vals);
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+            monolis,
+            fe->total_num_nodes,
+            4,
+            bc,
+            monolis->mat.R.B);
+
+    int index = 0;
+    int index_column = 0;
+    int sum = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            int a = index + i;
+
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    int row = hlpod_mat->node_id[j + sum] * dof + l;
+
+                    hlpod_mat->VTf_linear[a] += hlpod_mat->pod_modes[row][index_column + i]
+                      * monolis->mat.R.B[row];
+
+                    //printf("hlpod_mat->VTf_linear[a] = %lf", hlpod_mat->VTf_linear[a]);
+                }
+            }
+        }
+
+        index_column += hlpod_mat->num_modes_internal[k];
+        index        += hlpod_mat->num_modes_internal[k];
+        sum          += hlpod_mat->n_internal_vertex_subd[k];
+    }
+    
+    monolis_clear_mat_value_R(monolis);
+    set_element_mat_NR_mass(monolis, fe, basis, vals);
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+            monolis,
+            fe->total_num_nodes,
+            4,
+            bc,
+            monolis->mat.R.B);
+
+     index = 0;
+     index_column = 0;
+     sum = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            int a = index + i;
+
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    int row = hlpod_mat->node_id[j + sum] * dof + l;
+
+                    //hlpod_mat->VTf_mass[a] -= hlpod_mat->pod_modes[row][index_column + i]
+                    //  * monolis->mat.R.B[row];
+                }
+            }
+        }
+
+        index_column += hlpod_mat->num_modes_internal[k];
+        index        += hlpod_mat->num_modes_internal[k];
+        sum          += hlpod_mat->n_internal_vertex_subd[k];
+    }
+
+    monolis_clear_mat_value_R(monolis);
+    set_element_mat_NR_linear(monolis, fe, basis, vals);
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+            monolis,
+            fe->total_num_nodes,
+            4,
+            bc,
+            monolis->mat.R.B);
+
+    index = 0;
+    index_column = 0;
+    sum = 0;
+
+    for(int k = 0; k < num_2nddd; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            int a = index + i;
+
+            for(int j = 0; j < hlpod_mat->n_internal_vertex_subd[k]; j++){
+                for(int l = 0; l < dof; l++){
+                    int row = hlpod_mat->node_id[j + sum] * dof + l;
+
+                    //hlpod_mat->VTf_linear[a] += hlpod_mat->pod_modes[row][index_column + i]
+                    //  * monolis->mat.R.B[row];
+                }
+            }
+        }
+
+        index_column += hlpod_mat->num_modes_internal[k];
+        index        += hlpod_mat->num_modes_internal[k];
+        sum          += hlpod_mat->n_internal_vertex_subd[k];
+    }
+
+}
+
+
+void solver_rom_set_reduced_mass_linear(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    monolis_clear_mat_value_R(&(sys->monolis));
+    set_element_mat_NR_mass(            
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+
+    ROM_std_hlpod_calc_reduced_mat(
+        &(sys->monolis),
+        &(sys->monolis_mass_rom0),
+        &(sys->mono_com),
+        &(sys->mono_com0),
+        &(sys->mono_com_rom_solv),
+        &(sys->rom_sups),
+        sys->fe.total_num_nodes,
+        4);
+
+    monolis_clear_mat_value_R(&(sys->monolis));
+
+    set_element_mat_NR_linear(            
+            &(sys->monolis),
+            &(sys->fe),
+            &(sys->basis),
+            &(sys->vals_rom));
+
+    ROM_std_hlpod_calc_reduced_mat(
+        &(sys->monolis),
+        &(sys->monolis_linear_rom0),
+        &(sys->mono_com),
+        &(sys->mono_com0),
+        &(sys->mono_com_rom_solv),
+        &(sys->rom_sups),
+        sys->fe.total_num_nodes,
+        4);
+
+}
+
+
+void ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+    MONOLIS*		monolis_mass,
+    MONOLIS*		monolis_linear,
+    MONOLIS_COM*    monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    double*         mode_coeff,
+    double*         mode_coeff_old,
+    const int       n_neib_vec,
+    const int       num_2nd_subdomains)
+{
+    int index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i] = 0.0;
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+
+    double* monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_mass, monolis_com, mode_coeff_old, monolis_out);
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  -= hlpod_mat->VTf_mass[index + i] - monolis_out[index + i];
+            //hlpod_mat->VTf_mass[index + i] -= monolis_out[index + i];
+            //hlpod_mat->VTf[index + i]  -= hlpod_mat->VTf_mass[index + i];
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+    
+
+    monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_linear, monolis_com, mode_coeff, monolis_out);
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+
+    monolis_out = BB_std_calloc_1d_double(monolis_out, n_neib_vec);
+    monolis_matvec_product_R(monolis_linear, monolis_com, mode_coeff, monolis_out);
+
+
+    index = 0;
+    for(int k = 0; k < num_2nd_subdomains; k++){
+        for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
+            hlpod_mat->VTf[index + i]  += hlpod_mat->VTf_linear[index + i] - monolis_out[index + i];
+            //printf("hlpod_mat->VTf_linear[a] = %lf", hlpod_mat->VTf_linear[index + i]);
+            //hlpod_mat->VTf_linear[index + i] -= monolis_out[index + i];
+            //hlpod_mat->VTf[index + i]  += hlpod_mat->VTf_linear[index + i];
+        }
+        index += hlpod_mat->num_modes_internal[k];
+    }
+
+    BB_std_free_1d_double(monolis_out, n_neib_vec);
+}

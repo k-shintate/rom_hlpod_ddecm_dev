@@ -172,3 +172,10 @@ void read_NNLS_data(
     double      t,
     const int   step,
     const int   step_hrom);
+
+// ROM と競合
+void solver_hrom_NR2(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);

@@ -173,7 +173,7 @@ int main (
 
 	monolis_initialize(&(sys.monolis_rom0));
     monolis_initialize(&(sys.monolis_rom));
-    monolis_initialize(&(sys.monolis_rom_mass));
+    monolis_initialize(&(sys.monolis_mass_rom));
 	monolis_com_initialize_by_self(&(sys.mono_com_rom));
 	monolis_com_initialize_by_self(&(sys.mono_com_rom_solv));
 
@@ -219,7 +219,7 @@ int main (
             sys.cond.directory);
     
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom));
-    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom_mass));
+    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_mass_rom));
     monolis_com_initialize_by_self(&(sys.mono_com0));
     /******************/
     

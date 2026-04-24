@@ -604,7 +604,7 @@ void solver_hrom_NR(
     const double rel_tol_p = 1.0e-6;
     const double abs_tol_p = 1.0e-12;
     const double tiny      = 1.0e-30;
-    int max_iter_NR = 3;
+    int max_iter_NR = 1;
 
     monolis_com_initialize_by_self(&(sys->mono_com0));
 
@@ -888,6 +888,252 @@ void solver_hrom_NR(
     BB_std_free_1d_double(rvec_m_old, sys->fe.total_num_nodes*4);
     BB_std_free_1d_double(rvec_c,     sys->fe.total_num_nodes*4);
     BB_std_free_1d_double(rvec_c_old, sys->fe.total_num_nodes*4);
+}
+
+
+
+// ROM と競合
+void solver_hrom_NR2(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom)
+{
+    if(monolis_mpi_get_global_my_rank()==0){
+        printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
+    }
+
+    double* rvec_m     = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_m_old = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_c     = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+    double* rvec_c_old = (double*)calloc((size_t)sys->fe.total_num_nodes*4, sizeof(double));
+
+    double* mode_coef = (double*)calloc((size_t)sys->rom_sups.hlpod_vals.n_neib_vec, sizeof(double));
+
+    const double rel_tol_v = 1.0e-6;
+    const double abs_tol_v = 1.0e-12;
+    const double rel_tol_p = 1.0e-6;
+    const double abs_tol_p = 1.0e-12;
+    const double tiny      = 1.0e-30;
+    int max_iter_NR = 1;
+
+    monolis_com_initialize_by_self(&(sys->mono_com0));
+
+    for(int it = 0; it < max_iter_NR; it++){
+        if(monolis_mpi_get_global_my_rank()==0){
+            printf("\n%s ----------------- ROM Time step %d : NR step %d ----------------\n", CODENAME, step, it);
+        }
+
+        monolis_clear_mat_value_R(&(sys->monolis));
+        monolis_clear_mat_value_R(&(sys->monolis_hr));
+        monolis_clear_mat_value_rhs_R(&(sys->monolis_rom0));
+        monolis_com_initialize_by_self(&(sys->mono_com0));
+
+        monolis_initialize(&(sys->monolis_hr));
+        monolis_copy_mat_nonzero_pattern_R(&(sys->monolis_rom0), &(sys->monolis_hr));
+        monolis_clear_mat_value_R(&(sys->monolis_hr));
+        monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_hr));
+        monolis_copy_mat_value_R(&(sys->monolis_mass_rom0), &(sys->monolis_mass_rom));
+        monolis_copy_mat_value_R(&(sys->monolis_linear_rom0), &(sys->monolis_linear_rom));
+
+        HROM_set_element_mat_NR(
+            &(sys->monolis_hr),
+            &(sys->fe),
+            &(sys->vals_hrom),
+            &(sys->basis),
+            &(sys->bc),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->rom_sups.hlpod_mat),
+            &(sys->hrom_sups.hlpod_ddhr),
+            sys->rom_sups.hlpod_vals.num_modes_pre,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->vals.dt);
+
+        HROM_ddecm_calc_block_mat_bcsr(
+            &(sys->monolis_hr),
+            &(sys->mono_com_rom_solv),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->rom_sups.hlpod_mat),
+            &(sys->hrom_sups.hlpod_ddhr),
+            &(sys->rom_sups.hlpod_meta),
+            sys->rom_sups.hlpod_vals.num_modes_pre,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->cond.directory);	
+
+        if(step == 1&&it==0){
+            printf("ROM_std_hlpod_calc_reduced_rhs5\n\n");
+            ROM_std_hlpod_calc_reduced_rhs5(
+                    &(sys->monolis),
+                    &(sys->fe),
+                    &(sys->basis),
+                    &(sys->vals_hrom),
+                    &(sys->bc_NR),
+                    &(sys->rom_sups.hlpod_mat),
+                    sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                    sys->rom_sups.hlpod_vals.n_neib_vec,
+                    4);
+            
+            ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+                &(sys->monolis_mass_rom),
+                &(sys->monolis_linear_rom),
+                &(sys->mono_com0),
+                &(sys->rom_sups.hlpod_mat),
+                sys->rom_sups.hlpod_mat.mode_coef,
+                sys->rom_sups.hlpod_mat.mode_coef_old,
+                sys->rom_sups.hlpod_vals.n_neib_vec,
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains);
+
+        }
+
+        if(step == 1&&it >= 1){
+            set_element_vec_NR_linear(
+                &(sys->monolis),
+                &(sys->fe),
+                &(sys->basis),
+                &(sys->vals_hrom));
+
+            BBFE_sys_monowrap_set_Dirichlet_bc(
+                &(sys->monolis),
+                sys->fe.total_num_nodes,
+                4,
+                &(sys->bc_NR),
+                sys->monolis.mat.R.B);
+            
+            ROM_std_hlpod_calc_reduced_rhs(
+                &(sys->monolis),
+                &(sys->rom_sups.hlpod_mat),
+                sys->rom_sups.hlpod_vals.num_modes_pre,
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                4);
+        }
+
+        if(step >= 2){
+            ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+                &(sys->monolis_mass_rom),
+                &(sys->monolis_linear_rom),
+                &(sys->mono_com0),
+                &(sys->rom_sups.hlpod_mat),
+                sys->rom_sups.hlpod_mat.mode_coef_pre,
+                sys->rom_sups.hlpod_mat.mode_coef_old,
+                sys->rom_sups.hlpod_vals.n_neib_vec,
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains);
+        }
+
+
+        /* 残差ベクトルを保存（B = -F） */
+        /*
+        if(it==0){
+            for(int i=0; i<sys->fe.total_num_nodes; ++i){
+                for(int j=0; j<3; j++){
+                    rvec_m_old[i*4 + j] = sys->monolis.mat.R.B[i*4 + j];
+                }
+                rvec_c_old[i*3] = sys->monolis.mat.R.B[i*3];
+            }
+        }
+        */
+    
+
+        ROM_std_hlpod_reduced_rhs_to_monollis(
+            &(sys->monolis_hr),
+            &(sys->rom_sups.hlpod_mat),
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->rom_sups.hlpod_vals.num_modes_pre);
+        
+        HROM_set_element_vec_NR(
+            &(sys->monolis_hr),
+            &(sys->fe),
+            &(sys->vals_hrom),
+            &(sys->basis),
+            &(sys->hrom_sups.hr_vals),
+            &(sys->rom_sups.hlpod_vals),
+            &(sys->hrom_sups.hlpod_ddhr),
+            &(sys->rom_sups.hlpod_mat),
+            sys->rom_sups.hlpod_vals.num_modes_pre,
+            sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+            sys->vals.dt,
+            t);
+
+        ROM_monowrap_solve(
+            &(sys->monolis_hr),
+            &(sys->mono_com_rom_solv),
+            //sys->rom_sups.hlpod_mat.mode_coef,
+            mode_coef,
+            MONOLIS_ITER_BICGSAFE,
+            MONOLIS_PREC_DIAG,
+            sys->vals.mat_max_iter,
+            sys->vals.mat_epsilon);
+
+        if(step == 100){
+        	for(int i = 0; i < sys->rom_sups.hlpod_vals.n_neib_vec; i++){
+                sys->rom_sups.hlpod_mat.mode_coef[i] = mode_coef[i];
+            }
+        }
+        else{
+        	for(int i = 0; i < sys->rom_sups.hlpod_vals.n_neib_vec; i++){
+                sys->rom_sups.hlpod_mat.mode_coef[i] = mode_coef[i];
+                sys->rom_sups.hlpod_mat.mode_coef_pre[i] += mode_coef[i];
+            }
+
+            HROM_ddecm_calc_block_solution(
+                &(sys->mono_com),
+                &(sys->fe),
+                &(sys->hrom_sups.hr_vals),
+                &(sys->rom_sups.hlpod_mat),
+                sys->rom_sups.hlpod_vals.num_2nd_subdomains,
+                4);
+
+            monolis_mpi_update_R(
+                &(sys->mono_com),
+                sys->fe.total_num_nodes,
+                4,
+                sys->hrom_sups.hr_vals.sol_vec);
+
+            BBFE_fluid_sups_renew_velocity(
+                sys->vals_hrom.delta_v,
+                sys->hrom_sups.hr_vals.sol_vec,
+                sys->fe.total_num_nodes);
+
+            BBFE_fluid_sups_renew_pressure(
+                sys->vals_hrom.delta_p,
+                sys->hrom_sups.hr_vals.sol_vec,
+                sys->fe.total_num_nodes);
+
+            update_velocity_pressure_NR(
+                sys->vals_hrom.v,
+                sys->vals_hrom.delta_v,
+                sys->vals_hrom.p,
+                sys->vals_hrom.delta_p,
+                sys->fe.total_num_nodes);
+
+            monolis_clear_mat_value_R(&(sys->monolis));
+
+            for(int i=0; i<sys->fe.total_num_nodes*4; ++i){
+                sys->monolis.mat.R.B[i] = 0.0;
+                sys->monolis.mat.R.X[i] = 0.0;
+            }
+
+            if(it == max_iter_NR - 1){
+
+                ROM_BB_vec_copy_2d(
+                    sys->vals_hrom.v,
+                    sys->vals_hrom.v_old,
+                    sys->fe.total_num_nodes,
+                    3);
+
+                break;
+            }
+        }
+    }
+
+    for(int i = 0; i < sys->rom_sups.hlpod_vals.n_neib_vec; i++){
+        sys->rom_sups.hlpod_mat.mode_coef_old[i] = sys->rom_sups.hlpod_mat.mode_coef_pre[i];
+    }
+
+    BB_std_free_1d_double(rvec_m,     sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_m_old, sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_c,     sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(rvec_c_old, sys->fe.total_num_nodes*4);
+    BB_std_free_1d_double(mode_coef, sys->rom_sups.hlpod_vals.n_neib_vec);
 }
 
 

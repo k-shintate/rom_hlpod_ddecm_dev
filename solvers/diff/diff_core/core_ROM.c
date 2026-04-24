@@ -645,7 +645,7 @@ void solver_rom2(
     if(step == 101||step == 102){
         monolis_copy_mat_value_R(&(sys->monolis0), &(sys->monolis));
         monolis_clear_mat_value_R(&(sys->monolis));
-		//monolis_clear_mat_value_R(&(sys->monolis_rom_mass));
+		//monolis_clear_mat_value_R(&(sys->monolis_mass_rom));
 		monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
 		monolis_com_initialize_by_self(&(sys->mono_com0));
         monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
@@ -672,7 +672,7 @@ void solver_rom2(
 
         ROM_std_hlpod_calc_reduced_rhs5(
                 &(sys->monolis),
-                &(sys->monolis_rom_mass),&(sys->monolis_com),
+                &(sys->monolis_mass_rom),&(sys->monolis_com),
                 &(sys->mono_com0),&(sys->mono_com_rom_solv),
                 &(sys->fe),
                 &(sys->basis),
@@ -689,11 +689,11 @@ void solver_rom2(
     else{
         monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
         monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
-        monolis_clear_mat_value_rhs_R(&(sys->monolis_rom_mass));
+        monolis_clear_mat_value_rhs_R(&(sys->monolis_mass_rom));
 
         ROM_std_hlpod_calc_reduced_rhs6(
                 //&(sys->monolis),
-                &(sys->monolis_rom_mass),
+                &(sys->monolis_mass_rom),
                 &(sys->mono_com_rom_solv),t,&(sys->rom.hlpod_mat),
                 sys->rom.hlpod_vals.num_2nd_subdomains,
                 sys->rom.hlpod_vals.n_neib_vec,
@@ -800,7 +800,7 @@ void add_reduced_mat_linear(
 {
     monolis_clear_mat_value_R(&(sys->monolis));
     monolis_clear_mat_value_R(&(sys->monolis_rom));
-    monolis_clear_mat_value_R(&(sys->monolis_rom_mass));
+    monolis_clear_mat_value_R(&(sys->monolis_mass_rom));
     monolis_com_initialize_by_self(&(sys->mono_com0));
     
     double t1 = monolis_get_time_global_sync();
@@ -827,7 +827,7 @@ void add_reduced_mat_linear(
 
     ROM_std_hlpod_calc_reduced_mat(
         &(sys->monolis),
-        &(sys->monolis_rom_mass),
+        &(sys->monolis_mass_rom),
         &(sys->monolis_com),
         &(sys->mono_com0),
         &(sys->mono_com_rom_solv),

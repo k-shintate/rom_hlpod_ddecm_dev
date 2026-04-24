@@ -537,10 +537,13 @@ void ROM_std_hlpod_calloc_mode_coef_rhs(
 
     hlpod_mat->mode_coef = BB_std_calloc_1d_double(hlpod_mat->mode_coef, num_modes);
     hlpod_mat->mode_coef_old = BB_std_calloc_1d_double(hlpod_mat->mode_coef_old, num_modes);
+    hlpod_mat->mode_coef_pre = BB_std_calloc_1d_double(hlpod_mat->mode_coef_pre, num_modes);
     hlpod_mat->VTf = BB_std_calloc_1d_double(hlpod_mat->VTf, num_modes);
     hlpod_mat->VTf_tmp = BB_std_calloc_1d_double(hlpod_mat->VTf_tmp, num_modes);
     hlpod_mat->VTf_D_bc = BB_std_calloc_1d_double(hlpod_mat->VTf_D_bc, num_modes);
     hlpod_mat->VTf_source = BB_std_calloc_1d_double(hlpod_mat->VTf_source, num_modes);
+    hlpod_mat->VTf_mass = BB_std_calloc_1d_double(hlpod_mat->VTf_mass, num_modes);
+    hlpod_mat->VTf_linear = BB_std_calloc_1d_double(hlpod_mat->VTf_linear, num_modes);
 
 }
 

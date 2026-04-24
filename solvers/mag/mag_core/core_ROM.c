@@ -2079,7 +2079,7 @@ void solver_rom_NR_Aphi_team21a2_fast(
 /*
         monolis_clear_mat_value_R(&(sys.monolis));
         monolis_clear_mat_value_R(&(sys.monolis_rom));
-	//monolis_clear_mat_value_R(&(sys.monolis_rom_mass));
+	//monolis_clear_mat_value_R(&(sys.monolis_mass_rom));
         monolis_com_initialize_by_self(&(sys.mono_com0));
 
         for(int i=0; i<n_dof_total; ++i){
@@ -2097,7 +2097,7 @@ void solver_rom_NR_Aphi_team21a2_fast(
 */
 
 	/*
-        ROM_std_hlpod_calc_reduced_rhs4(&(sys.monolis), &(sys.monolis_rom_mass), &(sys.monolis_comm), &(sys.mono_com_rom_solv),
+        ROM_std_hlpod_calc_reduced_rhs4(&(sys.monolis), &(sys.monolis_mass_rom), &(sys.monolis_comm), &(sys.mono_com_rom_solv),
                                 &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t, &(sys.rom_sups.hlpod_mat),
                                 sys.rom_sups.hlpod_vals.num_2nd_subdomains,
@@ -2108,11 +2108,11 @@ void solver_rom_NR_Aphi_team21a2_fast(
 */
 	if(step == 0){
 		monolis_clear_mat_value_R(&(sys.monolis));
-		monolis_clear_mat_value_R(&(sys.monolis_rom_mass));
+		monolis_clear_mat_value_R(&(sys.monolis_mass_rom));
 		monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
 		monolis_com_initialize_by_self(&(sys.mono_com0));
 
-        	ROM_std_hlpod_calc_reduced_rhs5(&(sys.monolis), &(sys.monolis_rom_mass), &(sys.monolis_com), &(sys.mono_com_rom_solv),&(sys.mono_com0),
+        	ROM_std_hlpod_calc_reduced_rhs5(&(sys.monolis), &(sys.monolis_mass_rom), &(sys.monolis_com), &(sys.mono_com_rom_solv),&(sys.mono_com0),
                                 &(sys.fe), &(sys.basis), &(sys.rom_sups.hlpod_vals), &(sys.rom_sups.hlpod_meta), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t, &(sys.rom_sups.hlpod_mat),
                                 sys.rom_sups.hlpod_vals.num_2nd_subdomains,
@@ -2123,7 +2123,7 @@ void solver_rom_NR_Aphi_team21a2_fast(
 	}
 	else{
 		monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
-        	ROM_std_hlpod_calc_reduced_rhs6(&(sys.monolis), &(sys.monolis_rom_mass), &(sys.monolis_com), &(sys.mono_com_rom_solv),&(sys.mono_com0),
+        	ROM_std_hlpod_calc_reduced_rhs6(&(sys.monolis), &(sys.monolis_mass_rom), &(sys.monolis_com), &(sys.mono_com_rom_solv),&(sys.mono_com0),
                                 &(sys.fe), &(sys.basis), &(sys.rom_sups.hlpod_vals), &(sys.rom_sups.hlpod_meta), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t, &(sys.rom_sups.hlpod_mat),
                                 sys.rom_sups.hlpod_vals.num_2nd_subdomains,

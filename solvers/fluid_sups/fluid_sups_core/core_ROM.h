@@ -124,3 +124,31 @@ void solver_rom_NR3_decoupled(
     double      t,
     const int   step,
     const int   step_hrom);
+
+
+void solver_rom_set_reduced_mass_linear(
+    FE_SYSTEM *  sys,
+    double      t,
+    const int   step,
+    const int   step_hrom);
+
+void ROM_std_hlpod_reduced_rhs_to_monollis_linear(
+    MONOLIS*		monolis_mass,
+    MONOLIS*		monolis_linear,
+    MONOLIS_COM*    monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    double*         mode_coeff,
+    double*         mode_coeff_old,
+    const int       n_neib_vec,
+    const int       num_2nd_subdomains);
+
+void ROM_std_hlpod_calc_reduced_rhs5(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals,
+    BBFE_BC*   	bc,
+    HLPOD_MAT* hlpod_mat,
+    const int   num_2nddd,
+    const int       n_neib_vec,
+    const int dof);

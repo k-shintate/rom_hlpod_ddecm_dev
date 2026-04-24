@@ -44,8 +44,12 @@ typedef struct
     double* VTf_D_bc;                    //reduced rhs vector
     double* VTf_source;                    //reduced rhs vector
 
+    double* VTf_mass;                    //reduced rhs vector
+    double* VTf_linear;                    //reduced rhs vector
+
     double* mode_coef;              //coefficients for pod modes
     double* mode_coef_old;              //coefficients for pod modes
+    double* mode_coef_pre;              //coefficients for pod modes
     double** pod_modes;             //pod modes
     double** snapmat;               //snapshot matrix
                                             

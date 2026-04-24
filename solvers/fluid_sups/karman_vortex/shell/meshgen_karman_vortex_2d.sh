@@ -12,8 +12,7 @@ mkdir -p mesh_karman_vortex
 gmsh -3 -format msh2 -0 gmsh/karman_vortex_2d.geo -o ./mesh_karman_vortex/karman_vortex_2d.msh
 gmsh ./mesh_karman_vortex/karman_vortex_2d.msh
 
-#python3 mesh_io/save_physical_groups.py ./mesh_tmp/karman_vortex_2d_v2.msh
-python3 mesh_io/karman_vortex_mesh_io.py ./mesh_karman_vortex/karman_vortex_2d.msh
+python3 mesh_io/save_physical_groups.py ./mesh_karman_vortex/karman_vortex_2d.msh
 
 ### for node.dat
 mv ./mesh_tmp/Fluid_node_coordinates.dat ./mesh_karman_vortex/node.dat
@@ -32,7 +31,7 @@ python3 mesh_io/elem_to_node.py ./mesh_tmp/Outlet_quad_connectivity.dat ./mesh_t
 python3 mesh_io/elem_to_node.py ./mesh_tmp/Cylinder_wall_quad_connectivity.dat ./mesh_tmp/Cylinder_wall_quad_node.dat
 
 ### for D_bc_v.dat
-python3 mesh_io/node_to_bc.py ./mesh_tmp/Inlet_quad_node.dat ./mesh_tmp/Inlet_quad_bc.dat 3 1.0 0 0
+python3 mesh_io/elem_to_node.py ./mesh_tmp/Inlet_quad_node.dat ./mesh_tmp/Inlet_quad_bc.dat 3 1.0 0 0
 python3 mesh_io/node_to_bc.py ./mesh_tmp/Cylinder_wall_quad_node.dat  ./mesh_tmp/Cylinder_wall_quad_bc.dat 3 0 0 0
 python3 mesh_io/node_to_bc.py ./mesh_tmp/Right_wall_quad_node.dat  ./mesh_tmp/Right_wall_quad_bc.dat 3 0 0 0
 python3 mesh_io/node_to_bc.py ./mesh_tmp/Left_wall_quad_node.dat  ./mesh_tmp/Left_wall_quad_bc.dat 3 0 0 0

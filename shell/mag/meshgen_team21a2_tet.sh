@@ -44,6 +44,8 @@ mv ./mesh_tmp/NONMAG_PLATE_tetra_connectivity.dat ./elem_iron.dat
 mv ./mesh_tmp/COIL_1_tetra_connectivity.dat ./elem_widing1.dat
 mv ./mesh_tmp/COIL_2_tetra_connectivity.dat ./elem_widing2.dat
 
+python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
+
 
 python3 ../../solvers/mag/threephase_transformer/mesh_io/node_to_bc.py ./mesh_tmp/OuterSphere_triangle_node.dat ./D_bc.dat 1 0
 python3 ../../solvers/mag/threephase_transformer/mesh_io/node_to_bc.py ./mesh_tmp/InnerSphere_triangle_node.dat ./InnerSphere_quad_bc.dat 1 0
