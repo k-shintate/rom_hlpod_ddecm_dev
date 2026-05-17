@@ -444,24 +444,22 @@ void BBFE_elemmat_fluid_mat_rom_nonlinear(
     for (int k = 0; k < 3; ++k) {
         const double dtau_k = dtau_duj[k];
 
-        if (dtau_k != 0.0) {
-            for (int d = 0; d < 3; ++d) {
-                const double Rm_tau =
-                    dt * density * vdotGradNi * adv[d]
-                  + dt * vdotGradNi * grad_p[d]
-                  + density * vdotGradNi * du_time[d];
+        for (int d = 0; d < 3; ++d) {
+            const double Rm_tau =
+                dt * density * vdotGradNi * adv[d]
+                + dt * vdotGradNi * grad_p[d]
+                + density * vdotGradNi * du_time[d];
 
-                mat[d][k] += dtau_k * Rm_tau;
-            }
+            mat[d][k] += dtau_k * Rm_tau;
+        }
 
-            {
-                const double Rc_tau =
-                    dt * gradN_dot_adv
-                  + dt * gradN_dot_gradp / density
-                  + gradN_dot_dutime;
+        {
+            const double Rc_tau =
+                dt * gradN_dot_adv
+                + dt * gradN_dot_gradp / density
+                + gradN_dot_dutime;
 
-                mat[3][k] += dtau_k * Rc_tau;
-            }
+            mat[3][k] += dtau_k * Rc_tau;
         }
     }
 
@@ -471,10 +469,9 @@ void BBFE_elemmat_fluid_mat_rom_nonlinear(
     for (int k = 0; k < 3; ++k) {
         const double dtauc_k = dtauc_duj[k];
 
-        if (dtauc_k != 0.0) {
-            for (int d = 0; d < 3; ++d) {
-                mat[d][k] += dt * density * dtauc_k * div_v * grad_N_i[d];
-            }
+        for (int d = 0; d < 3; ++d) {
+            mat[d][k] += dt * density * dtauc_k * div_v * grad_N_i[d];
+        
         }
     }
 }
