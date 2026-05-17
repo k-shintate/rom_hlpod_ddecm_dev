@@ -183,6 +183,100 @@ void HROM_ddecm_set_selected_elems_para_vis(
 
 }
 
+
+
+void HROM_ddecm_set_selected_elems_para_vis(
+		BBFE_DATA*     	fe,
+        HLPOD_DDHR*     hlpod_ddhr,
+        const int		total_num_nodes,
+		const int		num_subdomains,
+		const char*     directory)
+{
+	int nl = fe->local_num_nodes;
+	const int myrank = monolis_mpi_get_global_my_rank();
+	double* ECM_elem;		//非ゼロ要素可視化用ベクトル
+	double* ECM_elem_weight;//非ゼロ要素可視化用重みベクトル
+	double* ECM_wireframe;	//wireframe可視化用ゼロベクトル
+
+	ECM_elem = BB_std_calloc_1d_double(ECM_elem, total_num_nodes);
+	ECM_elem_weight = BB_std_calloc_1d_double(ECM_elem_weight, total_num_nodes);
+	ECM_wireframe = BB_std_calloc_1d_double(ECM_wireframe, total_num_nodes);
+
+	for(int n=0; n < num_subdomains; n++) {
+		for(int m=0; m < hlpod_ddhr->num_selected_elems[n]; m++) {
+			int e = hlpod_ddhr->id_selected_elems[m][n];
+			for(int i=0; i<nl; i++) {
+				int index = fe->conn[e][i];
+				
+				ECM_elem[index] = myrank + 1;
+				ECM_elem_weight[index] += hlpod_ddhr->elem_weight[m][n];
+			}
+		}
+
+		for(int m=0; m<(hlpod_ddhr->num_selected_elems_D_bc[n]); m++) {
+			int e = hlpod_ddhr->id_selected_elems_D_bc[m][n];
+			for(int i=0; i<nl; i++) {
+				int index = fe->conn[e][i];
+				ECM_elem[index] = myrank + 1;
+				ECM_elem_weight[index] += hlpod_ddhr->elem_weight_D_bc[m][n];
+			}
+		}
+	}
+
+
+    for(int m = 0; m < hlpod_ddhr->ovl_num_selected_elems; m++) {
+		int e = hlpod_ddhr->ovl_id_selected_elems[m];
+		for(int i=0; i<nl; i++) {
+			int index = fe->conn[e][i];
+			ECM_elem[index] = myrank + 1;
+			ECM_elem_weight[index] += hlpod_ddhr->ovl_elem_weight[m];
+		}
+	}
+
+    for(int m=0; m<(hlpod_ddhr->ovl_num_selected_elems_D_bc); m++) {
+        int e = hlpod_ddhr->ovl_id_selected_elems_D_bc[m];
+		for(int i=0; i<nl; i++) {
+				int index = fe->conn[e][i];
+				ECM_elem[index] = myrank + 1;
+				ECM_elem_weight[index] += hlpod_ddhr->ovl_elem_weight_D_bc[m];
+		}
+	}
+
+
+	const char* filename;
+
+	char fname[BUFFER_SIZE];
+
+	snprintf(fname, BUFFER_SIZE,"DDECM/%s", OUTPUT_FILENAME_ECM_ELEM_VTK);
+	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname);
+
+	FILE* fp;
+	fp = ROM_BB_write_fopen(fp, filename, directory);
+
+	switch( fe->local_num_nodes ) {
+		case 4:
+			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+			break;
+
+		case 8:
+			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+			break;
+	}
+	
+	fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+
+	BB_vtk_write_point_vals_scalar(fp, ECM_elem, fe->total_num_nodes, "ECM-elem");
+	BB_vtk_write_point_vals_scalar(fp, ECM_elem_weight, fe->total_num_nodes, "ECM-elem_weight");
+	BB_vtk_write_point_vals_scalar(fp, ECM_wireframe, fe->total_num_nodes, "ECM-wireframe");
+
+	BB_std_free_1d_double(ECM_elem, fe->total_num_nodes);
+	BB_std_free_1d_double(ECM_elem_weight, fe->total_num_nodes);
+	BB_std_free_1d_double(ECM_wireframe, fe->total_num_nodes);
+
+	fclose(fp);
+
+}
+
 void HROM_ddecm_to_monollis_rhs_para(
 	MONOLIS*		monolis,
     HLPOD_DDHR*     hlpod_ddrh,

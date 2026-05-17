@@ -51,8 +51,6 @@ if __name__ == "__main__":
 
     input_file = sys.argv[1]
     output_file = sys.argv[2]
-    #column_index = int(sys.argv[3])  # フィルタリングに使用する列のインデックス（0始まり）
-    #header_divisor = int(sys.argv[4])  # ヘッダー行を処理するための値
     exclude_values = list(map(int, sys.argv[3:]))  # 5番目以降の引数をリストに変換
 
     filter_rows_by_column(input_file, output_file, exclude_values)

@@ -25,9 +25,9 @@ do
     	do
     
         . shell/mag/meshgen_threephase_tet.sh $e $ep $nm $nd $np $pa
-        . shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
-        . shell/mag/graphgen_threephase.sh $e $ep $nm $nd $np $pa
-        python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
+        #. shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag/graphgen_threephase.sh $e $ep $nm $nd $np $pa
+        #python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
         ##. shell/mag/partitioner.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/partitioner_hddm.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/partitioner_hddm2.sh $e $ep $nm $nd $np $pa $st

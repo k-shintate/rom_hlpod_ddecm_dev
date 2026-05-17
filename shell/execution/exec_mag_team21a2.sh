@@ -24,7 +24,7 @@ do
     	for np in "${num_parallel[@]}"
     	do
     
-        #. shell/mag/meshgen_team21a2_tet.sh $e $ep $nm $nd $np $pa
+        . shell/mag/meshgen_team21a2_tet.sh $e $ep $nm $nd $np $pa
         #. shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/graphgen_team21a2.sh $e $ep $nm $nd $np $pa
         #python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
@@ -33,7 +33,7 @@ do
         #. shell/mag/partitioner_hddm2.sh $e $ep $nm $nd $np $pa $st
         ##. shell/mag/mesh_convert.sh $e $ep $nm $nd $np $pa $st
 
-        . shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/execution_threephase_online.sh $e $ep $nm $nd $np $pa $st
         
         done
