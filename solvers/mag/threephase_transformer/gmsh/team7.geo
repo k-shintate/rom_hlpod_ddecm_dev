@@ -629,7 +629,19 @@ Field[200].FieldsList = {
 Background Field = 200;
 
 // =====================================================
+<<<<<<< HEAD
 // Physical volumes
+=======
+// Physical groups
+// IDs aligned with solver-side assumptions
+//
+// 1 : COIL_INNER
+// 2 : COIL_LIMB
+// 3 : COIL_CORNER
+// 4 : ALUMINUM
+// 5 : HOLE
+// 6 : AIR
+>>>>>>> 799e409 (update mag)
 // =====================================================
 
 Physical Volume("COIL_INNER",  1) = {volInnerSel[]};
