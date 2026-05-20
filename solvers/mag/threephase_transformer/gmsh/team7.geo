@@ -2,10 +2,11 @@ SetFactory("OpenCASCADE");
 
 // =====================================================
 // TEAM Problem 7 coil split into:
-//   - COIL_INNER
-//   - COIL_LIMB
-//   - COIL_CORNER
-// Hole is kept as a separate volume
+//   - COIL_INNER  : rounded rectangle with R25
+//   - COIL_LIMB   : straight parts
+//   - COIL_CORNER : four quarter-annuli, R50/R25
+//
+// COIL_INNER is included as coil conductor.
 // Units: meters
 // =====================================================
 
@@ -17,12 +18,13 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Base mesh sizes ----------------
+// 精度検証用：アルミ板周辺を元より細かく
 lcCoil = 6  * Scale;
-lcHole = 6  * Scale;
-lcCond = 8  * Scale;
-lcNear = 12 * Scale;
-lcMid  = 24 * Scale;
-lcFar  = 80  * Scale;
+lcHole = 4  * Scale;
+lcCond = 4  * Scale;
+lcNear = 8  * Scale;
+lcMid  = 16 * Scale;
+lcFar  = 80 * Scale;
 
 // ---------------- Geometry ----------------
 aluX = 294 * Scale;
@@ -39,21 +41,23 @@ coilHeightZ = 100 * Scale;
 zCoil0 = aluZ + coilGapZ;
 zCoil1 = zCoil0 + coilHeightZ;
 
-// TEAM-7 exact dimensions
+// TEAM-7 dimensions
 rOuter = 50 * Scale;
 rInner = 25 * Scale;
 
+// Outer rounded rectangle bounding box
 ox0 = 94  * Scale;
 ox1 = 294 * Scale;
 oy0 = 0   * Scale;
 oy1 = 200 * Scale;
 
+// Inner rounded rectangle bounding box
 ix0 = 119 * Scale;
 ix1 = 269 * Scale;
 iy0 = 25  * Scale;
 iy1 = 175 * Scale;
 
-// centers for corner quarter-annuli
+// Centers for corner quarter-annuli
 cxBL = ox0 + rOuter;  cyBL = oy0 + rOuter;
 cxBR = ox1 - rOuter;  cyBR = oy0 + rOuter;
 cxTR = ox1 - rOuter;  cyTR = oy1 - rOuter;
@@ -61,7 +65,6 @@ cxTL = ox0 + rOuter;  cyTL = oy1 - rOuter;
 
 // =====================================================
 // Conductor block and hole block
-// Keep both as independent volumes using variable tags
 // =====================================================
 
 vAl = newv;
@@ -71,74 +74,214 @@ vHole = newv;
 Box(vHole) = {holeX0, holeY0, 0, holeX1-holeX0, holeY1-holeY0, aluZ};
 
 // =====================================================
-// 2D coil cross-section split into 9 faces
-//   1 inner rectangle
-//   4 limbs
-//   4 corners
+// 2D coil cross-section
 // =====================================================
 
 z0 = zCoil0;
 
-// ---- Inner rectangle ----
-sInner = news;
-Rectangle(sInner) = {ix0, iy0, z0, ix1-ix0, iy1-iy0};
-innerFace = sInner;
+// =====================================================
+// COIL_INNER
+// =====================================================
 
-// ---- Straight limbs ----
+// Start from inner bounding rectangle
+sInnerBase = news;
+Rectangle(sInnerBase) = {ix0, iy0, z0, ix1-ix0, iy1-iy0};
+
+// ---- BL cut: square outside R25 arc ----
+sIBLsq = news;
+Rectangle(sIBLsq) = {ix0, iy0, z0, rInner, rInner};
+
+sIBLdisk = news;
+Disk(sIBLdisk) = {cxBL, cyBL, z0, rInner, rInner};
+
+sIBLcut[] = BooleanDifference{ Surface{sIBLsq}; Delete; }
+                              { Surface{sIBLdisk}; Delete; };
+
+// ---- BR cut ----
+sIBRsq = news;
+Rectangle(sIBRsq) = {ix1-rInner, iy0, z0, rInner, rInner};
+
+sIBRdisk = news;
+Disk(sIBRdisk) = {cxBR, cyBR, z0, rInner, rInner};
+
+sIBRcut[] = BooleanDifference{ Surface{sIBRsq}; Delete; }
+                              { Surface{sIBRdisk}; Delete; };
+
+// ---- TR cut ----
+sITRsq = news;
+Rectangle(sITRsq) = {ix1-rInner, iy1-rInner, z0, rInner, rInner};
+
+sITRdisk = news;
+Disk(sITRdisk) = {cxTR, cyTR, z0, rInner, rInner};
+
+sITRcut[] = BooleanDifference{ Surface{sITRsq}; Delete; }
+                              { Surface{sITRdisk}; Delete; };
+
+// ---- TL cut ----
+sITLsq = news;
+Rectangle(sITLsq) = {ix0, iy1-rInner, z0, rInner, rInner};
+
+sITLdisk = news;
+Disk(sITLdisk) = {cxTL, cyTL, z0, rInner, rInner};
+
+sITLcut[] = BooleanDifference{ Surface{sITLsq}; Delete; }
+                              { Surface{sITLdisk}; Delete; };
+
+// Subtract the four outside-corner cuts from the inner rectangle
+innerTmp1[] = BooleanDifference{ Surface{sInnerBase}; Delete; }
+                                { Surface{sIBLcut[]}; Delete; };
+
+innerTmp2[] = BooleanDifference{ Surface{innerTmp1[]}; Delete; }
+                                { Surface{sIBRcut[]}; Delete; };
+
+innerTmp3[] = BooleanDifference{ Surface{innerTmp2[]}; Delete; }
+                                { Surface{sITRcut[]}; Delete; };
+
+innerRounded[] = BooleanDifference{ Surface{innerTmp3[]}; Delete; }
+                                   { Surface{sITLcut[]}; Delete; };
+
+If (#innerRounded[] == 0)
+  Error("COIL_INNER rounded rectangle construction failed");
+EndIf
+
+sInner = innerRounded[0];
+
+// =====================================================
+// COIL_LIMB straight parts
+// =====================================================
+
 sBtm = news;
-Rectangle(sBtm) = {ix0 + rInner, oy0, z0, (ix1-ix0) - 2*rInner, rInner};
+Rectangle(sBtm) = {
+  ix0 + rInner,
+  oy0,
+  z0,
+  (ix1-ix0) - 2*rInner,
+  rInner
+};
 
 sRgt = news;
-Rectangle(sRgt) = {ix1, iy0 + rInner, z0, rOuter-rInner, (iy1-iy0) - 2*rInner};
+Rectangle(sRgt) = {
+  ix1,
+  iy0 + rInner,
+  z0,
+  rOuter-rInner,
+  (iy1-iy0) - 2*rInner
+};
 
 sTop = news;
-Rectangle(sTop) = {ix0 + rInner, iy1, z0, (ix1-ix0) - 2*rInner, rOuter-rInner};
+Rectangle(sTop) = {
+  ix0 + rInner,
+  iy1,
+  z0,
+  (ix1-ix0) - 2*rInner,
+  rOuter-rInner
+};
 
 sLft = news;
-Rectangle(sLft) = {ox0, iy0 + rInner, z0, rOuter-rInner, (iy1-iy0) - 2*rInner};
+Rectangle(sLft) = {
+  ox0,
+  iy0 + rInner,
+  z0,
+  rOuter-rInner,
+  (iy1-iy0) - 2*rInner
+};
 
 limbFaces[] = {sBtm, sRgt, sTop, sLft};
 
-// ---- Corner quarter-annuli ----
-// Use helper rectangles with tags created by news to avoid OCC tag conflicts
+// =====================================================
+// COIL_CORNER quarter-annuli
+// R50 outer, R25 inner
+// =====================================================
 
-// BL corner
-sBLout = news; Disk(sBLout) = {cxBL, cyBL, z0, rOuter, rOuter};
-sBLin  = news; Disk(sBLin ) = {cxBL, cyBL, z0, rInner, rInner};
-tmpBL[] = BooleanDifference{ Surface{sBLout}; Delete; }{ Surface{sBLin}; Delete; };
-sBLh = news; Rectangle(sBLh) = {ox0, oy0, z0, 2*rOuter, rOuter};
-sBLv = news; Rectangle(sBLv) = {ox0, oy0, z0, rOuter, 2*rOuter};
-blKeep1[]  = BooleanIntersection{ Surface{tmpBL[]}; Delete; }{ Surface{sBLh}; Delete; };
-blCorner[] = BooleanIntersection{ Surface{blKeep1[]}; Delete; }{ Surface{sBLv}; Delete; };
+// ---- BL corner ----
+sBLout = news;
+Disk(sBLout) = {cxBL, cyBL, z0, rOuter, rOuter};
 
-// BR corner
-sBRout = news; Disk(sBRout) = {cxBR, cyBR, z0, rOuter, rOuter};
-sBRin  = news; Disk(sBRin ) = {cxBR, cyBR, z0, rInner, rInner};
-tmpBR[] = BooleanDifference{ Surface{sBRout}; Delete; }{ Surface{sBRin}; Delete; };
-sBRh = news; Rectangle(sBRh) = {ox1 - 2*rOuter, oy0, z0, 2*rOuter, rOuter};
-sBRv = news; Rectangle(sBRv) = {ox1 - rOuter,   oy0, z0, rOuter, 2*rOuter};
-brKeep1[]  = BooleanIntersection{ Surface{tmpBR[]}; Delete; }{ Surface{sBRh}; Delete; };
-brCorner[] = BooleanIntersection{ Surface{brKeep1[]}; Delete; }{ Surface{sBRv}; Delete; };
+sBLin = news;
+Disk(sBLin) = {cxBL, cyBL, z0, rInner, rInner};
 
-// TR corner
-sTRout = news; Disk(sTRout) = {cxTR, cyTR, z0, rOuter, rOuter};
-sTRin  = news; Disk(sTRin ) = {cxTR, cyTR, z0, rInner, rInner};
-tmpTR[] = BooleanDifference{ Surface{sTRout}; Delete; }{ Surface{sTRin}; Delete; };
-sTRh = news; Rectangle(sTRh) = {ox1 - 2*rOuter, oy1 - rOuter,   z0, 2*rOuter, rOuter};
-sTRv = news; Rectangle(sTRv) = {ox1 - rOuter,   oy1 - 2*rOuter, z0, rOuter, 2*rOuter};
-trKeep1[]  = BooleanIntersection{ Surface{tmpTR[]}; Delete; }{ Surface{sTRh}; Delete; };
-trCorner[] = BooleanIntersection{ Surface{trKeep1[]}; Delete; }{ Surface{sTRv}; Delete; };
+tmpBL[] = BooleanDifference{ Surface{sBLout}; Delete; }
+                            { Surface{sBLin};  Delete; };
 
-// TL corner
-sTLout = news; Disk(sTLout) = {cxTL, cyTL, z0, rOuter, rOuter};
-sTLin  = news; Disk(sTLin ) = {cxTL, cyTL, z0, rInner, rInner};
-tmpTL[] = BooleanDifference{ Surface{sTLout}; Delete; }{ Surface{sTLin}; Delete; };
-sTLh = news; Rectangle(sTLh) = {ox0, oy1 - rOuter,   z0, 2*rOuter, rOuter};
-sTLv = news; Rectangle(sTLv) = {ox0, oy1 - 2*rOuter, z0, rOuter, 2*rOuter};
-tlKeep1[]  = BooleanIntersection{ Surface{tmpTL[]}; Delete; }{ Surface{sTLh}; Delete; };
-tlCorner[] = BooleanIntersection{ Surface{tlKeep1[]}; Delete; }{ Surface{sTLv}; Delete; };
+sBLh = news;
+Rectangle(sBLh) = {ox0, oy0, z0, 2*rOuter, rOuter};
 
-// guard
+sBLv = news;
+Rectangle(sBLv) = {ox0, oy0, z0, rOuter, 2*rOuter};
+
+blKeep1[] = BooleanIntersection{ Surface{tmpBL[]}; Delete; }
+                               { Surface{sBLh};   Delete; };
+
+blCorner[] = BooleanIntersection{ Surface{blKeep1[]}; Delete; }
+                                { Surface{sBLv};     Delete; };
+
+// ---- BR corner ----
+sBRout = news;
+Disk(sBRout) = {cxBR, cyBR, z0, rOuter, rOuter};
+
+sBRin = news;
+Disk(sBRin) = {cxBR, cyBR, z0, rInner, rInner};
+
+tmpBR[] = BooleanDifference{ Surface{sBRout}; Delete; }
+                            { Surface{sBRin};  Delete; };
+
+sBRh = news;
+Rectangle(sBRh) = {ox1 - 2*rOuter, oy0, z0, 2*rOuter, rOuter};
+
+sBRv = news;
+Rectangle(sBRv) = {ox1 - rOuter, oy0, z0, rOuter, 2*rOuter};
+
+brKeep1[] = BooleanIntersection{ Surface{tmpBR[]}; Delete; }
+                               { Surface{sBRh};   Delete; };
+
+brCorner[] = BooleanIntersection{ Surface{brKeep1[]}; Delete; }
+                                { Surface{sBRv};     Delete; };
+
+// ---- TR corner ----
+sTRout = news;
+Disk(sTRout) = {cxTR, cyTR, z0, rOuter, rOuter};
+
+sTRin = news;
+Disk(sTRin) = {cxTR, cyTR, z0, rInner, rInner};
+
+tmpTR[] = BooleanDifference{ Surface{sTRout}; Delete; }
+                            { Surface{sTRin};  Delete; };
+
+sTRh = news;
+Rectangle(sTRh) = {ox1 - 2*rOuter, oy1 - rOuter, z0, 2*rOuter, rOuter};
+
+sTRv = news;
+Rectangle(sTRv) = {ox1 - rOuter, oy1 - 2*rOuter, z0, rOuter, 2*rOuter};
+
+trKeep1[] = BooleanIntersection{ Surface{tmpTR[]}; Delete; }
+                               { Surface{sTRh};   Delete; };
+
+trCorner[] = BooleanIntersection{ Surface{trKeep1[]}; Delete; }
+                                { Surface{sTRv};     Delete; };
+
+// ---- TL corner ----
+sTLout = news;
+Disk(sTLout) = {cxTL, cyTL, z0, rOuter, rOuter};
+
+sTLin = news;
+Disk(sTLin) = {cxTL, cyTL, z0, rInner, rInner};
+
+tmpTL[] = BooleanDifference{ Surface{sTLout}; Delete; }
+                            { Surface{sTLin};  Delete; };
+
+sTLh = news;
+Rectangle(sTLh) = {ox0, oy1 - rOuter, z0, 2*rOuter, rOuter};
+
+sTLv = news;
+Rectangle(sTLv) = {ox0, oy1 - 2*rOuter, z0, rOuter, 2*rOuter};
+
+tlKeep1[] = BooleanIntersection{ Surface{tmpTL[]}; Delete; }
+                               { Surface{sTLh};   Delete; };
+
+tlCorner[] = BooleanIntersection{ Surface{tlKeep1[]}; Delete; }
+                                { Surface{sTLv};     Delete; };
+
+// ---- Guard ----
 If (#blCorner[] == 0 || #brCorner[] == 0 || #trCorner[] == 0 || #tlCorner[] == 0)
   Error("Corner construction failed");
 EndIf
@@ -149,18 +292,27 @@ cornerFaces[] = {blCorner[0], brCorner[0], trCorner[0], tlCorner[0]};
 // Extrude each face set separately
 // =====================================================
 
-outInner[] = Extrude {0, 0, coilHeightZ} { Surface{innerFace}; };
+// COIL_INNER
+outInner[] = Extrude {0, 0, coilHeightZ} {
+  Surface{sInner};
+};
 volInner[] = {outInner[1]};
 
+// COIL_LIMB
 volLimb[] = {};
 For i In {0:#limbFaces[]-1}
-  out[] = Extrude {0, 0, coilHeightZ} { Surface{limbFaces[i]}; };
+  out[] = Extrude {0, 0, coilHeightZ} {
+    Surface{limbFaces[i]};
+  };
   volLimb[] += {out[1]};
 EndFor
 
+// COIL_CORNER
 volCorner[] = {};
 For i In {0:#cornerFaces[]-1}
-  out[] = Extrude {0, 0, coilHeightZ} { Surface{cornerFaces[i]}; };
+  out[] = Extrude {0, 0, coilHeightZ} {
+    Surface{cornerFaces[i]};
+  };
   volCorner[] += {out[1]};
 EndFor
 
@@ -170,62 +322,122 @@ coilVol[] = {volInner[], volLimb[], volCorner[]};
 // Air box and fragmentation
 // =====================================================
 
-xAir0 = -1353 * Scale;
-xAir1 =  1647 * Scale;
-yAir0 = -1353 * Scale;
-yAir1 =  1647 * Scale;
-zAir0 =  -300 * Scale;
-zAir1 =   449 * Scale;
+xAir0 = -753 * Scale;
+xAir1 =  753 * Scale;
+yAir0 = -753 * Scale;
+yAir1 =  753 * Scale;
+zAir0 = -753 * Scale;
+zAir1 =  753 * Scale;
 
 vAirBox = newv;
-Box(vAirBox) = {xAir0, yAir0, zAir0, xAir1-xAir0, yAir1-yAir0, zAir1-zAir0};
+Box(vAirBox) = {
+  xAir0, yAir0, zAir0,
+  xAir1-xAir0,
+  yAir1-yAir0,
+  zAir1-zAir0
+};
 
-// Use variable tags, not fixed volume IDs
-frag[] = BooleanFragments{ Volume{vAirBox}; Delete; }{ Volume{vAl, vHole, coilVol[]}; Delete; };
+frag[] = BooleanFragments{ Volume{vAirBox}; Delete; }
+                         { Volume{vAl, vHole, coilVol[]}; Delete; };
 
-// Do NOT call Coherence before this point.
-// One cleanup here is enough.
 Coherence;
 
-eps = 1e-6;
+eps = 0.1 * Scale;
 
 // =====================================================
 // Select fragmented volumes
 // =====================================================
 
-// hole
-volHole[] = Volume In BoundingBox{holeX0-eps, holeY0-eps, -eps, holeX1+eps, holeY1+eps, aluZ+eps};
+// ---- Hole ----
+volHole[] = Volume In BoundingBox{
+  holeX0-eps, holeY0-eps, -eps,
+  holeX1+eps, holeY1+eps, aluZ+eps
+};
 
-// conductor-space fragments
-volAluminumAll[] = Volume In BoundingBox{-eps, -eps, -eps, aluX+eps, aluY+eps, aluZ+eps};
+// ---- Aluminum ----
+volAluminumAll[] = Volume In BoundingBox{
+  -eps, -eps, -eps,
+  aluX+eps, aluY+eps, aluZ+eps
+};
 
-// subtract hole from conductor-space set to get metal only
 volCond[] = {volAluminumAll[]};
 volCond[] -= {volHole[]};
 
-// coil selections
-volInnerSel[] = Volume In BoundingBox{ix0-eps, iy0-eps, zCoil0-eps, ix1+eps, iy1+eps, zCoil1+eps};
-volCoilAll[]  = Volume In BoundingBox{ox0-eps, oy0-eps, zCoil0-eps, ox1+eps, oy1+eps, zCoil1+eps};
+// ---- COIL_INNER ----
+volInnerSel[] = Volume In BoundingBox{
+  ix0-eps, iy0-eps, zCoil0-eps,
+  ix1+eps, iy1+eps, zCoil1+eps
+};
 
-// remove inner from all coil volumes to get outer pieces
+// ---- All coil-related fragments in outer box ----
+volCoilAll[] = Volume In BoundingBox{
+  ox0-eps, oy0-eps, zCoil0-eps,
+  ox1+eps, oy1+eps, zCoil1+eps
+};
+
+// Outer pieces = all coil-region volumes minus inner
 volOuterPieces[] = {volCoilAll[]};
 volOuterPieces[] -= {volInnerSel[]};
 
-// corners occupy the four square neighborhoods near coil corners
+// ---- COIL_CORNER selection ----
 volCornerSel[] = {};
-volCornerSel[] += Volume In BoundingBox{ox0-eps, oy0-eps, zCoil0-eps, ox0+rOuter+eps, oy0+rOuter+eps, zCoil1+eps};
-volCornerSel[] += Volume In BoundingBox{ox1-rOuter-eps, oy0-eps, zCoil0-eps, ox1+eps, oy0+rOuter+eps, zCoil1+eps};
-volCornerSel[] += Volume In BoundingBox{ox1-rOuter-eps, oy1-rOuter-eps, zCoil0-eps, ox1+eps, oy1+eps, zCoil1+eps};
-volCornerSel[] += Volume In BoundingBox{ox0-eps, oy1-rOuter-eps, zCoil0-eps, ox0+rOuter+eps, oy1+eps, zCoil1+eps};
 
+volCornerSel[] += Volume In BoundingBox{
+  ox0-eps, oy0-eps, zCoil0-eps,
+  ox0+rOuter+eps, oy0+rOuter+eps, zCoil1+eps
+};
+
+volCornerSel[] += Volume In BoundingBox{
+  ox1-rOuter-eps, oy0-eps, zCoil0-eps,
+  ox1+eps, oy0+rOuter+eps, zCoil1+eps
+};
+
+volCornerSel[] += Volume In BoundingBox{
+  ox1-rOuter-eps, oy1-rOuter-eps, zCoil0-eps,
+  ox1+eps, oy1+eps, zCoil1+eps
+};
+
+volCornerSel[] += Volume In BoundingBox{
+  ox0-eps, oy1-rOuter-eps, zCoil0-eps,
+  ox0+rOuter+eps, oy1+eps, zCoil1+eps
+};
+
+// ---- COIL_LIMB selection ----
 volLimbSel[] = {volOuterPieces[]};
 volLimbSel[] -= {volCornerSel[]};
 
-// Keep hole as air-like region, not solid
-volSolid[] = {volCond[], volInnerSel[], volLimbSel[], volCornerSel[]};
+// ---- Diagnostics ----
+Printf("n volHole       = %g", #volHole[]);
+Printf("n volCond       = %g", #volCond[]);
+Printf("n volInnerSel   = %g", #volInnerSel[]);
+Printf("n volLimbSel    = %g", #volLimbSel[]);
+Printf("n volCornerSel  = %g", #volCornerSel[]);
+
+If (#volInnerSel[] != 1)
+  Error("volInnerSel selection failed: expected 1 volume");
+EndIf
+
+If (#volLimbSel[] != 4)
+  Error("volLimbSel selection failed: expected 4 volumes");
+EndIf
+
+If (#volCornerSel[] != 4)
+  Error("volCornerSel selection failed: expected 4 volumes");
+EndIf
+
+// =====================================================
+// Solid and air volumes
+// =====================================================
+
+volSolid[] = {
+  volCond[],
+  volInnerSel[],
+  volLimbSel[],
+  volCornerSel[]
+};
 
 volAir[] = Volume{:};
-volAir[] -= {volSolid[]};
+volAir[] -= {volSolid[], volHole[]};
 
 // =====================================================
 // Mesh fields
@@ -241,9 +453,10 @@ Field[2] = Threshold;
 Field[2].IField = 1;
 Field[2].LcMin = lcNear;
 Field[2].LcMax = lcFar;
-Field[2].DistMin = 10 * Scale;
+Field[2].DistMin = 10  * Scale;
 Field[2].DistMax = 100 * Scale;
 
+// Aluminum + coil surrounding region
 Field[3] = Box;
 Field[3].VIn  = lcCond;
 Field[3].VOut = lcFar;
@@ -251,9 +464,10 @@ Field[3].XMin = -10 * Scale;
 Field[3].XMax = aluX + 10 * Scale;
 Field[3].YMin = -10 * Scale;
 Field[3].YMax = aluY + 10 * Scale;
-Field[3].ZMin = -5  * Scale;
+Field[3].ZMin = -5 * Scale;
 Field[3].ZMax = zCoil1 + 5 * Scale;
 
+// Hole surrounding region
 Field[4] = Box;
 Field[4].VIn  = lcHole;
 Field[4].VOut = lcFar;
@@ -264,6 +478,7 @@ Field[4].YMax = holeY1 + 8 * Scale;
 Field[4].ZMin = -2 * Scale;
 Field[4].ZMax = aluZ + 2 * Scale;
 
+// Coil surrounding region
 Field[5] = Box;
 Field[5].VIn  = lcCoil;
 Field[5].VOut = lcFar;
@@ -274,48 +489,130 @@ Field[5].YMax = oy1 + 12 * Scale;
 Field[5].ZMin = zCoil0 - 10 * Scale;
 Field[5].ZMax = zCoil1 + 10 * Scale;
 
+// =====================================================
+// Fine mesh around aluminum plate
+// =====================================================
+// アルミ板の周囲だけさらに細かくする。
+// アルミ表面・穴周辺・板厚方向の精度検証で効く。
+
+Field[6] = Box;
+Field[6].VIn  = 3 * Scale;
+Field[6].VOut = lcFar;
+Field[6].XMin = -15 * Scale;
+Field[6].XMax = aluX + 15 * Scale;
+Field[6].YMin = -15 * Scale;
+Field[6].YMax = aluY + 15 * Scale;
+Field[6].ZMin = -10 * Scale;
+Field[6].ZMax = aluZ + 10 * Scale;
+
 Field[200] = Min;
-Field[200].FieldsList = {2, 3, 4, 5};
+Field[200].FieldsList = {2, 3, 4, 5, 6};
 Background Field = 200;
 
 // =====================================================
-// Physical groups
-// IDs aligned with solver-side assumptions
-//
-// 1 : COIL_INNER
-// 2 : COIL_LIMB
-// 3 : COIL_CORNER
-// 4 : ALUMINUM
-// 5 : AIR
-// 6 : HOLE
+// Physical volumes
 // =====================================================
 
 Physical Volume("COIL_INNER",  1) = {volInnerSel[]};
 Physical Volume("COIL_LIMB",   2) = {volLimbSel[]};
 Physical Volume("COIL_CORNER", 3) = {volCornerSel[]};
 Physical Volume("ALUMINUM",    4) = {volCond[]};
-Physical Volume("AIR",         5) = {volAir[]};
-Physical Volume("HOLE",        6) = {volHole[]};
+Physical Volume("HOLE",        5) = {volHole[]};
+Physical Volume("AIR",         6) = {volAir[]};
 
-Physical Volume("COIL", 7) = {volInnerSel[], volLimbSel[], volCornerSel[]};
-Physical Volume("All",  8) = {volAir[], volHole[], volCond[], volInnerSel[], volLimbSel[], volCornerSel[]};
+Physical Volume("COIL", 7) = {
+  volInnerSel[],
+  volLimbSel[],
+  volCornerSel[]
+};
 
-// outer air-box walls
-sXmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir0+eps, yAir1+eps, zAir1+eps};
-sXmax[] = Surface In BoundingBox{xAir1-eps, yAir0-eps, zAir0-eps, xAir1+eps, yAir1+eps, zAir1+eps};
-sYmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir1+eps, yAir0+eps, zAir1+eps};
-sYmax[] = Surface In BoundingBox{xAir0-eps, yAir1-eps, zAir0-eps, xAir1+eps, yAir1+eps, zAir1+eps};
-sZmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir1+eps, yAir1+eps, zAir0+eps};
-sZmax[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir1-eps, xAir1+eps, yAir1+eps, zAir1+eps};
+Physical Volume("All", 8) = {
+  volAir[],
+  volHole[],
+  volCond[],
+  volInnerSel[],
+  volLimbSel[],
+  volCornerSel[]
+};
 
-aluSurf[] = Boundary{ Volume{volCond[]}; };
-//Physical Surface("AIR_OUTER_WALLS") = {aluSurf[]};
-Physical Surface("AIR_OUTER_WALLS") = {sXmin[], sXmax[], sYmin[], sYmax[], sZmin[], sZmax[]};
+// =====================================================
+// Physical surfaces
+// =====================================================
 
+coilInnerSurf[]  = Boundary{ Volume{volInnerSel[]}; };
+coilLimbSurf[]   = Boundary{ Volume{volLimbSel[]}; };
+coilCornerSurf[] = Boundary{ Volume{volCornerSel[]}; };
+
+coilSurf[] = Boundary{
+  Volume{
+    volInnerSel[],
+    volLimbSel[],
+    volCornerSel[]
+  };
+};
+
+Physical Surface("COIL_INNER_SURF",  101) = {coilInnerSurf[]};
+Physical Surface("COIL_LIMB_SURF",   102) = {coilLimbSurf[]};
+Physical Surface("COIL_CORNER_SURF", 103) = {coilCornerSurf[]};
+Physical Surface("COIL_SURF",        107) = {coilSurf[]};
+
+// =====================================================
+// Outer air-box walls
+// =====================================================
+
+sXmin[] = Surface In BoundingBox{
+  xAir0-eps, yAir0-eps, zAir0-eps,
+  xAir0+eps, yAir1+eps, zAir1+eps
+};
+
+sXmax[] = Surface In BoundingBox{
+  xAir1-eps, yAir0-eps, zAir0-eps,
+  xAir1+eps, yAir1+eps, zAir1+eps
+};
+
+sYmin[] = Surface In BoundingBox{
+  xAir0-eps, yAir0-eps, zAir0-eps,
+  xAir1+eps, yAir0+eps, zAir1+eps
+};
+
+sYmax[] = Surface In BoundingBox{
+  xAir0-eps, yAir1-eps, zAir0-eps,
+  xAir1+eps, yAir1+eps, zAir1+eps
+};
+
+sZmin[] = Surface In BoundingBox{
+  xAir0-eps, yAir0-eps, zAir0-eps,
+  xAir1+eps, yAir1+eps, zAir0+eps
+};
+
+sZmax[] = Surface In BoundingBox{
+  xAir0-eps, yAir0-eps, zAir1-eps,
+  xAir1+eps, yAir1+eps, zAir1+eps
+};
+
+Physical Surface("AIR_OUTER_WALLS", 201) = {
+  sXmin[], sXmax[],
+  sYmin[], sYmax[],
+  sZmin[], sZmax[]
+};
+
+// =====================================================
 // Air-solid interfaces
+// =====================================================
+
 allAirBnd[] = Boundary{ Volume{volAir[]}; };
+
 interfaceBnd[] = allAirBnd[];
-interfaceBnd[] -= {sXmin[], sXmax[], sYmin[], sYmax[], sZmin[], sZmax[]};
-Physical Surface("AIR_SOLID_INTERFACE") = {interfaceBnd[]};
+interfaceBnd[] -= {
+  sXmin[], sXmax[],
+  sYmin[], sYmax[],
+  sZmin[], sZmax[]
+};
+
+Physical Surface("AIR_SOLID_INTERFACE", 202) = {interfaceBnd[]};
+
+// =====================================================
+// Mesh
+// =====================================================
 
 Mesh 3;

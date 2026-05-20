@@ -103,7 +103,7 @@ def plot_bz_a1b1_comparison(vtp_paths, array_name: str = "B_node"):
     # Reference data
     x_ref, bz_ref = get_reference_a1b1()
 
-    plt.plot(x_ref,bz_ref,linestyle="None",marker="o",markersize=6,label="Reference A1-B1, f=50 Hz, wt=0°")
+    #plt.plot(x_ref,bz_ref,linestyle="None",marker="o",markersize=6,label="Reference A1-B1, f=50 Hz, wt=0°")
 
     plt.xlim(0.0, 0.288)
     plt.xlabel("x [m]")

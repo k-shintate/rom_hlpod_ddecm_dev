@@ -19,17 +19,11 @@ void get_sigmas_for_prop_team21c(
         //*sigma_mass_A = Sigma_coil * 0.1256/3.2;
         //*sigma_cpl    = Sigma_coil* 0.119;
         //*sigma_phi    = Sigma_coil* 0.119;
-<<<<<<< HEAD
 	    //*sigma_cpl    = 0.0;
         //*sigma_phi    = 0.0;
         *sigma_mass_A = Sigma_coil;
         *sigma_cpl    = Sigma_coil;
         *sigma_phi    = Sigma_coil;
-=======
-        *sigma_mass_A = 0.0;
-	    *sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
->>>>>>> e222fa6589ee7c865a5250037c777273f96ddda0
     } else if(prop == 3){
         /* TEAM P21C-EM1 copper shielding plate */
         *sigma_mass_A = Sigma_steel;
@@ -1936,134 +1930,6 @@ void set_element_mat_nedelec_Aphi_team21a2(
 }
 
 
-<<<<<<< HEAD
-=======
-static const double I_RMS_team21a2 = 10.0;   /* TEAM benchmark rated current [A rms] */
-static const double FREQ_HZ_team21a2 = 50.0; /* [Hz] */
-
-static inline double get_coil_current_team21a2(int prop, double t)
-{
-    const double omega = 2.0 * M_PI * FREQ_HZ_team21a2;
-    const double Iamp  = sqrt(2.0) * I_RMS_team21a2;  /* peak value */    
-
-    if(prop == 1){
-        return  Iamp;   
-    } else if(prop == 2){
-        return  -Iamp;   
-    }
-
-    return 0.0;
-}
-
-
-static int get_team21a2_known_Js_by_coord(
-    int prop,
-    const double x_ip[3],
-    double Jmag,
-    double Js[3]
-){
-    const double MM = MM_TO_M;
-
-    /* coil z ranges from the .geo */
-    const double coilHeight = 217.0 * MM;
-    const double coilGapZ   = 24.0  * MM;
-
-    const double zCoil1_0 = -(coilGapZ/2.0 + coilHeight);
-    const double zCoil1_1 = - coilGapZ/2.0;
-    const double zCoil2_0 =   coilGapZ/2.0;
-    const double zCoil2_1 =   coilGapZ/2.0 + coilHeight;
-
-    const double x = x_ip[0];
-    const double y = x_ip[1];
-    const double z = x_ip[2];
-
-    /* rounded-rectangle section parameters */
-    const double ao = 135.0 * MM;  /* outer half width  */
-    const double bo = 135.0 * MM;  /* outer half height */
-    const double ai = 100.0 * MM;  /* inner half width  */
-    const double bi = 100.0 * MM;  /* inner half height */
-    const double ro =  45.0 * MM;  /* outer corner radius */
-    const double ri =  10.0 * MM;  /* inner corner radius */
-
-    /* common corner centers */
-    const double cxp =  90.0 * MM;
-    const double cxm = -90.0 * MM;
-    const double cyp =  90.0 * MM;
-    const double cym = -90.0 * MM;
-
-    Js[0] = 0.0;
-    Js[1] = 0.0;
-    Js[2] = 0.0;
-
-    /* select coil by z */
-    if(prop == 1){
-        if(z < zCoil1_0 || z > zCoil1_1) return 0;
-    }else if(prop == 2){
-        if(z < zCoil2_0 || z > zCoil2_1) return 0;
-    }else{
-        return 0;
-    }
-
-    /* ---------- straight parts ---------- */
-
-    /* bottom */
-    if(fabs(x) <= 90.0*MM && y >= -135.0*MM && y <= -90.0*MM){
-        Js[0] =  Jmag; Js[1] = 0.0;  Js[2] = 0.0;
-        return 1;
-    }
-
-    /* right */
-    if(x >= 90.0*MM && x <= 135.0*MM && fabs(y) <= 90.0*MM){
-        Js[0] = 0.0;  Js[1] =  Jmag; Js[2] = 0.0;
-        return 1;
-    }
-
-    /* top */
-    if(fabs(x) <= 90.0*MM && y >= 90.0*MM && y <= 135.0*MM){
-        Js[0] = -Jmag; Js[1] = 0.0;  Js[2] = 0.0;
-        return 1;
-    }
-
-    /* left */
-    if(x >= -135.0*MM && x <= -90.0*MM && fabs(y) <= 90.0*MM){
-        Js[0] = 0.0;  Js[1] = -Jmag; Js[2] = 0.0;
-        return 1;
-    }
-
-    /* ---------- corner annular sectors ---------- */
-    {
-        struct Corner {
-            double cx, cy;
-            int sx, sy;
-        } cs[4] = {
-            { cxp, cym, +1, -1 }, /* bottom-right */
-            { cxp, cyp, +1, +1 }, /* top-right    */
-            { cxm, cyp, -1, +1 }, /* top-left     */
-            { cxm, cym, -1, -1 }  /* bottom-left  */
-        };
-
-        for(int k=0; k<4; ++k){
-            double dx = x - cs[k].cx;
-            double dy = y - cs[k].cy;
-            double r  = sqrt(dx*dx + dy*dy);
-
-            if(r < ri || r > ro) continue;
-            if(cs[k].sx * dx < 0.0) continue;
-            if(cs[k].sy * dy < 0.0) continue;
-
-            /* CCW tangential direction */
-            Js[0] = -Jmag * dy / r;
-            Js[1] =  Jmag * dx / r;
-            Js[2] =  0.0;
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
-
->>>>>>> e222fa6589ee7c865a5250037c777273f96ddda0
 void set_element_vec_nedelec_Aphi_team21a2(
     MONOLIS*     monolis,
     BBFE_DATA*   fe,
@@ -2105,45 +1971,7 @@ void set_element_vec_nedelec_Aphi_team21a2(
 
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-<<<<<<< HEAD
         /* direct impressed Js is removed when total-current penalty is used */
-=======
-        /* ==========================================================
-         * [1] Source term (coil excitation)
-         *     current source amplitude is no longer prescribed by CURRENT_AMP
-         *     use updated phase current g_phase_current3[phase]
-         * ========================================================== */
-        if(is_coil){
-            double I_t = get_coil_current_team21a2(prop, 0.0);
-            double J_mag = (coil.turns * I_t) / coil.area;
-
-            for(int i = 0; i < ned->local_num_edges; ++i){
-                int gi = ned->nedelec_conn[e][i];
-                int si = ned->edge_sign[e][i];
-
-                for(int p = 0; p < np; ++p){
-                    double x_ip[3];
-                    get_interp_coords(e, p, fe, basis, x_ip);
-
-                    double tdir[3];
-                    double Js[3] = {0.0, 0.0, 0.0};
-                    int ok_Js = get_team21a2_known_Js_by_coord(prop, x_ip, J_mag, Js);
-
-                    if(ok_Js){
-                        val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
-                    }else{
-                        val_ip_C[p] = 0.0;
-                    }
-
-                    val_ip_C[p] = dot3(Js, ned->N_edge[e][p][i]);
-                }
-
-                double integ = BBFE_std_integ_calc(np, val_ip_C, basis->integ_weight, Jacobian_ip);
-                double _Complex val = (double)si * integ;
-                monolis->mat.C.B[gi] -= val;
-            }
-        }
->>>>>>> e222fa6589ee7c865a5250037c777273f96ddda0
     }
 
     BB_std_free_1d_double(Jacobian_ip, np);
