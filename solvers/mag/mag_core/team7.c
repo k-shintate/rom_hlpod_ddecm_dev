@@ -369,6 +369,7 @@ const double coil_area = 2500.0e-6;
 
 /* TimeEvolutionSinusoidal Hz 60 deg 90.0 1.0 0.0 */
 const double phase_rad = 90.0 * M_PI / 180.0;
+//const double phase_rad = 0.0;
 const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
 
 long long coil_elem_count = 0;

@@ -18,7 +18,8 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Base mesh sizes ----------------
-// 精度検証用：アルミ板周辺を元より細かく
+// TEAM 7 精度検証用
+// 必要部位を Mesh Field で局所的に細かくする
 lcCoil = 6  * Scale;
 lcHole = 4  * Scale;
 lcCond = 4  * Scale;
@@ -81,6 +82,12 @@ z0 = zCoil0;
 
 // =====================================================
 // COIL_INNER
+//
+// IMPORTANT:
+// COIL_INNER must NOT be a simple rectangle.
+// It must be a rounded rectangle with R25 corners.
+// Otherwise it overlaps COIL_CORNER and BooleanFragments
+// splits it into 5 volumes.
 // =====================================================
 
 // Start from inner bounding rectangle
@@ -322,12 +329,12 @@ coilVol[] = {volInner[], volLimb[], volCorner[]};
 // Air box and fragmentation
 // =====================================================
 
-xAir0 = -753 * Scale;
-xAir1 =  753 * Scale;
-yAir0 = -753 * Scale;
-yAir1 =  753 * Scale;
-zAir0 = -753 * Scale;
-zAir1 =  753 * Scale;
+xAir0 = -1453 * Scale;
+xAir1 =  1453 * Scale;
+yAir0 = -1453 * Scale;
+yAir1 =  1453 * Scale;
+zAir0 = -1453 * Scale;
+zAir1 =  1453 * Scale;
 
 vAirBox = newv;
 Box(vAirBox) = {
@@ -364,6 +371,8 @@ volCond[] = {volAluminumAll[]};
 volCond[] -= {volHole[]};
 
 // ---- COIL_INNER ----
+// Because COIL_INNER is now a rounded rectangle,
+// this should select exactly 1 volume.
 volInnerSel[] = Volume In BoundingBox{
   ix0-eps, iy0-eps, zCoil0-eps,
   ix1+eps, iy1+eps, zCoil1+eps
@@ -440,73 +449,183 @@ volAir[] = Volume{:};
 volAir[] -= {volSolid[], volHole[]};
 
 // =====================================================
-// Mesh fields
+// Mesh fields for TEAM 7 accuracy verification
 // =====================================================
+
+// -----------------------------------------------------
+// Accuracy verification mesh sizes
+// -----------------------------------------------------
+// coarse / medium / fine の精度検証を行う場合は、
+// 主に以下の値だけを変更する。
+
+lcCoilFine   = 3.0 * Scale;   // コイル導体まわり
+lcAlFine     = 2.5 * Scale;   // アルミ板まわり
+lcHoleFine   = 2.0 * Scale;   // 穴まわり
+lcGapFine    = 3.0 * Scale;   // コイル-アルミ間の空気
+lcLineFine   = 2.0 * Scale;   // 評価線近傍
+lcNearFine   = 6.0 * Scale;   // 全固体境界近傍
+lcFarFine    = lcFar;
+
+// -----------------------------------------------------
+// Distance field from all solid boundaries
+// -----------------------------------------------------
+// アルミ、穴、コイル、空気との界面近傍を全体的に細かくする。
 
 solidBnd[] = Boundary{ Volume{volSolid[]}; };
 
 Field[1] = Distance;
 Field[1].SurfacesList = {solidBnd[]};
-Field[1].Sampling = 100;
+Field[1].Sampling = 200;
 
 Field[2] = Threshold;
 Field[2].IField = 1;
-Field[2].LcMin = lcNear;
-Field[2].LcMax = lcFar;
-Field[2].DistMin = 10  * Scale;
-Field[2].DistMax = 100 * Scale;
+Field[2].LcMin = lcNearFine;
+Field[2].LcMax = lcFarFine;
+Field[2].DistMin = 5   * Scale;
+Field[2].DistMax = 120 * Scale;
 
-// Aluminum + coil surrounding region
-Field[3] = Box;
-Field[3].VIn  = lcCond;
-Field[3].VOut = lcFar;
-Field[3].XMin = -10 * Scale;
-Field[3].XMax = aluX + 10 * Scale;
-Field[3].YMin = -10 * Scale;
-Field[3].YMax = aluY + 10 * Scale;
-Field[3].ZMin = -5 * Scale;
-Field[3].ZMax = zCoil1 + 5 * Scale;
-
-// Hole surrounding region
-Field[4] = Box;
-Field[4].VIn  = lcHole;
-Field[4].VOut = lcFar;
-Field[4].XMin = holeX0 - 8 * Scale;
-Field[4].XMax = holeX1 + 8 * Scale;
-Field[4].YMin = holeY0 - 8 * Scale;
-Field[4].YMax = holeY1 + 8 * Scale;
-Field[4].ZMin = -2 * Scale;
-Field[4].ZMax = aluZ + 2 * Scale;
-
-// Coil surrounding region
-Field[5] = Box;
-Field[5].VIn  = lcCoil;
-Field[5].VOut = lcFar;
-Field[5].XMin = ox0 - 12 * Scale;
-Field[5].XMax = ox1 + 12 * Scale;
-Field[5].YMin = oy0 - 12 * Scale;
-Field[5].YMax = oy1 + 12 * Scale;
-Field[5].ZMin = zCoil0 - 10 * Scale;
-Field[5].ZMax = zCoil1 + 10 * Scale;
-
-// =====================================================
+// -----------------------------------------------------
 // Fine mesh around aluminum plate
-// =====================================================
-// アルミ板の周囲だけさらに細かくする。
-// アルミ表面・穴周辺・板厚方向の精度検証で効く。
+// -----------------------------------------------------
+// アルミ板本体およびその近傍。
+// 渦電流密度 Jey の精度に直接効く。
+
+Field[3] = Box;
+Field[3].VIn  = lcAlFine;
+Field[3].VOut = lcFarFine;
+Field[3].XMin = -15 * Scale;
+Field[3].XMax = aluX + 15 * Scale;
+Field[3].YMin = -15 * Scale;
+Field[3].YMax = aluY + 15 * Scale;
+Field[3].ZMin = -8  * Scale;
+Field[3].ZMax = aluZ + 8 * Scale;
+
+// -----------------------------------------------------
+// Very fine mesh around the hole in aluminum
+// -----------------------------------------------------
+// 穴の角・周辺は渦電流が変化しやすいため細かくする。
+
+Field[4] = Box;
+Field[4].VIn  = lcHoleFine;
+Field[4].VOut = lcFarFine;
+Field[4].XMin = holeX0 - 10 * Scale;
+Field[4].XMax = holeX1 + 10 * Scale;
+Field[4].YMin = holeY0 - 10 * Scale;
+Field[4].YMax = holeY1 + 10 * Scale;
+Field[4].ZMin = -4 * Scale;
+Field[4].ZMax = aluZ + 4 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh around coil conductor
+// -----------------------------------------------------
+// 励磁電流による磁界分布の精度に効く。
+
+Field[5] = Box;
+Field[5].VIn  = lcCoilFine;
+Field[5].VOut = lcFarFine;
+Field[5].XMin = ox0 - 15 * Scale;
+Field[5].XMax = ox1 + 15 * Scale;
+Field[5].YMin = oy0 - 15 * Scale;
+Field[5].YMax = oy1 + 15 * Scale;
+Field[5].ZMin = zCoil0 - 15 * Scale;
+Field[5].ZMax = zCoil1 + 15 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh in air gap between aluminum and coil
+// -----------------------------------------------------
+// z = aluZ から z = zCoil0 の空気領域。
+// コイルとアルミ板の磁気結合に効く。
 
 Field[6] = Box;
-Field[6].VIn  = 3 * Scale;
-Field[6].VOut = lcFar;
-Field[6].XMin = -15 * Scale;
-Field[6].XMax = aluX + 15 * Scale;
-Field[6].YMin = -15 * Scale;
-Field[6].YMax = aluY + 15 * Scale;
-Field[6].ZMin = -10 * Scale;
-Field[6].ZMax = aluZ + 10 * Scale;
+Field[6].VIn  = lcGapFine;
+Field[6].VOut = lcFarFine;
+Field[6].XMin = -20 * Scale;
+Field[6].XMax = aluX + 20 * Scale;
+Field[6].YMin = -20 * Scale;
+Field[6].YMax = aluY + 20 * Scale;
+Field[6].ZMin = aluZ - 3 * Scale;
+Field[6].ZMax = zCoil0 + 3 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh around Bz evaluation line A1-B1
+// y = 72 mm, z = 34 mm
+// -----------------------------------------------------
+
+Field[7] = Box;
+Field[7].VIn  = lcLineFine;
+Field[7].VOut = lcFarFine;
+Field[7].XMin = -5  * Scale;
+Field[7].XMax = 295 * Scale;
+Field[7].YMin = 72 * Scale - 4 * Scale;
+Field[7].YMax = 72 * Scale + 4 * Scale;
+Field[7].ZMin = 34 * Scale - 4 * Scale;
+Field[7].ZMax = 34 * Scale + 4 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh around Bz evaluation line A2-B2
+// y = 144 mm, z = 34 mm
+// -----------------------------------------------------
+
+Field[8] = Box;
+Field[8].VIn  = lcLineFine;
+Field[8].VOut = lcFarFine;
+Field[8].XMin = -5  * Scale;
+Field[8].XMax = 295 * Scale;
+Field[8].YMin = 144 * Scale - 4 * Scale;
+Field[8].YMax = 144 * Scale + 4 * Scale;
+Field[8].ZMin = 34 * Scale - 4 * Scale;
+Field[8].ZMax = 34 * Scale + 4 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh around Jey evaluation line A3-B3
+// y = 72 mm, z = 19 mm
+// upper aluminum surface
+// -----------------------------------------------------
+
+Field[9] = Box;
+Field[9].VIn  = lcLineFine;
+Field[9].VOut = lcFarFine;
+Field[9].XMin = -5  * Scale;
+Field[9].XMax = 295 * Scale;
+Field[9].YMin = 72 * Scale - 4 * Scale;
+Field[9].YMax = 72 * Scale + 4 * Scale;
+Field[9].ZMin = aluZ - 2 * Scale;
+Field[9].ZMax = aluZ + 2 * Scale;
+
+// -----------------------------------------------------
+// Fine mesh around Jey evaluation line A4-B4
+// y = 72 mm, z = 0 mm
+// lower aluminum surface
+// -----------------------------------------------------
+
+Field[10] = Box;
+Field[10].VIn  = lcLineFine;
+Field[10].VOut = lcFarFine;
+Field[10].XMin = -5  * Scale;
+Field[10].XMax = 295 * Scale;
+Field[10].YMin = 72 * Scale - 4 * Scale;
+Field[10].YMax = 72 * Scale + 4 * Scale;
+Field[10].ZMin = -2 * Scale;
+Field[10].ZMax =  2 * Scale;
+
+// -----------------------------------------------------
+// Combine all mesh fields
+// -----------------------------------------------------
+// Min を使うことで、各領域で最も細かいメッシュサイズを採用する。
 
 Field[200] = Min;
-Field[200].FieldsList = {2, 3, 4, 5, 6};
+Field[200].FieldsList = {
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10
+};
+
 Background Field = 200;
 
 // =====================================================
