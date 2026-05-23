@@ -23,7 +23,7 @@ mkdir -p $directory
 cd $directory
 
 # 1. 直接 MSH2 形式でメッシュ生成 (-format msh2 を追加)
-gmsh -3 -format msh2 ../../solvers/mag/threephase_transformer/gmsh/team21a0.geo -o sphere2.msh
+gmsh -3 -format msh2 ../../solvers/mag/threephase_transformer/gmsh/team21a2.geo -o sphere2.msh
 gmsh sphere2.msh
 
 # 2. Python スクリプトを実行

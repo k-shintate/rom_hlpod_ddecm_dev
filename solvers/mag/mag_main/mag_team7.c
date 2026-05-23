@@ -19,7 +19,7 @@ const int DVAL_NUM_IP_EACH_AXIS = 3;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
 const double  DVAL_MAT_EPSILON  = 1.0e-8;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";
-const int    DVAL_MAT_MAX_ITER  = 100000;
+const int    DVAL_MAT_MAX_ITER  = 150000;
 const char*              ID_DT  = "#time_spacing";
 const double           DVAL_DT  = 0.001;
 const char*     ID_FINISH_TIME  = "#finish_time";
@@ -830,7 +830,7 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
   
-        solver_fom_NR_Aphi_team7(
+        solver_fom_NR_Aphi_team21a(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
@@ -869,6 +869,9 @@ int main (
             //output_files_nedelec(&sys, step, t);
             //output_files(&sys, step, t);
         }
+
+        double t2 = monolis_get_time_global_sync();
+        exit(1);
         
 /*
         if(step%1 == 0){

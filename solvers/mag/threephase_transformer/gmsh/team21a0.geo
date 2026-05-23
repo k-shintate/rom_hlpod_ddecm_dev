@@ -303,10 +303,10 @@ Field[4].FieldsList = {2, 3, 5};
 Background Field = 4;
 
 // ---------------- Physical groups ----------------
-Physical Volume("DOMAIN") = {volAir[]};
 Physical Volume("COIL_1") = {volCoil1[]};
 Physical Volume("COIL_2") = {volCoil2[]};
 Physical Volume("NONMAG_PLATE") = {volPlate[]};
+Physical Volume("DOMAIN") = {volAir[]};
 Physical Volume("All") = {volAir[], volCoil1[], volCoil2[], volPlate[]};
 
 sXmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir0+eps, yAir1+eps, zAir1+eps};

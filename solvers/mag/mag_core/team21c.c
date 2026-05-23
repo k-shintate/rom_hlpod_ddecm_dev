@@ -2188,7 +2188,7 @@ double calc_copper_shield_loss_EM1_freq(
                 creal(E0*conj(E0) + E1*conj(E1) + E2*conj(E2));
 
             /* peak phasor 前提なら 0.5 を掛ける */
-            val_ip[p] = 0.5 * Sigma_steel * e2;
+            val_ip[p] = Sigma_steel * e2;
         }
 
         loss_local += BBFE_std_integ_calc(np, val_ip, basis->integ_weight, Jacobian_ip);

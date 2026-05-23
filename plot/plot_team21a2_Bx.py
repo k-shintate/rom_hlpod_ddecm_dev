@@ -47,6 +47,7 @@ def get_table_a3_2_in_si():
     xp_calc_T = TABLE_A3_2[:, 2] * 1.0e-4
     xm_meas_T = TABLE_A3_2[:, 3] * 1.0e-4
     xm_calc_T = TABLE_A3_2[:, 4] * 1.0e-4
+
     return z_m, xp_meas_T, xp_calc_T, xm_meas_T, xm_calc_T
 
 
@@ -65,9 +66,11 @@ def read_bnode_x_sorted_by_z(vtp_path: str, array_name: str = "B_node"):
     if points_vtk is None:
         raise RuntimeError(f"No points found in the VTP file: {vtp_path}")
 
-    coords = vtk_to_numpy(points_vtk.GetData())  # shape: (N, 3)
+    coords = vtk_to_numpy(points_vtk.GetData())
     if coords.ndim != 2 or coords.shape[1] < 3:
-        raise RuntimeError(f"Unexpected point coordinate shape in {vtp_path}: {coords.shape}")
+        raise RuntimeError(
+            f"Unexpected point coordinate shape in {vtp_path}: {coords.shape}"
+        )
 
     z = coords[:, 2]
 
@@ -92,15 +95,20 @@ def read_bnode_x_sorted_by_z(vtp_path: str, array_name: str = "B_node"):
     # Expect vector data like (N, 3)
     if bnode.ndim != 2:
         raise RuntimeError(
-            f'"{array_name}" is not a vector array in {vtp_path}. Shape = {bnode.shape}'
+            f'"{array_name}" is not a vector array in {vtp_path}. '
+            f"Shape = {bnode.shape}"
         )
+
     if bnode.shape[1] < 1:
         raise RuntimeError(
-            f'"{array_name}" has no x component in {vtp_path}. Shape = {bnode.shape}'
+            f'"{array_name}" has no x component in {vtp_path}. '
+            f"Shape = {bnode.shape}"
         )
+
     if bnode.shape[0] != z.shape[0]:
         raise RuntimeError(
-            f"Point count mismatch in {vtp_path}: coords={z.shape[0]}, {array_name}={bnode.shape[0]}"
+            f"Point count mismatch in {vtp_path}: "
+            f"coords={z.shape[0]}, {array_name}={bnode.shape[0]}"
         )
 
     bnode_x = bnode[:, 0]
@@ -120,7 +128,10 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
 
     # --- plot VTP results ---
     for i, vtp_path in enumerate(vtp_paths, start=1):
-        z_sorted, bnode_x_sorted = read_bnode_x_sorted_by_z(vtp_path, array_name=array_name)
+        z_sorted, bnode_x_sorted = read_bnode_x_sorted_by_z(
+            vtp_path,
+            array_name=array_name
+        )
 
         sign = signs[i - 1] if i - 1 < len(signs) else "?"
 
@@ -130,11 +141,47 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
             marker="o",
             linestyle="-",
             markersize=3,
-            label=f"X={sign}5.76mm (proposed)"
+            label=f"X={sign}5.76mm proposed"
         )
 
     # --- reference data from Table A3-2 ---
     z_ref, xp_meas, xp_calc, xm_meas, xm_calc = get_table_a3_2_in_si()
+
+    # X=+5.76 mm reference
+    plt.plot(
+        z_ref,
+        xp_meas,
+        marker="s",
+        linestyle="none",
+        markersize=5,
+        label="X=+5.76mm measured"
+    )
+
+    plt.plot(
+        z_ref,
+        xp_calc,
+        linestyle="--",
+        linewidth=1.5,
+        label="X=+5.76mm calculated"
+    )
+
+    # X=-5.76 mm reference
+    plt.plot(
+        z_ref,
+        xm_meas,
+        marker="^",
+        linestyle="none",
+        markersize=5,
+        label="X=-5.76mm measured"
+    )
+
+    plt.plot(
+        z_ref,
+        xm_calc,
+        linestyle=":",
+        linewidth=1.8,
+        label="X=-5.76mm calculated"
+    )
 
     plt.xlim(0.0, 0.4)
     plt.xlabel("z [m]")

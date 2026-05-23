@@ -220,10 +220,10 @@ plateCut[] = BooleanDifference{ Volume{10}; Delete; }{ Volume{11,12}; Delete; };
 plateVol[] = {plateCut[]};
 
 // ---------------- Air domain ----------------
-marginXneg = 220 * Scale;
-marginXpos = 220 * Scale;
-marginY    = 220 * Scale;
-marginZ    = 220 * Scale;
+marginXneg = 440 * Scale;
+marginXpos = 440 * Scale;
+marginY    = 440 * Scale;
+marginZ    = 440 * Scale;
 
 xAir0 = ox0 - marginXneg;
 xAir1 = xPlate1 + marginXpos;
@@ -303,10 +303,10 @@ Field[4].FieldsList = {2, 3, 5};
 Background Field = 4;
 
 // ---------------- Physical groups ----------------
-Physical Volume("DOMAIN") = {volAir[]};
 Physical Volume("COIL_1") = {volCoil1[]};
 Physical Volume("COIL_2") = {volCoil2[]};
 Physical Volume("NONMAG_PLATE") = {volPlate[]};
+Physical Volume("DOMAIN") = {volAir[]};
 Physical Volume("All") = {volAir[], volCoil1[], volCoil2[], volPlate[]};
 
 sXmin[] = Surface In BoundingBox{xAir0-eps, yAir0-eps, zAir0-eps, xAir0+eps, yAir1+eps, zAir1+eps};

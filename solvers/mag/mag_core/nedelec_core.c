@@ -9,6 +9,7 @@ static const int BUFFER_SIZE = 10000;
 const double mu0 = 4.0*M_PI*1e-7; // H/m
 //const double Nu  = 1.0 / mu0;     // ← ここを μ0 に合わせる
 
+/*
 void compute_B_cell_average(
     BBFE_DATA*   fe,
     BBFE_BASIS*  basis,
@@ -87,7 +88,9 @@ void compute_B_cell_average(
 
     BB_std_free_1d_double(J_ip, np);
 }
-/*
+*/
+
+
 void compute_B_cell_average(
     BBFE_DATA*   fe,
     BBFE_BASIS*  basis,
@@ -142,7 +145,7 @@ void compute_B_cell_average(
 
     BB_std_free_1d_double(J_ip, np);
 }
-*/
+
 
 // B_cell -> 節点B
 void accumulate_B_cell_to_nodes(
@@ -180,7 +183,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop==6){
+            if(prop==4){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }
@@ -190,7 +193,7 @@ void set_elem_types(
         for(int n=0; n<fe->local_num_nodes; ++n){
 
             int prop = ned->elem_prop[e];
-            if(prop!=6){
+            if(prop!=4){
                 elem_type[fe->conn[e][n]] = prop;
             }
         }
