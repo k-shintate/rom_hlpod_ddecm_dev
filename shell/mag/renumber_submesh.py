@@ -68,7 +68,7 @@ def write_mapping(path, global_nodes, local_start):
         # 2行目以降: local_node_id global_node_id
         for i, gid in enumerate(global_nodes):
             local_id = i + local_start
-            f.write(f"{local_id} {gid}\n")
+            f.write(f"{gid}\n")
 
 
 def renumber_connectivity(conn_global, local_start):

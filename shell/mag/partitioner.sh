@@ -42,8 +42,10 @@ python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat ./graph.d
 
 ./../../utils/bin/elem2graph -ie elem.dat -og graph_elem.dat
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_connectivity_graph_partitioner -n $np -i graph_elem.dat -ig graph.dat
-./../../utils/bin/elem2graph -ie nedelec_elem_only.dat -og graph_nedelec_elem_only.dat
+
+./../../utils/bin/elem2graph -ie elem_widing1_local.dat -og graph_elem_widing1_local.dat
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_connectivity_graph_partitioner -n $np -i graph_nedelec_elem_only.dat -ig graph.dat
+
 ./../../utils/bin/elem2graph -ie nedelec_elem.dat -og graph_nedelec_elem.dat
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_connectivity_graph_partitioner -n $np -i graph_nedelec_elem.dat -ig graph.dat
 

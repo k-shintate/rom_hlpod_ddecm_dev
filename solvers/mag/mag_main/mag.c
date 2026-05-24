@@ -43,109 +43,6 @@ static int cmp_edgecand(const void *pa, const void *pb) {
 }
 
 
-void output_set_elems_nedelec_unstructured(
-    BBFE_DATA   *fe,
-    NEDELEC     *ned,
-    const char* directory)
-{
-    const int num_elems = fe->total_num_elems;
-
-    (void)directory;
-
-    /* 念のため初期化（呼び出し側が安全になる） */
-    ned->num_edges  = 0;
-
-    /* --- 要素タイプの判定と設定 --- */
-    int num_edges_per_elem = 0;
-    const int (*curr_edge_conn)[2] = NULL;
-
-    if (fe->local_num_nodes == 8) {
-        num_edges_per_elem = 12;
-        curr_edge_conn = hex_edge_conn;
-        printf("Generating Nédélec edge connectivity for Hexahedra (%d elems)...\n", num_elems);
-    }
-    else if (fe->local_num_nodes == 4) {
-        num_edges_per_elem = 6;
-        curr_edge_conn = tet_edge_conn;
-        printf("Generating Nédélec edge connectivity for Tetrahedra (%d elems)...\n", num_elems);
-    }
-    else {
-        fprintf(stderr, "Error: Unsupported element type (nodes=%d)\n", fe->local_num_nodes);
-        exit(EXIT_FAILURE);
-    }
-
-    /* 出力配列の確保：要素数 × 要素あたりのエッジ数 */
-    ned->nedelec_conn = BB_std_calloc_2d_int(ned->nedelec_conn, num_elems, num_edges_per_elem);
-    ned->edge_sign    = BB_std_calloc_2d_int(ned->edge_sign,    num_elems, num_edges_per_elem);
-
-    /* 全要素の全ローカルエッジを候補として列挙 */
-    const size_t M = (size_t)num_elems * (size_t)num_edges_per_elem;
-    EdgeCand *cand = (EdgeCand*)malloc(sizeof(EdgeCand) * M);
-    if (!cand) { fprintf(stderr, "alloc failed (cand)\n"); exit(EXIT_FAILURE); }
-
-    size_t t = 0;
-    for (int e = 0; e < num_elems; ++e) {
-        for (int le = 0; le < num_edges_per_elem; ++le) {
-            const int u = fe->conn[e][ curr_edge_conn[le][0] ];
-            const int v = fe->conn[e][ curr_edge_conn[le][1] ];
-
-            const int a = (u < v) ? u : v;
-            const int b = (u < v) ? v : u;
-
-            cand[t++] = (EdgeCand){ .a=a, .b=b, .u=u, .v=v, .elem=e, .ledge=le };
-        }
-    }
-
-    /* 無向キー(a,b)でソート */
-    qsort(cand, M, sizeof(EdgeCand), cmp_edgecand);
-
-    /* 最大 M 本のエッジ用に一旦確保 */
-    int (*edge_nodes)[2] = (int (*)[2])malloc(sizeof(int[2]) * M);
-    if (!edge_nodes) { fprintf(stderr, "alloc failed (edge_nodes)\n"); free(cand); exit(EXIT_FAILURE); }
-
-    int num_edges = 0;
-
-    /* 走査しながらユニーク化 & グローバルID付与 */
-    for (size_t i = 0; i < M; ) {
-        size_t j = i + 1;
-        while (j < M && cand[j].a == cand[i].a && cand[j].b == cand[i].b) ++j;
-
-        const int eid = num_edges++;
-        edge_nodes[eid][0] = cand[i].a; /* min */
-        edge_nodes[eid][1] = cand[i].b; /* max */
-
-        for (size_t k = i; k < j; ++k) {
-            const int sign = (cand[k].u == cand[k].a) ? +1 : -1;
-            ned->nedelec_conn[cand[k].elem][cand[k].ledge] = eid;
-            ned->edge_sign[cand[k].elem][cand[k].ledge]    = sign;
-        }
-
-        i = j;
-    }
-
-    /* edge_nodes を縮小して ned に保持 */
-    ned->num_edges = num_edges;
-
-    if (num_edges > 0) {
-        int (*tmp_nodes)[2] = (int (*)[2])realloc(edge_nodes, sizeof(int[2]) * (size_t)num_edges);
-        if (!tmp_nodes) {
-            fprintf(stderr, "realloc failed (edge_nodes)\n");
-            free(edge_nodes);
-            free(cand);
-            exit(EXIT_FAILURE);
-        }
-        edge_nodes = tmp_nodes;
-    } else {
-        free(edge_nodes);
-        edge_nodes = NULL;
-    }
-
-    free(cand);
-
-    printf("Done. Unique global edges = %d\n", ned->num_edges);
-}
-
-
 void assign_default_values(
 		VALUES*     vals)
 {
@@ -339,12 +236,15 @@ void output_set_elems_nedelec_unstructured(
     // データ書き出し
     for(int e = 0; e < fe->total_num_elems; e++){
         // ノードID
-        for(int n = 0; n < fe->local_num_nodes; n++){
-            fprintf(fp, "%d ", fe->conn[e][n]);
+        if(ned->phi_exists[e]){
+            for(int n = 0; n < fe->local_num_nodes; n++){
+                fprintf(fp, "%d ", ned->phi_conn[e][n]);
+            }
         }
         // エッジID (総ノード数をオフセットとして加算)
         for(int n = 0; n < ned->local_num_edges; n++){
-            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
+            //fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
+            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + ned->part_num_nodes);
         }
         fprintf(fp, "\n");
     }
@@ -544,7 +444,7 @@ int main (
         sys.vals.num_ip_each_axis);
 
     const char* filename;
-/*
+
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
 
     set_elem_prop(
@@ -552,19 +452,19 @@ int main (
             &(sys.ned),
             sys.cond.directory,
             filename);
-*/
+
+    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "material_node_mapping.dat");
+
+    read_part_node_id(
+            &(sys.fe),
+            &(sys.ned),
+            sys.cond.directory,
+            filename);
+
 
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "nedelec_elem.dat");
 
     output_set_elems_nedelec_unstructured(
-			&(sys.fe),
-            &(sys.ned),
-            filename,
-            sys.cond.directory);
-
-    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "nedelec_elem_only.dat");
-
-    output_set_elems_nedelec_unstructured_only(
 			&(sys.fe),
             &(sys.ned),
             filename,

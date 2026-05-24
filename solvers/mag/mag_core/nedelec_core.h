@@ -118,6 +118,13 @@ void set_elem_prop(
         const char*     filename);
 
 
+void read_part_node_id(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+		const char*     directory,
+        const char*     filename);
+
+
 void read_elem_types(
         BBFE_DATA*    fe,
         NEDELEC *ned,
