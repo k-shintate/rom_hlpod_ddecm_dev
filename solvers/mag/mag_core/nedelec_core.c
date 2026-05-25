@@ -605,8 +605,6 @@ void read_part_node_id(
 		const char*     directory,
         const char*     filename)
 {
-    ned->elem_prop = BB_std_calloc_1d_int(ned->elem_prop, fe->total_num_elems);
-
     FILE* fp;
 	fp = BBFE_sys_read_fopen(fp, filename, directory);
 
@@ -615,9 +613,35 @@ void read_part_node_id(
     char id[BUFFER_SIZE];
 
     fscanf(fp, "%d", &(ned->part_num_nodes));
+    ned->part_node_id = BB_std_calloc_1d_int(ned->part_node_id, fe->total_num_elems);
 
 	for(int i = 0; i < ned->part_num_nodes; i++) {
 		fscanf(fp, "%d", &(ned->part_node_id[i]));
+	}
+
+	fclose(fp);
+}
+
+void read_part_elem_id(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+		const char*     directory,
+        const char*     filename)
+{
+    FILE* fp;
+	fp = BBFE_sys_read_fopen(fp, filename, directory);
+
+    int total_num_elems;
+    int tmp;
+    char id[BUFFER_SIZE];
+
+    fscanf(fp, "%d %d", &(total_num_elems), &(tmp));
+    ned->phi_conn = BB_std_calloc_2d_int(ned->phi_conn, total_num_elems, tmp);
+
+	for(int i = 0; i < total_num_elems; i++) {
+        for(int j = 0; j < tmp; j++){
+		    fscanf(fp, "%d", &(ned->phi_conn[i][j]));
+        }
 	}
 
 	fclose(fp);

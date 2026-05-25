@@ -67,13 +67,7 @@ static inline int get_coil_info_team7(int elem_prop, COIL_INFO* info){
     return 1;
 }
 
-<<<<<<< HEAD
 static inline double get_coil_current_team7(int prop){
-=======
-
-static inline double get_coil_current_team7(int prop)
-{
->>>>>>> 799e409 (update mag)
     if(is_team7_coil_prop(prop)){
         return NI_RMS_team7;
     }
@@ -82,7 +76,6 @@ static inline double get_coil_current_team7(int prop)
 
 /* =========================================================Known source current density Js in coil region========================================================= */
 
-<<<<<<< HEAD
 typedef enum {TEAM7_SRC_PP,TEAM7_SRC_DSC} TEAM7_SRC_TYPE;
 
 typedef struct {TEAM7_SRC_TYPE type;
@@ -120,404 +113,12 @@ for(int i = 0; i < 3; ++i){
 M[0][0]=b[0]; M[0][1]=c[0]; M[0][2]=d[0];
 M[1][0]=b[1]; M[1][1]=c[1]; M[1][2]=d[1];
 M[2][0]=b[2]; M[2][1]=c[2]; M[2][2]=d[2];
-=======
-typedef enum {
-    TEAM7_SRC_PP,
-    TEAM7_SRC_DSC
-} TEAM7_SRC_TYPE;
-
-typedef struct {
-    TEAM7_SRC_TYPE type;
-
-    /* common: real-valued amplitude for current density */
-    double value;
-
-    /* Parallelepiped */
-    double p0[3];
-    double p1[3];
-    double p2[3];
-    double p3[3];
-    double vec_val[3];
-
-    /* DoubleSectorialCylinder / annular sector */
-    double base[3];
-    int axis;              /* 0:x, 1:y, 2:z */
-    double height;
-    double start_deg;
-    double sweep_deg;
-    double r_in;
-    double r_out;
-} TEAM7_SOURCE_DEF;
-
-static int point_in_parallelepiped_source(
-    const TEAM7_SOURCE_DEF* s,
-    const double x[3],
-    double J[3]
-){
-    double b[3], c[3], d[3], rhs[3];
-    double M[3][3];
-    double det, u, v, w;
-
-    for(int i = 0; i < 3; ++i){
-        b[i]   = s->p1[i] - s->p0[i];
-        c[i]   = s->p2[i] - s->p0[i];
-        d[i]   = s->p3[i] - s->p0[i];
-        rhs[i] = x[i]     - s->p0[i];
-    }
-
-    M[0][0]=b[0]; M[0][1]=c[0]; M[0][2]=d[0];
-    M[1][0]=b[1]; M[1][1]=c[1]; M[1][2]=d[1];
-    M[2][0]=b[2]; M[2][1]=c[2]; M[2][2]=d[2];
-
-    det =
-        M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1]) -
-        M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0]) +
-        M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]);
-
-    if(fabs(det) < 1.0e-20) return 0;
-
-    u =
-        (rhs[0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1]) -
-         M[0][1]*(rhs[1]*M[2][2]-M[1][2]*rhs[2]) +
-         M[0][2]*(rhs[1]*M[2][1]-M[1][1]*rhs[2])) / det;
-
-    v =
-        (M[0][0]*(rhs[1]*M[2][2]-M[1][2]*rhs[2]) -
-         rhs[0]*(M[1][0]*M[2][2]-M[1][2]*M[2][0]) +
-         M[0][2]*(M[1][0]*rhs[2]-rhs[1]*M[2][0])) / det;
-
-    w =
-        (M[0][0]*(M[1][1]*rhs[2]-rhs[1]*M[2][1]) -
-         M[0][1]*(M[1][0]*rhs[2]-rhs[1]*M[2][0]) +
-         rhs[0]*(M[1][0]*M[2][1]-M[1][1]*M[2][0])) / det;
-
-    const double tol = 1.0e-10;
-
-    if(u < -tol || u > 1.0 + tol) return 0;
-    if(v < -tol || v > 1.0 + tol) return 0;
-    if(w < -tol || w > 1.0 + tol) return 0;
-
-    J[0] = s->vec_val[0];
-    J[1] = s->vec_val[1];
-    J[2] = s->vec_val[2];
-
-    return 1;
-}
-
-static double normalize_angle_rad_team7(double a)
-{
-    while(a >  M_PI) a -= 2.0 * M_PI;
-    while(a < -M_PI) a += 2.0 * M_PI;
-    return a;
-}
-
-static int angle_in_sweep_team7(double theta, double start, double sweep)
-{
-    theta = normalize_angle_rad_team7(theta);
-    start = normalize_angle_rad_team7(start);
-
-    double rel = normalize_angle_rad_team7(theta - start);
-
-    if(sweep > 0.0){
-        return (rel >= -1.0e-12 && rel <= sweep + 1.0e-12);
-    } else {
-        return (rel <=  1.0e-12 && rel >= sweep - 1.0e-12);
-    }
-}
-
-static int point_in_dsc_source(
-    const TEAM7_SOURCE_DEF* s,
-    const double x[3],
-    double J[3]
-){
-    const int ia = s->axis;
-    const int ir = (ia + 1) % 3;
-    const int is = (ia + 2) % 3;
-
-    double a0 = s->base[ia];
-    double a1 = s->base[ia] + s->height;
-
-    if(a0 > a1){
-        double tmp = a0;
-        a0 = a1;
-        a1 = tmp;
-    }
-
-    if(x[ia] < a0 - 1.0e-12 || x[ia] > a1 + 1.0e-12) return 0;
-
-    const double dr = x[ir] - s->base[ir];
-    const double ds = x[is] - s->base[is];
-    const double r  = sqrt(dr*dr + ds*ds);
-
-    if(r < s->r_in  - 1.0e-12) return 0;
-    if(r > s->r_out + 1.0e-12) return 0;
-    if(r < 1.0e-20) return 0;
-
-    const double theta = atan2(ds, dr);
-    const double start = s->start_deg * M_PI / 180.0;
-    const double sweep = s->sweep_deg * M_PI / 180.0;
-
-    if(!angle_in_sweep_team7(theta, start, sweep)) return 0;
-
-    J[0] = 0.0;
-    J[1] = 0.0;
-    J[2] = 0.0;
-
-    /* Positive tangential direction in the local cross-section plane */
-    J[ir] = -s->value * ds / r;
-    J[is] =  s->value * dr / r;
-
-    return 1;
-}
-
-static int get_team7_known_Js_by_coord(
-    int prop,
-    const double x_ip[3],
-    double Jmag,
-    double Js[3]
-){
-    Js[0] = 0.0;
-    Js[1] = 0.0;
-    Js[2] = 0.0;
-
-    if(!is_team7_coil_prop(prop)) return 0;
-
-    TEAM7_SOURCE_DEF srcs[8];
-    int nsrc = 0;
-
-    const double z0 = 0.049;
-    const double z1 = 0.149;
-    const double h  = z1 - z0;
-
-    const double ox0 = 0.094;
-    const double ox1 = 0.294;
-    const double oy0 = 0.000;
-    const double oy1 = 0.200;
-
-    const double ix0 = 0.119;
-    const double ix1 = 0.269;
-    const double iy0 = 0.025;
-    const double iy1 = 0.175;
-
-    const double rIn  = 0.025;
-    const double rOut = 0.050;
-
-    const double cxBL = 0.144;
-    const double cyBL = 0.050;
-    const double cxBR = 0.244;
-    const double cyBR = 0.050;
-    const double cxTR = 0.244;
-    const double cyTR = 0.150;
-    const double cxTL = 0.144;
-    const double cyTL = 0.150;
-
-    /* bottom straight part: +x */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_PP,
-        .value = 0.0,
-        .p0 = {ix0 + rIn, oy0,       z0},
-        .p1 = {ix1 - rIn, oy0,       z0},
-        .p2 = {ix0 + rIn, oy0+rIn,   z0},
-        .p3 = {ix0 + rIn, oy0,       z1},
-        .vec_val = {+Jmag, 0.0, 0.0}
-    };
-
-    /* right straight part: +y */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_PP,
-        .value = 0.0,
-        .p0 = {ix1,     iy0 + rIn, z0},
-        .p1 = {ox1,     iy0 + rIn, z0},
-        .p2 = {ix1,     iy1 - rIn, z0},
-        .p3 = {ix1,     iy0 + rIn, z1},
-        .vec_val = {0.0, +Jmag, 0.0}
-    };
-
-    /* top straight part: -x */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_PP,
-        .value = 0.0,
-        .p0 = {ix0 + rIn, iy1,     z0},
-        .p1 = {ix1 - rIn, iy1,     z0},
-        .p2 = {ix0 + rIn, oy1,     z0},
-        .p3 = {ix0 + rIn, iy1,     z1},
-        .vec_val = {-Jmag, 0.0, 0.0}
-    };
-
-    /* left straight part: -y */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_PP,
-        .value = 0.0,
-        .p0 = {ox0, iy0 + rIn, z0},
-        .p1 = {ix0, iy0 + rIn, z0},
-        .p2 = {ox0, iy1 - rIn, z0},
-        .p3 = {ox0, iy0 + rIn, z1},
-        .vec_val = {0.0, -Jmag, 0.0}
-    };
-
-    /* bottom-left corner */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_DSC,
-        .value = Jmag,
-        .base = {cxBL, cyBL, z0},
-        .axis = 2,
-        .height = h,
-        .start_deg = 180.0,
-        .sweep_deg = 90.0,
-        .r_in = rIn,
-        .r_out = rOut
-    };
-
-    /* bottom-right corner */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_DSC,
-        .value = Jmag,
-        .base = {cxBR, cyBR, z0},
-        .axis = 2,
-        .height = h,
-        .start_deg = -90.0,
-        .sweep_deg = 90.0,
-        .r_in = rIn,
-        .r_out = rOut
-    };
-
-    /* top-right corner */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_DSC,
-        .value = Jmag,
-        .base = {cxTR, cyTR, z0},
-        .axis = 2,
-        .height = h,
-        .start_deg = 0.0,
-        .sweep_deg = 90.0,
-        .r_in = rIn,
-        .r_out = rOut
-    };
-
-    /* top-left corner */
-    srcs[nsrc++] = (TEAM7_SOURCE_DEF){
-        .type = TEAM7_SRC_DSC,
-        .value = Jmag,
-        .base = {cxTL, cyTL, z0},
-        .axis = 2,
-        .height = h,
-        .start_deg = 90.0,
-        .sweep_deg = 90.0,
-        .r_in = rIn,
-        .r_out = rOut
-    };
-
-    for(int k = 0; k < nsrc; ++k){
-        int ok;
-
-        if(srcs[k].type == TEAM7_SRC_PP){
-            ok = point_in_parallelepiped_source(&srcs[k], x_ip, Js);
-        } else {
-            ok = point_in_dsc_source(&srcs[k], x_ip, Js);
-        }
-
-        if(ok) return 1;
-    }
-
-    Js[0] = 0.0;
-    Js[1] = 0.0;
-    Js[2] = 0.0;
-
-    return 0;
-}
-
-/* =========================================================
-   RHS assembly for A-phi
-   ========================================================= */
-
-void set_element_vec_nedelec_Aphi_team7(
-    MONOLIS*     monolis,
-    BBFE_DATA*   fe,
-    BBFE_BASIS*  basis,
-    BBFE_BC*     bc,
-    NEDELEC*     ned)
-{
-    (void)bc;
-
-    const int np = basis->num_integ_points;
-
-    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
-    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
-
-    /* TEAM 7 coil cross-sectional area:
-       25 mm x 100 mm = 2500 mm^2 = 2500e-6 m^2.
-       Do NOT divide by 40. */
-    const double coil_area = 2500.0e-6;
-
-    /* TimeEvolutionSinusoidal Hz 60 deg 90.0 1.0 0.0 */
-    const double phase_rad = 90.0 * M_PI / 180.0;
-    const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
-
-    long long coil_elem_count = 0;
-    long long src_hit_count   = 0;
-
-    for(int e = 0; e < fe->total_num_elems; ++e){
-        const int prop = ned->elem_prop[e];
-
-        if(!is_team7_coil_prop(prop)) continue;
-
-        coil_elem_count++;
-
-        const double NI = get_coil_current_team7(prop);
-        const double J_mag = NI / coil_area;
-
-        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
-
-        for(int i = 0; i < ned->local_num_edges; ++i){
-            const int gi = ned->nedelec_conn[e][i];
-            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-            for(int p = 0; p < np; ++p){
-                double x_ip[3];
-                double Js[3];
-
-                get_interp_coords(e, p, fe, basis, x_ip);
-
-                if(get_team7_known_Js_by_coord(prop, x_ip, J_mag, Js)){
-                    src_hit_count++;
-                    val_ip[p] = dot3_team7(Js, ned->N_edge[e][p][i]);
-                } else {
-                    val_ip[p] = 0.0;
-                }
-            }
-
-            {
-                const double integ =
-                    BBFE_std_integ_calc(
-                        np,
-                        val_ip,
-                        basis->integ_weight,
-                        Jacobian_ip
-                    );
-
-                /* Sign convention:
-                   Use += for curl(nu curl A) ... = Js.
-                   If your whole formulation uses the opposite RHS sign,
-                   change only this line consistently. */
-                monolis->mat.C.B[gi] += (double)si * integ * phase_factor;
-            }
-        }
-    }
-
-    printf("[TEAM7 coil debug] coil_elem_count = %lld\n", coil_elem_count);
-    printf("[TEAM7 coil debug] src_hit_count   = %lld\n", src_hit_count);
-
-    BB_std_free_1d_double(Jacobian_ip, np);
-    BB_std_free_1d_double(val_ip, np);
-}
->>>>>>> 799e409 (update mag)
 
 det =
     M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1]) -
     M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0]) +
     M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]);
 
-<<<<<<< HEAD
 if(fabs(det) < 1.0e-20) return 0;
 
 u =
@@ -754,15 +355,6 @@ return 0;
 /* =========================================================RHS assembly for A-phi========================================================= */
 
 void set_element_vec_nedelec_Aphi_team7(MONOLIS*     monolis,BBFE_DATA*   fe,BBFE_BASIS*  basis,BBFE_BC*     bc,NEDELEC*     ned){
-=======
-void set_element_mat_nedelec_Aphi_team7_test(
-    MONOLIS*     monolis,
-    BBFE_DATA*   fe,
-    BBFE_BASIS*  basis,
-    BBFE_BC*     bc,
-    NEDELEC*     ned)
-{
->>>>>>> 799e409 (update mag)
     (void)bc;
 
 const int np = basis->num_integ_points;
@@ -780,45 +372,13 @@ const double phase_rad = 90.0 * M_PI / 180.0;
 //const double phase_rad = 0.0;
 const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
 
-<<<<<<< HEAD
 long long coil_elem_count = 0;
 long long src_hit_count   = 0;
-=======
-        for(int i = 0; i < ned->local_num_edges; ++i){
-            const int gi = ned->nedelec_conn[e][i];
-            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
->>>>>>> 799e409 (update mag)
 
 for(int e = 0; e < fe->total_num_elems; ++e){
     const int prop = ned->elem_prop[e];
 
-<<<<<<< HEAD
     if(!is_team7_coil_prop(prop)) continue;
-=======
-                for(int p = 0; p < np; ++p){
-                    val_ip_C[p]  = 0.0 + 0.0*I;
-                    val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
-                        ned->curl_N_edge[e][p][i],
-                        ned->curl_N_edge[e][p][j],
-                        1.0
-                    );
-                    val_ip_C[p] -= (0.0 + 1.0*I) * omega_team7
-                                 * BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        ned->N_edge[e][p][j],
-                        sigma
-                    );
-
-
-                    val_ip_C[p] += 1.0e3
-                        * BBFE_elemmat_mag_mat_mass(
-                            ned->N_edge[e][p][i],
-                            ned->N_edge[e][p][j],
-                            1.0
-                        );
-
-                }
->>>>>>> 799e409 (update mag)
 
     coil_elem_count++;
 
@@ -845,7 +405,6 @@ for(int e = 0; e < fe->total_num_elems; ++e){
             }
         }
 
-<<<<<<< HEAD
         {
             const double integ =
                 BBFE_std_integ_calc(
@@ -932,16 +491,10 @@ for(int e = 0; e < fe->total_num_elems; ++e){
     if(sigma > 0.0){
         for(int m = 0; m < fe->local_num_nodes; ++m){
             const int gm = fe->conn[e][m];
-=======
-        if(sigma > 0.0){
-            for(int m = 0; m < fe->local_num_nodes; ++m){
-                const int gm = fe->conn[e][m];
->>>>>>> 799e409 (update mag)
 
-                for(int n = 0; n < fe->local_num_nodes; ++n){
-                    const int gn = fe->conn[e][n];
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
 
-<<<<<<< HEAD
                 for(int p = 0; p < np; ++p){
                     val_ip_C[p]  = 0.0 + 0.0*I;
                     val_ip_C[p] -= (0.0 + 1.0*I)
@@ -957,41 +510,17 @@ for(int e = 0; e < fe->total_num_elems; ++e){
                         BBFE_std_integ_calc_C(np, val_ip_C,
                                             basis->integ_weight, J_ip);
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
-=======
-                    for(int p = 0; p < np; ++p){
-                        val_ip_C[p]  = 0.0 + 0.0*I;
-                        val_ip_C[p] -= (0.0 + 1.0*I)
-                                    * BBFE_elemmat_mag_mat_mass(
-                            fe->geo[e][p].grad_N[m],
-                            fe->geo[e][p].grad_N[n],
-                            sigma / omega_team7
-                        );
-                    }
-
-                    {
-                        double _Complex v =
-                            BBFE_std_integ_calc_C(np, val_ip_C,
-                                                basis->integ_weight, J_ip);
-                        monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
-                    }
->>>>>>> 799e409 (update mag)
                 }
             }
+        }
 
-<<<<<<< HEAD
         for(int j = 0; j < ned->local_num_edges; ++j){
             const int gj = ned->nedelec_conn[e][j];
             const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-=======
-            for(int j = 0; j < ned->local_num_edges; ++j){
-                const int gj = ned->nedelec_conn[e][j];
-                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
->>>>>>> 799e409 (update mag)
 
-                for(int n = 0; n < fe->local_num_nodes; ++n){
-                    const int gn = fe->conn[e][n];
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                const int gn = fe->conn[e][n];
 
-<<<<<<< HEAD
                 for(int p = 0; p < np; ++p){
                     val_ip_C[p]  = 0.0 + 0.0*I;
                     val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
@@ -1007,40 +536,17 @@ for(int e = 0; e < fe->total_num_elems; ++e){
                                             basis->integ_weight, J_ip);
                     v *= (double)sj;
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
-=======
-                    for(int p = 0; p < np; ++p){
-                        val_ip_C[p]  = 0.0 + 0.0*I;
-                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                            fe->geo[e][p].grad_N[n],
-                            ned->N_edge[e][p][j],
-                            sigma
-                        );
-                    }
-
-                    {
-                        double _Complex v =
-                            BBFE_std_integ_calc_C(np, val_ip_C,
-                                                basis->integ_weight, J_ip);
-                        v *= (double)sj;
-                        monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
-                    }
->>>>>>> 799e409 (update mag)
                 }
             }
+        }
 
-<<<<<<< HEAD
         for(int m = 0; m < fe->local_num_nodes; ++m){
             const int gm = fe->conn[e][m];
-=======
-            for(int m = 0; m < fe->local_num_nodes; ++m){
-                const int gm = fe->conn[e][m];
->>>>>>> 799e409 (update mag)
 
-                for(int i = 0; i < ned->local_num_edges; ++i){
-                    const int gi = ned->nedelec_conn[e][i];
-                    const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+            for(int i = 0; i < ned->local_num_edges; ++i){
+                const int gi = ned->nedelec_conn[e][i];
+                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-<<<<<<< HEAD
                 for(int p = 0; p < np; ++p){
                     val_ip_C[p]  = 0.0 + 0.0*I;
                     val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
@@ -1056,31 +562,12 @@ for(int e = 0; e < fe->total_num_elems; ++e){
                                             basis->integ_weight, J_ip);
                     v *= (double)si;
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
-=======
-                    for(int p = 0; p < np; ++p){
-                        val_ip_C[p]  = 0.0 + 0.0*I;
-                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                            ned->N_edge[e][p][i],
-                            fe->geo[e][p].grad_N[m],
-                            sigma
-                        );
-                    }
-
-                    {
-                        double _Complex v =
-                            BBFE_std_integ_calc_C(np, val_ip_C,
-                                                basis->integ_weight, J_ip);
-                        v *= (double)si;
-                        monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
-                    }
->>>>>>> 799e409 (update mag)
                 }
             }
         }
     }
 }
 
-<<<<<<< HEAD
 BB_std_free_1d_double(J_ip, np);
 BB_std_free_1d_double_C(val_ip_C, np);
 
@@ -1203,41 +690,10 @@ for(int e=0; e<fe->total_num_elems; ++e){
     for(int m=0; m<fe->local_num_nodes; ++m){
         const int gm = fe->conn[e][m];
 
-=======
-
-void set_element_mat_nedelec_Aphi_team7(
-    MONOLIS*     monolis,
-    BBFE_DATA*   fe,
-    BBFE_BASIS*  basis,
-    BBFE_BC*     bc,
-    NEDELEC*     ned)
-{
-    (void)bc;
-
-    const int np = basis->num_integ_points;
-
-    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
-    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
-
-    for(int e=0; e<fe->total_num_elems; ++e){
-
-        int prop = ned->elem_prop[e];
-        double nu;
-        double sigma;
-        get_material_for_prop_team7_Aphi(prop, &nu, &sigma);
-
-        int nonlinear_mu = 0;
-        (void)nonlinear_mu;
-
-        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
-
-        /* curl-curl block (A-A) */
->>>>>>> 799e409 (update mag)
         for(int i=0; i<ned->local_num_edges; ++i){
             const int gi = ned->nedelec_conn[e][i];
             const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-<<<<<<< HEAD
             for(int p=0; p<np; ++p){
                 val_ip_C[p] = 0.0 + 0.0*I;
                 val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
@@ -1245,133 +701,14 @@ void set_element_mat_nedelec_Aphi_team7(
                     fe->geo[e][p].grad_N[m],
                     sigma
                 ) * I * omega_team7;
-=======
-            for(int j=0; j<ned->local_num_edges; ++j){
-                const int gj = ned->nedelec_conn[e][j];
-                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
-                        ned->curl_N_edge[e][p][i],
-                        ned->curl_N_edge[e][p][j],
-                        1.0
-                    );
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si*sj);
-
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
->>>>>>> 799e409 (update mag)
             }
-        }
 
-<<<<<<< HEAD
             double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
             v *= (double)si;
 
             monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
         }
     }
-=======
-        /* sigma * iω * A mass block */
-        for(int i=0; i<ned->local_num_edges; ++i){
-            const int gi = ned->nedelec_conn[e][i];
-            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-            for(int j=0; j<ned->local_num_edges; ++j){
-                const int gj = ned->nedelec_conn[e][j];
-                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        ned->N_edge[e][p][j],
-                        sigma
-                    ) * omega_team7 * I;
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si*sj);
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-            }
-        }
-
-        /* phi-phi block */
-        for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm = fe->conn[e][m];
-
-            for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[m],
-                        fe->geo[e][p].grad_N[n],
-                        sigma
-                    ) * I * omega_team7;
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
-            }
-        }
-
-        /* A-phi block */
-        for(int j=0; j<ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn[e][j];
-            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-            for(int n=0; n<fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[n],
-                        ned->N_edge[e][p][j],
-                        sigma
-                    ) * I * omega_team7;
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)sj;
-
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
-            }
-        }
-
-        /* phi-A block */
-        for(int m=0; m<fe->local_num_nodes; ++m){
-            const int gm = fe->conn[e][m];
-
-            for(int i=0; i<ned->local_num_edges; ++i){
-                const int gi = ned->nedelec_conn[e][i];
-                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-                for(int p=0; p<np; ++p){
-                    val_ip_C[p] = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        fe->geo[e][p].grad_N[m],
-                        sigma
-                    ) * I * omega_team7;
-                }
-
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)si;
-
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
-            }
-        }
-    }
-
-    BB_std_free_1d_double(J_ip, np);
-    BB_std_free_1d_double_C(val_ip_C, np);
->>>>>>> 799e409 (update mag)
 }
 
 BB_std_free_1d_double(J_ip, np);
@@ -1503,8 +840,8 @@ for(int e=0; e<fe->total_num_elems; ++e){
 }
 
 for (int i = 0; i < num_nodes; ++i){
-    if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
-    //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 4||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
+    //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
+    if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 4||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
     //if (node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
     //if (node_is_conductor[i] == 4) {
 
@@ -1521,68 +858,4 @@ for (int i = 0; i < num_nodes; ++i){
 
 BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 
-<<<<<<< HEAD
 }
-=======
-        if(prop == 2){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 2; 
-            }
-        }
-    }
-
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-
-        if(prop == 3){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 3; 
-            }
-        }
-    }
-
-    for(int e=0; e<fe->total_num_elems; ++e){
-        int prop = ned->elem_prop[e];
-
-        if(prop == 4){
-            for(int k=0; k<fe->local_num_nodes; ++k){
-                int gn = fe->conn[e][k];
-                node_is_conductor[gn] = 4; 
-
-                if(monolis_mpi_get_global_my_rank() == 1 && e ==25916 && k == 0){
-                    printf("\n\nset_D_bc_alumnium\n\n");
-
-                    monolis_set_Dirichlet_bc_C(
-                        monolis, 
-                        monolis->mat.C.B, 
-                        fe->conn[e][k], 
-                        0, 
-                        0.0 + 0.0*I
-                    );
-                }
-            }
-            
-        }
-    }
-
-    for (int i = 0; i < num_nodes; ++i){
-        if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
-        //if (node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
-	    //if (node_is_conductor[i] == 4) {
-
-	    monolis_set_Dirichlet_bc_C(
-                monolis, 
-                monolis->mat.C.B, 
-                i, 
-                0, 
-                0.0 + 0.0*I
-            );
-        }  
-    }
-    
-
-    BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
-}
->>>>>>> 799e409 (update mag)

@@ -24,19 +24,13 @@ do
     	for np in "${num_parallel[@]}"
     	do
     
-        . shell/mag/meshgen_team7.sh $e $ep $nm $nd $np $pa
-        . shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag/meshgen_team7.sh $e $ep $nm $nd $np $pa
+        #. shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
         . shell/mag/graphgen_team7.sh $e $ep $nm $nd $np $pa
-        python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
-        . shell/mag/partitioner.sh $e $ep $nm $nd $np $pa $st
-        
-	    #. shell/mag/graphgen_team7_circuit.sh $e $ep $nm $nd $np $pa
         #python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
-	    #. shell/mag/partitioner_circuit.sh $e $ep $nm $nd $np $pa $st
-        #. shell/mag/partitioner_circuit2.sh $e $ep $nm $nd $np $pa $st
-        ##. shell/mag/mesh_convert.sh $e $ep $nm $nd $np $pa $st
-
-        . shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag/partitioner.sh $e $ep $nm $nd $np $pa $st
+        
+        #. shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/execution_threephase_online.sh $e $ep $nm $nd $np $pa $st
         
         done

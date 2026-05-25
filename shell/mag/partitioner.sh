@@ -52,6 +52,9 @@ python3 ./../../shell/mag/node2dist_val.py ./node.dat node_distval.dat ./graph.d
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_dist_val_partitioner_I -n $np -i nedelec_edge_sign.dat -ig graph_nedelec_elem.dat 
 
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_dist_val_partitioner_I -n $np -i elem_bool.dat -ig graph_nedelec_elem.dat 
+
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_dist_val_partitioner_I -n $np -i elem_conn.dat -ig graph_nedelec_elem.dat 
+
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_dist_val_partitioner_R -n $np -i node_distval.dat -ig graph.dat 
 ./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_dist_val_partitioner_R -n $np -i nedelec_node_distval.dat -ig graph.dat 
 

@@ -44,6 +44,12 @@ typedef struct
     int*    elem_prop;
     int local_num_edges;
 
+    int part_num_nodes;
+    int* part_node_id;
+
+    bool* phi_exists;
+    int** phi_conn;
+
 } NEDELEC;
 
 
@@ -119,6 +125,13 @@ void set_elem_prop(
 
 
 void read_part_node_id(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+		const char*     directory,
+        const char*     filename);
+
+
+void read_part_elem_id(
 		BBFE_DATA*      fe,
         NEDELEC*        ned,
 		const char*     directory,
