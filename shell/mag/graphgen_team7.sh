@@ -28,11 +28,11 @@ mv cond.dat rom_cond.dat
 
 ./../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.0001 "#output_interval" int 1 100  "#finish_time" double 1 1.0
 
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i elem_widing1_local.dat -o graph_elem_local.dat
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i elem.dat -o graph_elem.dat
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i nedelec_elem.dat -o graph_nedelec_elem.dat
+./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i part_elem_conn.dat -o graph_elem_local.dat
+python3 ./../../shell/mag/elemtograph.py nedelec_elem.dat graph_nedelec_elem_test.dat
 
-#python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
-#python3 ./../../shell/mag/bool_elem.py ./elem_widing1.dat ./elem_widing2.dat ./elem_widing3.dat ./elem_iron.dat ./elem_widing4.dat ./elem_air.dat  ./elem.dat ./elem_bool.dat
+#./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i elem.dat -o graph_elem.dat
+#./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor -i nedelec_elem.dat -o graph_nedelec_elem.dat
+
 
 cd ../..

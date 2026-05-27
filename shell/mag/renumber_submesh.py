@@ -116,7 +116,7 @@ def main():
     parser.add_argument(
         "--local-start",
         type=int,
-        default=1,
+        default=0,
         choices=[0, 1],
         help="local node index start: 0 or 1",
     )

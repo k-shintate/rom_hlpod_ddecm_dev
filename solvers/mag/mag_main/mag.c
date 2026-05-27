@@ -231,18 +231,25 @@ void output_set_elems_nedelec_unstructured(
 	FILE* fp;
 
 	fp = fopen(fname, "w");
-    fprintf(fp,"%d %d\n", fe->total_num_elems, fe->local_num_nodes + ned->local_num_edges);
+    //fprintf(fp,"%d %d\n", fe->total_num_elems, fe->local_num_nodes + ned->local_num_edges);
+    fprintf(fp,"%d\n", fe->total_num_elems);
+
+    printf("ned->part_num_nodes = %d fe->total_num_nodes = %d", ned->part_num_nodes, fe->total_num_nodes);
 
     // データ書き出し
     int num = 0;
     for(int e = 0; e < fe->total_num_elems; e++){
         // ノードID
         if(ned->elem_prop[e] == 4){
+            fprintf(fp, "%d ", 10);
             for(int n = 0; n < fe->local_num_nodes; n++){
                 //fprintf(fp, "%d ", fe->conn[e][n]);
                 fprintf(fp, "%d ", ned->phi_conn[num][n]);
             }
             num++;
+        }
+        else{
+            fprintf(fp, "%d ", 6);
         }
         // エッジID (総ノード数をオフセットとして加算)
         for(int n = 0; n < ned->local_num_edges; n++){
