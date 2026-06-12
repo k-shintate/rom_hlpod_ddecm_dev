@@ -208,8 +208,8 @@ void output_B_node_vtk(
     double** B_node = BB_std_calloc_2d_double(B_node, fe->total_num_nodes, 3);
     double* elem_type = BB_std_calloc_1d_double(elem_type, fe->total_num_nodes);
 
-    compute_B_cell_average(fe, basis, ned, Aphi, B_cell);
-    accumulate_B_cell_to_nodes(fe, B_cell, B_node);
+    //compute_B_cell_average(fe, basis, ned, Aphi, B_cell);
+    //accumulate_B_cell_to_nodes(fe, B_cell, B_node);
 
     FILE* fp = BBFE_sys_write_fopen(fp, filename, directory);
     switch (fe->local_num_nodes){
@@ -679,6 +679,129 @@ void read_elem_types(
 
 }
 
+void read_phi_elem(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+        const char*     filename,
+		const char*     directory)
+{
+    FILE* fp;
+
+    const char* fname;
+    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, filename);
+	fp = BBFE_sys_read_fopen(fp, fname, directory);
+    int total_num_elems;
+    int tmp;
+    //char id[BUFFER_SIZE];
+    fscanf(fp, "%d", &(total_num_elems));
+
+    ned->num_phi_elem = total_num_elems;
+
+    if(total_num_elems==0){
+    }
+    else{
+        ned->phi_conn = BB_std_calloc_2d_int(ned->phi_conn, total_num_elems, fe->local_num_nodes);
+
+        //int id = 0;
+        for (int e = 0; e < total_num_elems; e++)
+        {
+            if (fscanf(fp, "%d ", &(tmp)) != 1)
+            {
+                exit(EXIT_FAILURE);
+            }
+            
+            if (fscanf(fp, "%d ", &(tmp)) != 1)
+            {
+                exit(EXIT_FAILURE);
+            }
+            
+            for (int i = 0; i < (fe->local_num_nodes); i++)
+            {
+                if(fscanf(fp, "%d", &(ned->phi_conn[e][i])) != 1)
+                {
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+    }
+
+	fclose(fp);
+
+
+    if(monolis_mpi_get_global_my_rank()==6){
+        //for (int e = 0; e < total_num_elems; e++) {
+        for (int e = 0; e < 10; e++) {    
+            for (int i = 0; i < fe->local_num_nodes; i++) {
+                printf("%d ", ned->phi_conn[e][i]);
+            }
+            printf("\n");
+        }
+    }
+
+}
+
+
+void read_phi_elem2(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+        const char*     filename,
+		const char*     directory)
+{
+    FILE* fp;
+
+    const char* fname;
+    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, filename);
+	fp = BBFE_sys_read_fopen(fp, fname, directory);
+    int total_num_elems;
+    int tmp;
+    //char id[BUFFER_SIZE];
+    fscanf(fp, "%d", &(total_num_elems));
+
+    ned->num_phi_elem = total_num_elems;
+
+    if(total_num_elems==0){
+    }
+    else{
+        ned->phi_conn = BB_std_calloc_2d_int(ned->phi_conn, total_num_elems, fe->local_num_nodes);
+
+        //int id = 0;
+        for (int e = 0; e < total_num_elems; e++)
+        {
+            if (fscanf(fp, "%d ", &(tmp)) != 1)
+            {
+                exit(EXIT_FAILURE);
+            }
+            
+            if (fscanf(fp, "%d ", &(tmp)) != 1)
+            {
+                exit(EXIT_FAILURE);
+            }
+            
+            for (int i = 0; i < (fe->local_num_nodes); i++)
+            {
+                if(fscanf(fp, "%d", &(ned->phi_conn[e][i])) != 1)
+                {
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
+    }
+
+	fclose(fp);
+
+
+    if(monolis_mpi_get_global_my_rank()==6){
+        //for (int e = 0; e < total_num_elems; e++) {
+        for (int e = 0; e < 10; e++) {    
+            for (int i = 0; i < fe->local_num_nodes; i++) {
+                printf("%d ", ned->phi_conn[e][i]);
+            }
+            printf("\n");
+        }
+    }
+
+}
+
 void read_num_nodes(
     BBFE_DATA*    fe,
     const char*     label,
@@ -715,6 +838,7 @@ void read_connectivity_graph_lag_nedelec(
     char char_n_internal[BUFFER_SIZE];
     int graph_ndof;
     int tmp;
+    int tmp2;
     int total_num_elems;
 
     const char* fname;
@@ -726,8 +850,10 @@ void read_connectivity_graph_lag_nedelec(
     int local_num_nodes = ned->local_num_edges; // 1st-order rectangle
     fe->total_num_elems = total_num_elems;
     printf("%s Num. elements: %d\n", CODENAME, fe->total_num_elems);
-    BBFE_sys_memory_allocation_elem(fe, num_integ_points, 3);
-    ned->nedelec_conn = BB_std_calloc_2d_int(ned->nedelec_conn, total_num_elems, local_num_nodes);
+    //BBFE_sys_memory_allocation_elem(fe, num_integ_points, 3);
+    //ned->nedelec_conn = BB_std_calloc_2d_int(ned->nedelec_conn, total_num_elems, local_num_nodes);
+    ned->nedelec_conn_mat = BB_std_calloc_2d_int(ned->nedelec_conn_mat, total_num_elems, local_num_nodes);
+
 
     if (total_num_elems < 0)
     {
@@ -745,26 +871,145 @@ void read_connectivity_graph_lag_nedelec(
         {
             exit(EXIT_FAILURE);
         }
+        
         if (fscanf(fp, "%d ", &(tmp)) != 1)
         {
             exit(EXIT_FAILURE);
         }
-        for (int i = 0; i < (fe->local_num_nodes); i++)
-        {
-            if(fscanf(fp, "%d", &(fe->conn[e][i])) != 1)
+        
+        if(tmp == local_num_nodes){
+        }
+        else{
+            for (int i = 0; i < (fe->local_num_nodes); i++)
             {
-                exit(EXIT_FAILURE);
+                if(fscanf(fp, "%d", &(tmp2)) != 1)
+                {
+                    exit(EXIT_FAILURE);
+                }
             }
         }
+        
         for (int i = 0; i < (local_num_nodes); i++)
         {
-            if(fscanf(fp, "%d", &(ned->nedelec_conn[e][i])) != 1)
+            if(fscanf(fp, "%d", &(ned->nedelec_conn_mat[e][i])) != 1)
             {
                 exit(EXIT_FAILURE);
             }
         }
     }
 
+
+    fclose(fp);
+}
+
+
+void read_connectivity_graph_lag_nedelec_from_distval(
+    BBFE_DATA *fe,
+    NEDELEC *ned,
+    const char *filename,
+    const char *directory,
+    int num_integ_points)
+{
+    FILE* fp;
+    char label[BUFFER_SIZE];
+
+    int total_num_elems;
+    int graph_ndof;
+
+    const char* fname;
+    fname = monolis_get_global_input_file_name(
+        MONOLIS_DEFAULT_TOP_DIR,
+        MONOLIS_DEFAULT_PART_DIR,
+        filename
+    );
+
+    fp = BBFE_sys_read_fopen(fp, fname, directory);
+
+    /*
+        想定:
+        #elem_id
+        78499 10
+        ...
+    */
+    if (fscanf(fp, "%s", label) != 1) {
+        fprintf(stderr, "failed to read label\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (fscanf(fp, "%d %d", &total_num_elems, &graph_ndof) != 2) {
+        fprintf(stderr, "failed to read header\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (total_num_elems < 0) {
+        fprintf(stderr, "invalid total_num_elems: %d\n", total_num_elems);
+        exit(EXIT_FAILURE);
+    }
+
+    if (total_num_elems == 0) {
+        fclose(fp);
+        return;
+    }
+
+    printf("%s Num. elements: %d\n", CODENAME, total_num_elems);
+    printf("%s graph_ndof per element: %d\n", CODENAME, graph_ndof);
+
+    fe->total_num_elems = total_num_elems;
+
+    BBFE_sys_memory_allocation_elem(fe, num_integ_points, 3);
+
+    int local_num_edges = ned->local_num_edges;
+
+    ned->nedelec_conn = BB_std_calloc_2d_int(
+        ned->nedelec_conn,
+        total_num_elems,
+        local_num_edges
+    );
+
+    /*
+        例:
+        graph_ndof = fe->local_num_nodes + ned->local_num_edges
+        であることを確認
+    */
+    if (graph_ndof != fe->local_num_nodes + local_num_edges) {
+        fprintf(
+            stderr,
+            "graph_ndof mismatch: graph_ndof=%d, fe nodes=%d, nedelec edges=%d\n",
+            graph_ndof,
+            fe->local_num_nodes,
+            local_num_edges
+        );
+        exit(EXIT_FAILURE);
+    }
+
+    for (int e = 0; e < total_num_elems; e++) {
+
+        for (int i = 0; i < fe->local_num_nodes; i++) {
+            if (fscanf(fp, "%d", &(fe->conn[e][i])) != 1) {
+                fprintf(stderr, "failed to read fe->conn at elem=%d, i=%d\n", e, i);
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        for (int i = 0; i < local_num_edges; i++) {
+            if (fscanf(fp, "%d", &(ned->nedelec_conn[e][i])) != 1) {
+                fprintf(stderr, "failed to read nedelec_conn at elem=%d, i=%d\n", e, i);
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+
+    /*
+    if(monolis_mpi_get_global_my_rank()==0){
+        for (int e = 0; e < 10; e++) {
+            for (int i = 0; i < fe->local_num_nodes; i++) {
+                printf("%d ", fe->conn[e][i]);
+            }
+            printf("\n");
+        }
+    }
+    */
 
     fclose(fp);
 }
@@ -1022,7 +1267,7 @@ void BBFE_mag_pre_C(
 	int n_axis = num_integ_points_each_axis;
 	const char* filename;
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_NODE);
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "sorted_nodes.dat");
 	BBFE_sys_read_node(
 			fe,
 			filename,
@@ -1030,7 +1275,9 @@ void BBFE_mag_pre_C(
     
     read_num_nodes(
 			fe,
-            "graph.dat",
+            //"graph.dat",
+            //"graph_nedelec_elem_test.dat",
+            "sorted_nodes.dat",
             directory);
     
     read_elem_types(
@@ -1039,12 +1286,30 @@ void BBFE_mag_pre_C(
             "elem.dat",
             directory);
 
-    read_connectivity_graph_lag_nedelec(
+    //read_connectivity_graph_lag_nedelec(
+    read_connectivity_graph_lag_nedelec_from_distval(
 			fe,
 			ned,
-            "graph_nedelec_elem.dat",
+            "sorted_local_elem.dat",
+            //"nedelec_elem.dat",
 			directory,
 			n_axis*n_axis*n_axis);
+
+    read_connectivity_graph_lag_nedelec(
+    //read_connectivity_graph_lag_nedelec_from_distval(
+			fe,
+			ned,
+            //"sorted_local_elem.dat",
+            "graph_nedelec_conn_all.dat",
+			directory,
+			n_axis*n_axis*n_axis);
+
+    read_phi_elem(
+			fe,
+        	ned,
+            //"graph_elem_conn.dat",
+            "elem_phi.dat",
+            directory);
 
     read_edge_sign(
 			fe,
@@ -1075,11 +1340,13 @@ void BBFE_mag_pre_C(
 			monolis_mpi_get_global_comm(),
 			MONOLIS_DEFAULT_TOP_DIR,
 			MONOLIS_DEFAULT_PART_DIR,
-			"graph.dat");
+			//"graph.dat",
+            "graph_nedelec_elem_test.dat");
 
     ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
             monolis,
-            "graph.dat",
+            //"graph.dat",
+            "graph_nedelec_elem_test.dat",
             directory);
 
 }

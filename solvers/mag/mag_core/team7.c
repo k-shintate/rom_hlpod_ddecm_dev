@@ -825,7 +825,7 @@ for(int e=0; e<fe->total_num_elems; ++e){
 
             if(monolis_mpi_get_global_my_rank() == 1 && e ==25916 && k == 0){
                 printf("\n\nset_D_bc_alumnium\n\n");
-
+/*
                 monolis_set_Dirichlet_bc_C(
                     monolis,
                     monolis->mat.C.B,
@@ -833,6 +833,7 @@ for(int e=0; e<fe->total_num_elems; ++e){
                     0,
                     0.0 + 0.0*I
                 );
+                */
             }
         }
 
@@ -844,14 +845,16 @@ for (int i = 0; i < num_nodes; ++i){
     if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 4||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
     //if (node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
     //if (node_is_conductor[i] == 4) {
-
+/*
     monolis_set_Dirichlet_bc_C(
             monolis,
             monolis->mat.C.B,
             i,
             0,
             0.0 + 0.0*I
-        );
+
+            );
+            */
     }
 }
 

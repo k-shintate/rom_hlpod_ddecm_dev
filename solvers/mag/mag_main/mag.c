@@ -232,11 +232,12 @@ void output_set_elems_nedelec_unstructured(
 
 	fp = fopen(fname, "w");
     //fprintf(fp,"%d %d\n", fe->total_num_elems, fe->local_num_nodes + ned->local_num_edges);
-    fprintf(fp,"%d\n", fe->total_num_elems);
+    //fprintf(fp,"%d\n", fe->total_num_elems);
 
     printf("ned->part_num_nodes = %d fe->total_num_nodes = %d", ned->part_num_nodes, fe->total_num_nodes);
 
     // データ書き出し
+    /*
     int num = 0;
     for(int e = 0; e < fe->total_num_elems; e++){
         // ノードID
@@ -251,6 +252,84 @@ void output_set_elems_nedelec_unstructured(
         else{
             fprintf(fp, "%d ", 6);
         }
+        for(int n = 0; n < ned->local_num_edges; n++){
+            //fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
+            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + ned->part_num_nodes);
+        }
+        fprintf(fp, "\n");
+    }
+    */
+
+    fprintf(fp,"#elem_id\n");
+    fprintf(fp,"%d 10\n", fe->total_num_elems);
+    int num = 0;
+    for(int e = 0; e < fe->total_num_elems; e++){
+        for(int n = 0; n < fe->local_num_nodes; n++){
+            fprintf(fp, "%d ", fe->conn[e][n]);
+        }
+        for(int n = 0; n < ned->local_num_edges; n++){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
+        }
+        fprintf(fp, "\n");
+    }    
+    fclose(fp);
+
+    //#bool_elem
+    //#78499 1
+    //5
+    fp = BBFE_sys_write_fopen(fp, "distval_elem_lagnedelec_elem.dat", directory);
+    fprintf(fp,"#elem_id\n");
+    fprintf(fp,"%d 10\n", fe->total_num_elems);
+    num = 0;
+    for(int e = 0; e < fe->total_num_elems; e++){
+        //fprintf(fp, "%d %d ", e, 10);
+        for(int n = 0; n < fe->local_num_nodes; n++){
+            fprintf(fp, "%d ", fe->conn[e][n]);
+        }
+        for(int n = 0; n < ned->local_num_edges; n++){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
+        }
+        fprintf(fp, "\n");
+    }
+    
+    fclose(fp);
+
+
+    fp = BBFE_sys_write_fopen(fp, "node_coordinate_elem.dat", directory);
+
+    fprintf(fp,"#elem_id\n");
+    fprintf(fp,"%d %d\n", fe->total_num_elems, 3*(fe->local_num_nodes+ned->local_num_edges));
+    //int num = 0;
+    for(int e = 0; e < fe->total_num_elems; e++){
+        for(int n = 0; n < fe->local_num_nodes; n++){
+            fprintf(fp, "%lf %lf %lf ", fe->x[fe->conn[e][n]][0], fe->x[fe->conn[e][n]][1], fe->x[fe->conn[e][n]][2]);
+        }
+        for(int n = 0; n < ned->local_num_edges; n++){
+            fprintf(fp, "0.0 0.0 0.0 ");
+        }
+        fprintf(fp, "\n");
+    }    
+    fclose(fp);
+
+
+    fp = BBFE_sys_write_fopen(fp, "graph_nedelec_elem.dat", directory);
+    fprintf(fp,"%d\n", fe->total_num_elems);
+
+    num = 0;
+    for(int e = 0; e < fe->total_num_elems; e++){
+        // ノードID
+        if(ned->elem_prop[e] == 4){
+            fprintf(fp, "%d ", e);
+            fprintf(fp, "%d ", 10);
+            for(int n = 0; n < fe->local_num_nodes; n++){
+                fprintf(fp, "%d ", ned->phi_conn[num][n]);
+            }
+            num++;
+        }
+        else{
+            fprintf(fp, "%d ", e);
+            fprintf(fp, "%d ", 6);
+        }
         // エッジID (総ノード数をオフセットとして加算)
         for(int n = 0; n < ned->local_num_edges; n++){
             //fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
@@ -262,7 +341,7 @@ void output_set_elems_nedelec_unstructured(
     fclose(fp);
 
 
-    fp = BBFE_sys_write_add_fopen(fp, "nedelec_edge_sign.dat", directory);
+    fp = BBFE_sys_write_fopen(fp, "nedelec_edge_sign.dat", directory);
     fprintf(fp, "#edge_sign\n");
     fprintf(fp, "%d %d\n", num_elems, fe->local_num_nodes+ned->local_num_edges);
 
@@ -275,6 +354,18 @@ void output_set_elems_nedelec_unstructured(
         }
         fprintf(fp, "\n");
     }
+    fclose(fp);
+
+
+    fp = BBFE_sys_write_fopen(fp, "nedelec_conn_all.dat", directory);
+    fprintf(fp,"%d %d\n", fe->total_num_elems, ned->local_num_edges);
+    for(int e = 0; e < fe->total_num_elems; e++){
+        for(int n = 0; n < ned->local_num_edges; n++){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + ned->part_num_nodes);
+        }
+        fprintf(fp, "\n");
+    }
+    
     fclose(fp);
 }
 
@@ -308,6 +399,80 @@ void compute_nedelec_edge_coords(
 
         }
     }
+
+}
+
+void write_bc_ned(
+    BBFE_DATA*  fe,
+    BBFE_BC*    bc,
+    NEDELEC*    ned,
+    const char* directory)
+{
+
+	FILE* fp;
+    const int nen = fe->local_num_nodes;
+
+    int is_dir_edge_n = ned->num_edges;
+    bool* is_dir_edge = BB_std_calloc_1d_bool(is_dir_edge, is_dir_edge_n);
+    build_dirichlet_edge_mask_from_boundary_faces_tet(fe, bc, ned, is_dir_edge, is_dir_edge_n);
+
+    int n_local_edges = 0;
+    const int (*edge_tbl)[2] = NULL;
+
+    if(nen == 4){
+        n_local_edges = 6;
+        edge_tbl = tet_edge_conn;
+    } else if(nen == 8){
+        n_local_edges = 12;
+        edge_tbl = hex_edge_conn;
+    }
+
+    int num = 0;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int i = 0; i < n_local_edges; ++i){
+            int gn1 = fe->conn[e][edge_tbl[i][0]];
+            int gn2 = fe->conn[e][edge_tbl[i][1]];
+            int ged = ned->nedelec_conn[e][i];
+
+            if(!(bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2])) continue;
+            if(!is_dir_edge[ged]) continue;
+
+            num++;
+            /*
+            monolis_set_Dirichlet_bc_C(
+                monolis,
+                monolis->mat.C.B,
+                ged,
+                0,
+                0.0 + 0.0*I
+            );
+            */
+        }
+    }
+
+    fp = BBFE_sys_write_fopen(fp, "D_bc_ned.dat", directory);
+    fprintf(fp, "%d 1\n", num);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int i = 0; i < n_local_edges; ++i){
+            int gn1 = fe->conn[e][edge_tbl[i][0]];
+            int gn2 = fe->conn[e][edge_tbl[i][1]];
+            int ged = ned->nedelec_conn[e][i];
+
+            if(!(bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2])) continue;
+            if(!is_dir_edge[ged]) continue;
+
+            int ged1 = ged + ned->part_num_nodes;
+
+            fprintf(fp, "%d %d %lf\n", ged1, 0, 0.0);
+
+        }
+    }
+
+    fclose(fp);
+
+    BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
 
 }
 
@@ -349,8 +514,15 @@ int main (
         &(sys.ned),
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
-
+    
     const char* filename;
+    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
+	BBFE_sys_read_Dirichlet_bc(
+			&(sys.bc),
+			filename,
+			sys.cond.directory,
+			sys.fe.total_num_nodes,
+			BLOCK_SIZE);
 
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
 
@@ -390,6 +562,12 @@ int main (
             sys.fe.total_num_elems,
             sys.ned.num_edges,
             sys.cond.directory);
+        
+    write_bc_ned(
+        	&(sys.fe),
+		    &(sys.bc),
+            &(sys.ned),
+			sys.cond.directory);
 
 	BBFE_convdiff_finalize(&(sys.fe), &(sys.basis), &(sys.bc));
 

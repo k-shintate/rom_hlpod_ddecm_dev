@@ -34,6 +34,7 @@ typedef struct {
 typedef struct
 {
 	int**    nedelec_conn;
+    int**    nedelec_conn_mat;
     int**    edge_sign; 
     double**  nedelec_coords;
     double**** N_edge;
@@ -49,6 +50,7 @@ typedef struct
 
     bool* phi_exists;
     int** phi_conn;
+    int num_phi_elem;
 
 } NEDELEC;
 
@@ -137,6 +139,11 @@ void read_part_elem_id(
 		const char*     directory,
         const char*     filename);
 
+void read_phi_elem(
+		BBFE_DATA*      fe,
+        NEDELEC*        ned,
+        const char*     filename,
+		const char*     directory);
 
 void read_elem_types(
         BBFE_DATA*    fe,
@@ -149,7 +156,6 @@ void read_num_nodes(
         BBFE_DATA*    fe,
         const char*     label,
         const char*		directory);
-
 
 void read_connectivity_graph_lag_nedelec(
         BBFE_DATA *fe,

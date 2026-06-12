@@ -661,7 +661,7 @@ int main (
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
 	BBFE_sys_read_Dirichlet_bc(
 			&(sys.bc),
 			filename,
@@ -783,12 +783,12 @@ int main (
 
     int nsteps = (int)ceil(sys.vals.finish_time / sys.vals.dt);
 
-    /*
+    
     char fnode[BUFFER_SIZE];
     snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);
     const char* fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
     output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
-*/
+
     
 /*
     char fname[BUFFER_SIZE];         
@@ -824,6 +824,10 @@ int main (
 
     //ja_init_states_zero();
     //ja_allocate_states(sys.fe.total_num_elems, sys.basis.num_integ_points);
+
+        
+    //double tt = monolis_get_time_global_sync();
+    //exit(1);
 
     for (step = step_hs; step <= nsteps; ++step) {
         t += sys.vals.dt;
