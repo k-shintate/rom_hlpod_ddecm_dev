@@ -15,7 +15,7 @@
 #include "team21c.h"
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
-const int DVAL_NUM_IP_EACH_AXIS = 3;
+const int DVAL_NUM_IP_EACH_AXIS = 2;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
 const double  DVAL_MAT_EPSILON  = 1.0e-8;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";
@@ -669,7 +669,7 @@ int main (
 			sys.fe.total_num_nodes,
 			BLOCK_SIZE);
    
-    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
+    //filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
     BBFE_fluid_sups_read_Dirichlet_bc_NR(
             &(sys.bc_NR),
             filename,
@@ -677,8 +677,8 @@ int main (
             sys.fe.total_num_nodes,
             BLOCK_SIZE);
 
-    sys.vals.Aphi_time = (double *)calloc(sys.fe.total_num_nodes, sizeof(double));
-    sys.vals.Aphi_time_curr = (double *)calloc(sys.fe.total_num_nodes, sizeof(double));
+    sys.vals.Aphi_time = (double *)calloc(sys.ned.total_num_dof, sizeof(double));
+    sys.vals.Aphi_time_curr = (double *)calloc(sys.ned.total_num_dof, sizeof(double));
 
     /*for ROM *****************************************/
 	
@@ -844,7 +844,7 @@ int main (
             &sys, sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
 */    
-        for(int i=0; i<sys.fe.total_num_nodes; ++i){
+        for(int i=0; i<sys.ned.total_num_dof; ++i){
             sys.vals.Aphi_time[i] = sys.vals.Aphi_time_curr[i];
         }
 
@@ -858,12 +858,12 @@ int main (
         // 可視化・ログ
         
         if (step % sys.vals.output_interval == 0) {
-            sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.fe.total_num_nodes);
-            sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
-            copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.vals.Aphi_time, sys.vals.V, sys.vals.phi, sys.fe.total_num_elems);
+            //sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.fe.total_num_nodes);
+            //sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
+            //copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.vals.Aphi_time, sys.vals.V, sys.vals.phi, sys.fe.total_num_elems);
 
-            BB_std_free_1d_double(sys.vals.V, sys.fe.total_num_nodes);
-            BB_std_free_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
+            //BB_std_free_1d_double(sys.vals.V, sys.fe.total_num_nodes);
+            //BB_std_free_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
 
             char fnode[BUFFER_SIZE];
             snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);

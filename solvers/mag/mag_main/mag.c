@@ -539,7 +539,7 @@ int main (
             &(sys.ned),
             sys.cond.directory,
             filename);
-    
+
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "part_elem_conn.dat");
 
     read_part_elem_id(

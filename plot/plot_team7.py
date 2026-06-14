@@ -7,9 +7,9 @@ from vtkmodules.util.numpy_support import vtk_to_numpy
 
 
 # ------------------------------------------------------------
-# Problem 7 Table 2(a)
-# Bz along line A1-B1
-# y = 72 mm, z = 34 mm
+# Problem 7 Table 2(b)
+# Bz along line A2-B2
+# y = 144 mm, z = 34 mm
 # unit: Bz = 1e-3 T
 # ------------------------------------------------------------
 X_REF_MM = np.array([
@@ -18,16 +18,16 @@ X_REF_MM = np.array([
 ], dtype=float)
 
 # f = 50 Hz, wt = 0 deg
-BZ_A1B1_50_WT0 = np.array([
-    -4.9, -17.8, -22.1, -20.1, -15.67, 0.36,
-    43.64, 78.11, 71.5, 60.44, 53.82, 58.81,
-    56.91, 59.24, 52.78, 27.61, 2.36
-], dtype=float) * 1.0e-3
+BZ_A2B2_50_WT0 = np.array([
+    -1.83, -8.50, -13.60, -15.21, -14.48, -5.62,
+    28.77, 60.34, 61.84, 56.64, 53.40, 52.36,
+    53.93, 56.82, 59.48, 52.08, 26.56
+], dtype=float) * 1.0e-4
 
 
-def get_reference_a1b1():
+def get_reference_a2b2():
     x_ref = X_REF_MM * 1.0e-3  # mm -> m
-    return x_ref, BZ_A1B1_50_WT0
+    return x_ref, BZ_A2B2_50_WT0
 
 
 def read_bnode_z_sorted_by_x(vtp_path: str, array_name: str = "B_node"):
@@ -81,7 +81,7 @@ def read_bnode_z_sorted_by_x(vtp_path: str, array_name: str = "B_node"):
     return x_sorted, bnode_z_sorted
 
 
-def plot_bz_a1b1_comparison(vtp_paths, array_name: str = "B_node"):
+def plot_bz_a2b2_comparison(vtp_paths, array_name: str = "B_node"):
     plt.figure(figsize=(9, 6))
 
     # VTP simulation result
@@ -101,14 +101,21 @@ def plot_bz_a1b1_comparison(vtp_paths, array_name: str = "B_node"):
         )
 
     # Reference data
-    x_ref, bz_ref = get_reference_a1b1()
+    x_ref, bz_ref = get_reference_a2b2()
 
-    #plt.plot(x_ref,bz_ref,linestyle="None",marker="o",markersize=6,label="Reference A1-B1, f=50 Hz, wt=0°")
+    plt.plot(
+        x_ref,
+        bz_ref,
+        linestyle="None",
+        marker="o",
+        markersize=6,
+        label="Reference A2-B2, f=50 Hz, wt=0°"
+    )
 
     plt.xlim(0.0, 0.288)
     plt.xlabel("x [m]")
     plt.ylabel("Bz [T]")
-    plt.title("Comparison of Bz along A1-B1: y=72 mm, z=34 mm")
+    plt.title("Comparison of Bz along A2-B2: y=144 mm, z=34 mm")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
@@ -118,8 +125,8 @@ def plot_bz_a1b1_comparison(vtp_paths, array_name: str = "B_node"):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python plot_bz_a1b1.py input1.vtp")
-        print("  python plot_bz_a1b1.py input1.vtp input2.vtp")
+        print("  python plot_bz_a2b2.py input1.vtp")
+        print("  python plot_bz_a2b2.py input1.vtp input2.vtp")
         sys.exit(1)
 
     if len(sys.argv) > 3:
@@ -127,4 +134,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     vtp_files = sys.argv[1:]
-    plot_bz_a1b1_comparison(vtp_files)
+    plot_bz_a2b2_comparison(vtp_files)

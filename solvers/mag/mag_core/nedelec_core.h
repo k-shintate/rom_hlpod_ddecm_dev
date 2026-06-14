@@ -52,6 +52,8 @@ typedef struct
     int** phi_conn;
     int num_phi_elem;
 
+    int total_num_dof;
+
 } NEDELEC;
 
 

@@ -388,7 +388,7 @@ for(int e = 0; e < fe->total_num_elems; ++e){
     BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
     for(int i = 0; i < ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn[e][i];
+        const int gi = ned->nedelec_conn_mat[e][i];
         const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
         for(int p = 0; p < np; ++p){
@@ -431,149 +431,14 @@ BB_std_free_1d_double(val_ip, np);
 
 }
 
-/* =========================================================Matrix assembly for A-phi========================================================= */
 
-void set_element_mat_nedelec_Aphi_team7_test(MONOLIS*     monolis,BBFE_DATA*   fe,BBFE_BASIS*  basis,BBFE_BC*     bc,NEDELEC*     ned){(void)bc;
-
-const int np = basis->num_integ_points;
-
-double* J_ip = BB_std_calloc_1d_double(J_ip, np);
-double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
-
-for(int e = 0; e < fe->total_num_elems; ++e){
-    const int prop = ned->elem_prop[e];
-    double nu;
-    double sigma;
-    get_material_for_prop_team7_Aphi(prop, &nu, &sigma);
-
-    BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
-
-    for(int i = 0; i < ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn[e][i];
-        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-        for(int j = 0; j < ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn[e][j];
-            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-            for(int p = 0; p < np; ++p){
-                val_ip_C[p]  = 0.0 + 0.0*I;
-                val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
-                    ned->curl_N_edge[e][p][i],
-                    ned->curl_N_edge[e][p][j],
-                    1.0
-                );
-                val_ip_C[p] -= (0.0 + 1.0*I) * omega_team7
-                             * BBFE_elemmat_mag_mat_mass(
-                    ned->N_edge[e][p][i],
-                    ned->N_edge[e][p][j],
-                    sigma
-                );
-
-
-                val_ip_C[p] += 1.0e3
-                    * BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        ned->N_edge[e][p][j],
-                        1.0
-                    );
-
-            }
-
-            {
-                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                v *= (double)(si * sj);
-                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-            }
-        }
-    }
-
-    if(sigma > 0.0){
-        for(int m = 0; m < fe->local_num_nodes; ++m){
-            const int gm = fe->conn[e][m];
-
-            for(int n = 0; n < fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-
-                for(int p = 0; p < np; ++p){
-                    val_ip_C[p]  = 0.0 + 0.0*I;
-                    val_ip_C[p] -= (0.0 + 1.0*I)
-                                * BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[m],
-                        fe->geo[e][p].grad_N[n],
-                        sigma / omega_team7
-                    );
-                }
-
-                {
-                    double _Complex v =
-                        BBFE_std_integ_calc_C(np, val_ip_C,
-                                            basis->integ_weight, J_ip);
-                    monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
-                }
-            }
-        }
-
-        for(int j = 0; j < ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn[e][j];
-            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-            for(int n = 0; n < fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-
-                for(int p = 0; p < np; ++p){
-                    val_ip_C[p]  = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        fe->geo[e][p].grad_N[n],
-                        ned->N_edge[e][p][j],
-                        sigma
-                    );
-                }
-
-                {
-                    double _Complex v =
-                        BBFE_std_integ_calc_C(np, val_ip_C,
-                                            basis->integ_weight, J_ip);
-                    v *= (double)sj;
-                    monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
-                }
-            }
-        }
-
-        for(int m = 0; m < fe->local_num_nodes; ++m){
-            const int gm = fe->conn[e][m];
-
-            for(int i = 0; i < ned->local_num_edges; ++i){
-                const int gi = ned->nedelec_conn[e][i];
-                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
-
-                for(int p = 0; p < np; ++p){
-                    val_ip_C[p]  = 0.0 + 0.0*I;
-                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                        ned->N_edge[e][p][i],
-                        fe->geo[e][p].grad_N[m],
-                        sigma
-                    );
-                }
-
-                {
-                    double _Complex v =
-                        BBFE_std_integ_calc_C(np, val_ip_C,
-                                            basis->integ_weight, J_ip);
-                    v *= (double)si;
-                    monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
-                }
-            }
-        }
-    }
-}
-
-BB_std_free_1d_double(J_ip, np);
-BB_std_free_1d_double_C(val_ip_C, np);
-
-}
-
-void set_element_mat_nedelec_Aphi_team7(MONOLIS*     monolis,BBFE_DATA*   fe,BBFE_BASIS*  basis,BBFE_BC*     bc,NEDELEC*     ned){(void)bc;
+void set_element_mat_nedelec_Aphi_team7(MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned)
+{
+    (void)bc;
 
 const int np = basis->num_integ_points;
 
@@ -594,11 +459,11 @@ for(int e=0; e<fe->total_num_elems; ++e){
 
     /* curl-curl block (A-A) */
     for(int i=0; i<ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn[e][i];
+        const int gi = ned->nedelec_conn_mat[e][i];
         const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
         for(int j=0; j<ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn[e][j];
+            const int gj = ned->nedelec_conn_mat[e][j];
             const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
             for(int p=0; p<np; ++p){
@@ -619,11 +484,11 @@ for(int e=0; e<fe->total_num_elems; ++e){
 
     /* sigma * iω * A mass block */
     for(int i=0; i<ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn[e][i];
+        const int gi = ned->nedelec_conn_mat[e][i];
         const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
         for(int j=0; j<ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn[e][j];
+            const int gj = ned->nedelec_conn_mat[e][j];
             const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
             for(int p=0; p<np; ++p){
@@ -641,72 +506,74 @@ for(int e=0; e<fe->total_num_elems; ++e){
         }
     }
 
-    /* phi-phi block */
-    for(int m=0; m<fe->local_num_nodes; ++m){
-        const int gm = fe->conn[e][m];
+    if(prop == 4){
+        /* phi-phi block */
+        for(int m=0; m<fe->local_num_nodes; ++m){
+            const int gm = ned->phi_conn[e][m];
 
-        for(int n=0; n<fe->local_num_nodes; ++n){
-            const int gn = fe->conn[e][n];
+            for(int n=0; n<fe->local_num_nodes; ++n){
+                const int gn = ned->phi_conn[e][n];
 
-            for(int p=0; p<np; ++p){
-                val_ip_C[p] = 0.0 + 0.0*I;
-                val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                    fe->geo[e][p].grad_N[m],
-                    fe->geo[e][p].grad_N[n],
-                    sigma
-                ) * I * omega_team7;
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                        fe->geo[e][p].grad_N[m],
+                        fe->geo[e][p].grad_N[n],
+                        sigma
+                    ) * I * omega_team7;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
             }
-
-            double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-            monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
         }
-    }
 
-    /* A-phi block */
-    for(int j=0; j<ned->local_num_edges; ++j){
-        const int gj = ned->nedelec_conn[e][j];
-        const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+        /* A-phi block */
+        for(int j=0; j<ned->local_num_edges; ++j){
+            const int gj = ned->nedelec_conn_mat[e][j];
+            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
-        for(int n=0; n<fe->local_num_nodes; ++n){
-            const int gn = fe->conn[e][n];
+            for(int n=0; n<fe->local_num_nodes; ++n){
+                const int gn = ned->phi_conn[e][n];
 
-            for(int p=0; p<np; ++p){
-                val_ip_C[p] = 0.0 + 0.0*I;
-                val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                    fe->geo[e][p].grad_N[n],
-                    ned->N_edge[e][p][j],
-                    sigma
-                ) * I * omega_team7;
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                        fe->geo[e][p].grad_N[n],
+                        ned->N_edge[e][p][j],
+                        sigma
+                    ) * I * omega_team7;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)sj;
+
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
             }
-
-            double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-            v *= (double)sj;
-
-            monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
         }
-    }
 
-    /* phi-A block */
-    for(int m=0; m<fe->local_num_nodes; ++m){
-        const int gm = fe->conn[e][m];
+        /* phi-A block */
+        for(int m=0; m<fe->local_num_nodes; ++m){
+            const int gm = ned->phi_conn[e][m];
 
-        for(int i=0; i<ned->local_num_edges; ++i){
-            const int gi = ned->nedelec_conn[e][i];
-            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+            for(int i=0; i<ned->local_num_edges; ++i){
+                const int gi = ned->nedelec_conn_mat[e][i];
+                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-            for(int p=0; p<np; ++p){
-                val_ip_C[p] = 0.0 + 0.0*I;
-                val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                    ned->N_edge[e][p][i],
-                    fe->geo[e][p].grad_N[m],
-                    sigma
-                ) * I * omega_team7;
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                        ned->N_edge[e][p][i],
+                        fe->geo[e][p].grad_N[m],
+                        sigma
+                    ) * I * omega_team7;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)si;
+
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
             }
-
-            double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-            v *= (double)si;
-
-            monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
         }
     }
 }

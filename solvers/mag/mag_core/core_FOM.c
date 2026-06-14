@@ -772,18 +772,25 @@ void solver_fom_NR_Aphi_team21a(
     int n_dof_total)
 {
     //double* dx   = (double*)calloc((size_t)n_dof_total, sizeof(double));
-    double _Complex * Aphi = (double _Complex *)calloc(sys.fe.total_num_nodes, sizeof(double _Complex));
+    double _Complex * Aphi = (double _Complex *)calloc(sys.ned.total_num_dof, sizeof(double _Complex));
     double* A   = BB_std_calloc_1d_double(A,   sys.fe.total_num_nodes);
     double* phi = BB_std_calloc_1d_double(phi, sys.fe.total_num_nodes);
 
-    set_element_mat_nedelec_Aphi_team21a0(&(sys.monolis), &(sys.fe), &(sys.basis),
+    printf("total_num_dof = %d\n\n", sys.ned.total_num_dof);
+
+    //set_element_mat_nedelec_Aphi_team21a0_debug(&(sys.monolis), &(sys.fe), &(sys.basis),
+    //                       &(sys.bc), &(sys.ned));
+    //double t1 = monolis_get_time_global_sync();
+    //printf("test1");
+    //set_element_vec_nedelec_Aphi_team21a0(&(sys.monolis), &(sys.fe), &(sys.basis),
+    //                        &(sys.bc), &(sys.ned));
+    //double t2 = monolis_get_time_global_sync();
+    //printf("test2");
+
+    set_element_mat_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
-    double t1 = monolis_get_time_global_sync();
-    printf("test1");
-    set_element_vec_nedelec_Aphi_team21a0(&(sys.monolis), &(sys.fe), &(sys.basis),
+    set_element_vec_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
-    double t2 = monolis_get_time_global_sync();
-    printf("test2");
 
     //double val = Bz_of_time(t);
     //apply_dirichlet_bc_for_A_and_phi_team21a0(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));

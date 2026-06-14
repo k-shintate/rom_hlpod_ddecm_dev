@@ -118,7 +118,7 @@ void compute_B_cell_average(
             // B(x_ip) = curl A_h = Σ_j c_j * curl N_j
             double Bp[3] = {0,0,0};
             for(int j=0; j<ned->local_num_edges; ++j){
-                const int ge = ned->nedelec_conn[e][j];
+                const int ge = ned->nedelec_conn_mat[e][j];
                 const double cj =
                         ned->edge_sign[e][j] * Aphi[ge];
 
@@ -141,6 +141,8 @@ void compute_B_cell_average(
         }else{
             B_cell[e][0] = B_cell[e][1] = B_cell[e][2] = 0.0;
         }
+
+        printf("B_cell[%d][%d] = %lf\n", e , 0, B_cell[e][0]);
     }
 
     BB_std_free_1d_double(J_ip, np);
@@ -208,8 +210,8 @@ void output_B_node_vtk(
     double** B_node = BB_std_calloc_2d_double(B_node, fe->total_num_nodes, 3);
     double* elem_type = BB_std_calloc_1d_double(elem_type, fe->total_num_nodes);
 
-    //compute_B_cell_average(fe, basis, ned, Aphi, B_cell);
-    //accumulate_B_cell_to_nodes(fe, B_cell, B_node);
+    compute_B_cell_average(fe, basis, ned, Aphi, B_cell);
+    accumulate_B_cell_to_nodes(fe, B_cell, B_node);
 
     FILE* fp = BBFE_sys_write_fopen(fp, filename, directory);
     switch (fe->local_num_nodes){
@@ -1106,6 +1108,7 @@ void BBFE_fluid_sups_read_Dirichlet_bc_NR(
 
 void ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
     MONOLIS*     	monolis,
+    NEDELEC *ned,
     const char*     label,
     const char*		directory)
 {
@@ -1122,7 +1125,8 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
     fp = BBFE_sys_read_fopen(fp, fname, directory);
 
     fscanf(fp, "%d", &(num_nodes));
-
+    ned->total_num_dof = num_nodes;
+    
     for(int e = 0; e < num_nodes; e++) {
         fscanf(fp, "%d", &(tmp));
         fscanf(fp, "%d", &(num_adj_nodes) );
@@ -1300,7 +1304,8 @@ void BBFE_mag_pre_C(
 			fe,
 			ned,
             //"sorted_local_elem.dat",
-            "graph_nedelec_conn_all.dat",
+            //"graph_nedelec_conn_all.dat",
+            "graph_nedelec_elem.dat",
 			directory,
 			n_axis*n_axis*n_axis);
 
@@ -1345,6 +1350,7 @@ void BBFE_mag_pre_C(
 
     ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
             monolis,
+            ned,
             //"graph.dat",
             "graph_nedelec_elem_test.dat",
             directory);

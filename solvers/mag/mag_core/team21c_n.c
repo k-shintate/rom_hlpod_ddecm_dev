@@ -37,13 +37,14 @@ void get_material_for_prop_team21a0_Aphi(int prop,double* nu,double* sigma){
        1: COIL_1, 2: COIL_2, 3: NONMAG_PLATE, 4: AIR */
     if(prop == 4){
         /* NONMAG_PLATE */
-        *sigma = Sigma_p21_plate;
+        //*sigma = Sigma_p21_plate;
         //*sigma = 0.0;
+        *sigma = Sigma_p21_plate*1.0e-3;
     }
     else if(prop == 1 || prop == 2){
         /* COIL_1 / COIL_2: impressed current source regions. */
         //*sigma = 0.0;
-        *sigma = Sigma_p21_plate*1.0e-4;
+        *sigma = Sigma_p21_plate*1.0e-3;
     }
     else {
         /* AIR and any other non-conducting region */
@@ -595,7 +596,7 @@ for(int e=0; e<fe->total_num_elems; ++e){
                     double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
                     v *= (double)sj;
 
-                    //monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
                 }
             }
 
@@ -618,34 +619,700 @@ for(int e=0; e<fe->total_num_elems; ++e){
                     double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
                     v *= (double)si;
 
-                    //monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
                 }
             }
 
 
-        elem++;
         }
     }
-/*
-*/
     
 }
 
+BB_std_free_1d_double(J_ip, np);
+BB_std_free_1d_double_C(val_ip_C, np);
+
+}
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <complex.h>
+#include <math.h>
+
+/* ============================================================
+ * Debug option
+ * ============================================================ */
+
 /*
-    for(int i = 0; i < fe->total_num_nodes; i++){
-        if(bool_phi_node[i]){
+ * 1 にすると、対角成分に add しようとした箇所をすべて表示する。
+ * 要素数が多いと大量に出るので、通常は 0 推奨。
+ */
+#define DEBUG_DIAG_PRINT_EACH_DIAG 0
+
+/*
+ * 絶対値がこの値以下なら「ゼロ相当」とみなす。
+ */
+#define DEBUG_DIAG_EPS 1.0e-30
+
+
+/* ============================================================
+ * Debug structure
+ * ============================================================ */
+
+typedef struct {
+    int ndof;
+    double eps;
+
+    bool* expected_A;
+    bool* expected_phi;
+    bool* touched_diag;
+
+    int* diag_count;
+
+    double _Complex* sum_total;
+    double _Complex* sum_AA_curl;
+    double _Complex* sum_AA_mass;
+    double _Complex* sum_PP;
+    double _Complex* sum_AP;
+    double _Complex* sum_PA;
+
+} DEBUG_DIAG_APHI;
+
+
+/* ============================================================
+ * Debug helper functions
+ * ============================================================ */
+
+static void debug_diag_aphi_init(
+    DEBUG_DIAG_APHI* dbg,
+    int ndof,
+    double eps)
+{
+    dbg->ndof = ndof;
+    dbg->eps  = eps;
+
+    dbg->expected_A   = (bool*)calloc(ndof, sizeof(bool));
+    dbg->expected_phi = (bool*)calloc(ndof, sizeof(bool));
+    dbg->touched_diag = (bool*)calloc(ndof, sizeof(bool));
+
+    dbg->diag_count = (int*)calloc(ndof, sizeof(int));
+
+    dbg->sum_total   = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+    dbg->sum_AA_curl = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+    dbg->sum_AA_mass = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+    dbg->sum_PP      = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+    dbg->sum_AP      = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+    dbg->sum_PA      = (double _Complex*)calloc(ndof, sizeof(double _Complex));
+}
+
+
+static void debug_diag_aphi_finalize(DEBUG_DIAG_APHI* dbg)
+{
+    free(dbg->expected_A);
+    free(dbg->expected_phi);
+    free(dbg->touched_diag);
+
+    free(dbg->diag_count);
+
+    free(dbg->sum_total);
+    free(dbg->sum_AA_curl);
+    free(dbg->sum_AA_mass);
+    free(dbg->sum_PP);
+    free(dbg->sum_AP);
+    free(dbg->sum_PA);
+}
+
+
+static void debug_diag_mark_expected_A(
+    DEBUG_DIAG_APHI* dbg,
+    int dof,
+    int rank,
+    int elem,
+    int local_id)
+{
+    if(dof < 0 || dbg->ndof <= dof){
+        printf(
+            "[diag-debug][invalid expected A dof] "
+            "rank=%d elem=%d local_edge=%d dof=%d ndof=%d\n",
+            rank, elem, local_id, dof, dbg->ndof
+        );
+        return;
+    }
+
+    dbg->expected_A[dof] = true;
+}
+
+
+static void debug_diag_mark_expected_phi(
+    DEBUG_DIAG_APHI* dbg,
+    int dof,
+    int rank,
+    int elem,
+    int local_id)
+{
+    if(dof < 0 || dbg->ndof <= dof){
+        printf(
+            "[diag-debug][invalid expected phi dof] "
+            "rank=%d elem=%d local_node=%d dof=%d ndof=%d\n",
+            rank, elem, local_id, dof, dbg->ndof
+        );
+        return;
+    }
+
+    dbg->expected_phi[dof] = true;
+}
+
+
+static void debug_diag_record_add(
+    DEBUG_DIAG_APHI* dbg,
+    const char* block_name,
+    int row,
+    int col,
+    double _Complex v,
+    int rank,
+    int elem,
+    int prop,
+    int local_i,
+    int local_j,
+    double nu,
+    double sigma)
+{
+    /*
+     * 対角成分だけ追跡する。
+     */
+    if(row != col){
+        return;
+    }
+
+    if(row < 0 || dbg->ndof <= row){
+        /*
+        printf(
+            "[diag-debug][invalid diagonal dof] "
+            "block=%s rank=%d elem=%d prop=%d row=%d col=%d ndof=%d "
+            "local_i=%d local_j=%d "
+            "v=(%.16e, %.16e)\n",
+            block_name,
+            rank, elem, prop,
+            row, col, dbg->ndof,
+            local_i, local_j,
+            creal(v), cimag(v)
+        );
+        */
+        return;
+    }
+
+    dbg->touched_diag[row] = true;
+    dbg->diag_count[row] += 1;
+    dbg->sum_total[row] += v;
+
+    if(block_name[0] == 'A' && block_name[1] == 'A' && block_name[3] == 'c'){
+        dbg->sum_AA_curl[row] += v;
+    }
+    else if(block_name[0] == 'A' && block_name[1] == 'A' && block_name[3] == 'm'){
+        dbg->sum_AA_mass[row] += v;
+    }
+    else if(block_name[0] == 'P' && block_name[1] == 'P'){
+        dbg->sum_PP[row] += v;
+    }
+    else if(block_name[0] == 'A' && block_name[1] == 'P'){
+        dbg->sum_AP[row] += v;
+    }
+    else if(block_name[0] == 'P' && block_name[1] == 'A'){
+        dbg->sum_PA[row] += v;
+    }
+
+    /*
+#if DEBUG_DIAG_PRINT_EACH_DIAG
+    printf(
+        "[diag-debug][diag add] "
+        "block=%s rank=%d elem=%d prop=%d dof=%d "
+        "local_i=%d local_j=%d "
+        "nu=%.16e sigma=%.16e "
+        "v=(%.16e, %.16e) abs=%.16e\n",
+        block_name,
+        rank, elem, prop, row,
+        local_i, local_j,
+        nu, sigma,
+        creal(v), cimag(v), cabs(v)
+    );
+#endif
+
+    if(cabs(v) <= dbg->eps){
+        printf(
+            "[diag-debug][zero contribution] "
+            "block=%s rank=%d elem=%d prop=%d dof=%d "
+            "local_i=%d local_j=%d "
+            "nu=%.16e sigma=%.16e "
+            "v=(%.16e, %.16e) abs=%.16e\n",
+            block_name,
+            rank, elem, prop, row,
+            local_i, local_j,
+            nu, sigma,
+            creal(v), cimag(v), cabs(v)
+        );
+    }
+    */
+}
+
+
+static void debug_diag_report(
+    DEBUG_DIAG_APHI* dbg,
+    int rank)
+{
+    int count_missing = 0;
+    int count_zero    = 0;
+    int count_nonzero = 0;
+
+    printf(
+        "\n[diag-debug][summary begin] rank=%d ndof=%d eps=%.16e\n",
+        rank, dbg->ndof, dbg->eps
+    );
+
+    for(int dof = 0; dof < dbg->ndof; ++dof){
+        const bool expected = dbg->expected_A[dof] || dbg->expected_phi[dof];
+
+        if(!expected){
+            continue;
         }
-        else{
-            printf("myrank = %d, i = %d\n", monolis_mpi_get_global_my_rank(), i);
+
+        if(!dbg->touched_diag[dof]){
+            ++count_missing;
+
+            printf(
+                "[diag-debug][missing diagonal add] "
+                "rank=%d dof=%d expected_A=%d expected_phi=%d "
+                "diag_count=%d\n",
+                rank,
+                dof,
+                dbg->expected_A[dof],
+                dbg->expected_phi[dof],
+                dbg->diag_count[dof]
+            );
+
+            continue;
+        }
+
+        if(cabs(dbg->sum_total[dof]) <= dbg->eps){
+            ++count_zero;
+
+            printf(
+                "[diag-debug][zero or cancelled diagonal] "
+                "rank=%d dof=%d expected_A=%d expected_phi=%d "
+                "diag_count=%d "
+                "AA_curl=(%.16e, %.16e) "
+                "AA_mass=(%.16e, %.16e) "
+                "PP=(%.16e, %.16e) "
+                "AP=(%.16e, %.16e) "
+                "PA=(%.16e, %.16e) "
+                "total=(%.16e, %.16e) abs=%.16e\n",
+                rank,
+                dof,
+                dbg->expected_A[dof],
+                dbg->expected_phi[dof],
+                dbg->diag_count[dof],
+                creal(dbg->sum_AA_curl[dof]), cimag(dbg->sum_AA_curl[dof]),
+                creal(dbg->sum_AA_mass[dof]), cimag(dbg->sum_AA_mass[dof]),
+                creal(dbg->sum_PP[dof]),      cimag(dbg->sum_PP[dof]),
+                creal(dbg->sum_AP[dof]),      cimag(dbg->sum_AP[dof]),
+                creal(dbg->sum_PA[dof]),      cimag(dbg->sum_PA[dof]),
+                creal(dbg->sum_total[dof]),   cimag(dbg->sum_total[dof]),
+                cabs(dbg->sum_total[dof])
+            );
+        }
+        else {
+            ++count_nonzero;
         }
     }
 
-    double tt = monolis_get_time_global_sync();
-    exit(1);
+    printf(
+        "[diag-debug][summary end] "
+        "rank=%d missing=%d zero_or_cancelled=%d nonzero=%d\n\n",
+        rank,
+        count_missing,
+        count_zero,
+        count_nonzero
+    );
+}
 
-*/
-BB_std_free_1d_double(J_ip, np);
-BB_std_free_1d_double_C(val_ip_C, np);
+
+static int debug_diag_get_ndof_from_connectivity(
+    BBFE_DATA* fe,
+    NEDELEC* ned)
+{
+    int max_dof = -1;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+
+            if(max_dof < gi){
+                max_dof = gi;
+            }
+        }
+
+        if(ned->num_phi_elem != 0 && ned->phi_conn != NULL){
+            const int prop = ned->elem_prop[e];
+
+            if(prop == 4){
+                for(int m = 0; m < fe->local_num_nodes; ++m){
+                    const int gm = ned->phi_conn[e][m];
+
+                    if(max_dof < gm){
+                        max_dof = gm;
+                    }
+                }
+            }
+        }
+    }
+
+    return max_dof + 1;
+}
+
+
+/* ============================================================
+ * Original function with debug hooks added
+ * ============================================================ */
+
+void set_element_mat_nedelec_Aphi_team21a0_debug(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned)
+{
+    (void)bc;
+
+    const int np = basis->num_integ_points;
+
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
+
+    bool* bool_phi_node = BB_std_calloc_1d_bool(bool_phi_node, fe->total_num_nodes);
+
+    /*
+     * Debug initialization
+     *
+     * monolis->mat.N などの全自由度数を使えるなら、そちらを使ってもよい。
+     * ここでは元の connectivity に出てくる最大自由度番号から debug 用 ndof を決めている。
+     */
+    const int debug_rank = monolis_mpi_get_global_my_rank();
+    const int debug_ndof = debug_diag_get_ndof_from_connectivity(fe, ned);
+
+    DEBUG_DIAG_APHI debug_diag;
+    debug_diag_aphi_init(&debug_diag, debug_ndof, DEBUG_DIAG_EPS);
+
+    printf("add matrix\n");
+
+    int elem = 0;
+
+    for(int e=0; e<fe->total_num_elems; ++e){
+
+        int prop = ned->elem_prop[e];
+        double nu;
+        double sigma;
+        get_material_for_prop_team21a0_Aphi(prop, &nu, &sigma);
+
+        int nonlinear_mu = 0;
+        (void)nonlinear_mu;
+
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+
+        /* curl-curl block (A-A) */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+            /*
+             * Debug:
+             * A-A block では各 edge dof に対して対角が期待される。
+             */
+            debug_diag_mark_expected_A(
+                &debug_diag,
+                gi,
+                debug_rank,
+                e,
+                i
+            );
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
+                        ned->curl_N_edge[e][p][i],
+                        ned->curl_N_edge[e][p][j],
+                        1.0
+                    );
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)(si*sj);
+
+                /*
+                 * Debug:
+                 * 実際に add しようとしている対角成分だけ記録する。
+                 */
+                debug_diag_record_add(
+                    &debug_diag,
+                    "AA_curl",
+                    gi,
+                    gj,
+                    v,
+                    debug_rank,
+                    e,
+                    prop,
+                    i,
+                    j,
+                    nu,
+                    sigma
+                );
+
+                //printf(" real v  = %lf im v = %lf", creal(v), cimg(v));
+
+                //printf("myrank = %d, real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), creal(v), cimag(v));
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+
+                if(gi == gj){
+                    bool_phi_node[gi] = "true";
+                }
+            }
+
+        }
+
+        /* sigma * iω * A mass block */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+            /*
+             * Debug:
+             * A-A mass block でも edge dof に対角が期待される。
+             */
+            debug_diag_mark_expected_A(
+                &debug_diag,
+                gi,
+                debug_rank,
+                e,
+                i
+            );
+
+            for(int j=0; j<ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                        ned->N_edge[e][p][i],
+                        ned->N_edge[e][p][j],
+                        sigma
+                    ) * omega_team21a0 * I;
+                }
+
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)(si*sj);
+
+                /*
+                 * Debug:
+                 * 実際に add しようとしている対角成分だけ記録する。
+                 */
+                debug_diag_record_add(
+                    &debug_diag,
+                    "AA_mass",
+                    gi,
+                    gj,
+                    v,
+                    debug_rank,
+                    e,
+                    prop,
+                    i,
+                    j,
+                    nu,
+                    sigma
+                );
+
+                //printf("myrank = %d, real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), creal(v), cimag(v));
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+            }
+        }
+
+        if(ned->num_phi_elem == 0){
+        }
+        else{
+            //if(prop == 4 && monolis_mpi_get_global_my_rank()==6){
+            if(prop == 4){
+                /* phi-phi block */
+                for(int m=0; m<fe->local_num_nodes; ++m){
+                    //printf("myrank = %d, gm = %d, elem = %d\n", monolis_mpi_get_global_my_rank() ,ned->phi_conn[elem][m], elem);
+                    const int gm = ned->phi_conn[e][m];
+
+                    /*
+                     * Debug:
+                     * phi-phi block が組まれる要素では phi dof に対角が期待される。
+                     */
+                    debug_diag_mark_expected_phi(
+                        &debug_diag,
+                        gm,
+                        debug_rank,
+                        e,
+                        m
+                    );
+
+                    for(int n=0; n<fe->local_num_nodes; ++n){
+                        const int gn = ned->phi_conn[e][n];
+
+                        if(gm == gn){
+                            bool_phi_node[gm] = "true";
+                        }
+
+                        for(int p=0; p<np; ++p){
+                            val_ip_C[p] = 0.0 + 0.0*I;
+                            val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                                fe->geo[e][p].grad_N[m],
+                                fe->geo[e][p].grad_N[n],
+                                sigma
+                            ) * I * omega_team21a0;
+                        }
+
+                        double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+
+                        /*
+                         * Debug:
+                         * phi-phi block の対角成分を記録する。
+                         */
+                        debug_diag_record_add(
+                            &debug_diag,
+                            "PP",
+                            gm,
+                            gn,
+                            v,
+                            debug_rank,
+                            e,
+                            prop,
+                            m,
+                            n,
+                            nu,
+                            sigma
+                        );
+
+                        //printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gm, gn, e, m , creal(v), cimag(v));
+                        monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
+
+                        /*
+                        if(gm==gn){
+                            monolis_set_Dirichlet_bc_C(
+                                monolis,
+                                monolis->mat.C.B,
+                                gm,
+                                0,
+                                0.0 + 0.0*I
+                            );
+                        }
+                        */
+                    }
+                }
+
+                for(int j=0; j<ned->local_num_edges; ++j){
+                    const int gj = ned->nedelec_conn_mat[e][j];
+                    const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                    for(int n=0; n<fe->local_num_nodes; ++n){
+                        const int gn = ned->phi_conn[e][n];
+
+                        for(int p=0; p<np; ++p){
+                            val_ip_C[p] = 0.0 + 0.0*I;
+                            val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                                fe->geo[e][p].grad_N[n],
+                                ned->N_edge[e][p][j],
+                                sigma
+                            ) * I * omega_team21a0;
+                        }
+
+                        double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                        v *= (double)sj;
+
+                        /*
+                         * Debug:
+                         * A-phi block は通常は非対角 block だが、
+                         * gj == gn になっている場合は対角にも入る。
+                         * dof 番号の衝突確認にも使える。
+                         */
+                        debug_diag_record_add(
+                            &debug_diag,
+                            "AP",
+                            gj,
+                            gn,
+                            v,
+                            debug_rank,
+                            e,
+                            prop,
+                            j,
+                            n,
+                            nu,
+                            sigma
+                        );
+
+                        monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
+                    }
+                }
+
+                for(int m=0; m<fe->local_num_nodes; ++m){
+                    const int gm = ned->phi_conn[e][m];
+
+                    for(int i=0; i<ned->local_num_edges; ++i){
+                        const int gi = ned->nedelec_conn_mat[e][i];
+                        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+                        for(int p=0; p<np; ++p){
+                            val_ip_C[p] = 0.0 + 0.0*I;
+                            val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                                ned->N_edge[e][p][i],
+                                fe->geo[e][p].grad_N[m],
+                                sigma
+                            ) * I * omega_team21a0;
+                        }
+
+                        double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                        v *= (double)si;
+
+                        /*
+                         * Debug:
+                         * phi-A block も通常は非対角 block だが、
+                         * gm == gi になっている場合は対角にも入る。
+                         */
+                        debug_diag_record_add(
+                            &debug_diag,
+                            "PA",
+                            gm,
+                            gi,
+                            v,
+                            debug_rank,
+                            e,
+                            prop,
+                            m,
+                            i,
+                            nu,
+                            sigma
+                        );
+
+                        monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
+                    }
+                }
+            }
+        }
+    }
+
+    /*
+     * Debug summary
+     */
+    debug_diag_report(&debug_diag, debug_rank);
+    debug_diag_aphi_finalize(&debug_diag);
+
+    BB_std_free_1d_double(J_ip, np);
+    BB_std_free_1d_double_C(val_ip_C, np);
 
 }
 
