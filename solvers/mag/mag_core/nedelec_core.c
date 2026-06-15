@@ -142,7 +142,7 @@ void compute_B_cell_average(
             B_cell[e][0] = B_cell[e][1] = B_cell[e][2] = 0.0;
         }
 
-        printf("B_cell[%d][%d] = %lf\n", e , 0, B_cell[e][0]);
+        //printf("B_cell[%d][%d] = %lf\n", e , 0, B_cell[e][0]);
     }
 
     BB_std_free_1d_double(J_ip, np);

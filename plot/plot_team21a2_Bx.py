@@ -141,7 +141,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
             marker="o",
             linestyle="-",
             markersize=3,
-            label=f"X={sign}5.76mm proposed"
+            label=f"X={sign}5.76mm (proposed)"
         )
 
     # --- reference data from Table A3-2 ---
@@ -154,7 +154,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
         marker="s",
         linestyle="none",
         markersize=5,
-        label="X=+5.76mm measured"
+        label="X=+5.76mm (reference: measured)"
     )
 
     plt.plot(
@@ -162,7 +162,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
         xp_calc,
         linestyle="--",
         linewidth=1.5,
-        label="X=+5.76mm calculated"
+        label="X=+5.76mm (reference: calculated)"
     )
 
     # X=-5.76 mm reference
@@ -172,7 +172,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
         marker="^",
         linestyle="none",
         markersize=5,
-        label="X=-5.76mm measured"
+        label="X=-5.76mm (reference: measured)"
     )
 
     plt.plot(
@@ -180,7 +180,7 @@ def plot_bnode_x_sorted_by_z(vtp_paths, array_name: str = "B_node") -> None:
         xm_calc,
         linestyle=":",
         linewidth=1.8,
-        label="X=-5.76mm calculated"
+        label="X=-5.76mm (reference: calculated)"
     )
 
     plt.xlim(0.0, 0.4)

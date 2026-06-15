@@ -97,7 +97,7 @@ def plot_bz_a2b2_comparison(vtp_paths, array_name: str = "B_node"):
             linestyle="-",
             marker="o",
             markersize=3,
-            label=f"Simulation {i}: {vtp_path}"
+            label=f"Simulation"
         )
 
     # Reference data
@@ -109,7 +109,7 @@ def plot_bz_a2b2_comparison(vtp_paths, array_name: str = "B_node"):
         linestyle="None",
         marker="o",
         markersize=6,
-        label="Reference A2-B2, f=50 Hz, wt=0°"
+        label="Reference A2-B2"
     )
 
     plt.xlim(0.0, 0.288)

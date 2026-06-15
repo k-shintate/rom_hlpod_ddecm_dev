@@ -3,7 +3,7 @@
 
 set -e
 
-for i in $(seq 0 7); do
+for i in $(seq 0 15); do
   echo "processing partition ${i}"
 
   python3 ../../shell/mag/out_node.py \

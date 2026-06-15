@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-N_PARTS=8
-CASE_DIR="result_mag/3-8-8"
+N_PARTS=16
+CASE_DIR="result_mag/3-16-16"
 
 # 結果ディレクトリへ移動
-cd "${CASE_DIR}"
+#cd "${CASE_DIR}"
 
 GEDATSU_BIN="./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin"
 UTIL_BIN="./../../utils/bin"
