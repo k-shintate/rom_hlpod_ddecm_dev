@@ -22,3 +22,19 @@ void apply_dirichlet_bc_for_A_and_phi_team7(
     BBFE_DATA* fe,
     BBFE_BC* bc,
     NEDELEC* ned);
+
+void set_element_vec_nedelec_Aphi_team7_2nd(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned);
+
+void set_element_mat_nedelec_Aphi_team7_2nd(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned);
+
+    

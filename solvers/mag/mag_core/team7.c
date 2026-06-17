@@ -37,7 +37,7 @@ void get_material_for_prop_team7_Aphi(int prop,double* nu,double* sigma){
     }
     else if(prop == 2 || prop == 3){
         //*sigma = Sigma_al * 1.0e-6;
-        *sigma = Sigma_al * 1.0e-6;
+        *sigma = Sigma_al * 1.0e-3;
     }
     else {
         *sigma = 0.0;
@@ -583,149 +583,301 @@ BB_std_free_1d_double_C(val_ip_C, np);
 
 }
 
-/* =========================================================BC for A and phi========================================================= */
-
-void apply_dirichlet_bc_for_A_and_phi_team7(MONOLIS* monolis,BBFE_DATA* fe,BBFE_BC* bc,NEDELEC* ned){const int nen = fe->local_num_nodes;
-
-int is_dir_edge_n = fe->total_num_nodes;
-bool* is_dir_edge = BB_std_calloc_1d_bool(is_dir_edge, is_dir_edge_n);
-build_dirichlet_edge_mask_from_boundary_faces_tet(fe, bc, ned, is_dir_edge, is_dir_edge_n);
-
-/* --------------------------------------------------------
-   A (edge) boundary condition: A_tan = 0 on outer boundary
-   -------------------------------------------------------- */
-int n_local_edges = 0;
-const int (*edge_tbl)[2] = NULL;
-
-if(nen == 4){
-    n_local_edges = 6;
-    edge_tbl = tet_edge_conn;
-} else if(nen == 8){
-    n_local_edges = 12;
-    edge_tbl = hex_edge_conn;
-}
-
-for(int e = 0; e < fe->total_num_elems; ++e){
-    for(int i = 0; i < n_local_edges; ++i){
-        int gn1 = fe->conn[e][edge_tbl[i][0]];
-        int gn2 = fe->conn[e][edge_tbl[i][1]];
-        int ged = ned->nedelec_conn[e][i];
-
-        if(!(bc->D_bc_exists[gn1] && bc->D_bc_exists[gn2])) continue;
-        if(!is_dir_edge[ged]) continue;
-
-        monolis_set_Dirichlet_bc_C(
-            monolis,
-            monolis->mat.C.B,
-            ged,
-            0,
-            0.0 + 0.0*I
-        );
-    }
-}
 
 
-int num_nodes = fe->total_num_nodes;
-int* node_is_conductor = (int*)calloc(num_nodes, sizeof(int));
-
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-    if(prop==6){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 6;
-        }
-    }
-}
-
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-    if(prop==5){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 5;
-        }
-    }
-}
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-    if(prop==1){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 1;
-        }
-    }
-}
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-
-    if(prop == 2){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 2;
-        }
-    }
-}
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-
-    if(prop == 3){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 3;
-        }
-    }
-}
-
-for(int e=0; e<fe->total_num_elems; ++e){
-    int prop = ned->elem_prop[e];
-
-    if(prop == 4){
-        for(int k=0; k<fe->local_num_nodes; ++k){
-            int gn = fe->conn[e][k];
-            node_is_conductor[gn] = 4;
-
-            if(monolis_mpi_get_global_my_rank() == 1 && e ==25916 && k == 0){
-                printf("\n\nset_D_bc_alumnium\n\n");
+/* =========================================================RHS assembly for A-phi, 2nd-order Nedelec========================================================= */
 /*
-                monolis_set_Dirichlet_bc_C(
-                    monolis,
-                    monolis->mat.C.B,
-                    fe->conn[e][k],
-                    0,
-                    0.0 + 0.0*I
+ * 2nd-order Nedelec implementation policy:
+ *   - local_num_edges must be 20 for Tet4 Nedelec second order.
+ *   - Use ned->nedelec_conn[e][i] as the global A-DOF id.
+ *   - Do NOT multiply edge_sign. The 2nd-order basis is already evaluated
+ *     with the global node ordering in BBFE_std_shapefunc_tet2nd_nedelec_*.
+ *
+ * Keep the original set_element_vec_nedelec_Aphi_team7 and
+ * set_element_mat_nedelec_Aphi_team7 for the validated first-order code path.
+ */
+void set_element_vec_nedelec_Aphi_team7_2nd(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned
+){
+    (void)bc;
+
+    const int np = basis->num_integ_points;
+
+    if(fe->local_num_nodes != 4){
+        fprintf(stderr,
+            "set_element_vec_nedelec_Aphi_team7_2nd: Tet4 only. local_num_nodes=%d\n",
+            fe->local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    if(ned->local_num_edges != 20){
+        fprintf(stderr,
+            "set_element_vec_nedelec_Aphi_team7_2nd: expected local_num_edges=20, got %d\n",
+            ned->local_num_edges);
+        exit(EXIT_FAILURE);
+    }
+
+    if(ned->nedelec_conn == NULL){
+        fprintf(stderr,
+            "set_element_vec_nedelec_Aphi_team7_2nd: ned->nedelec_conn is NULL\n");
+        exit(EXIT_FAILURE);
+    }
+
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+
+    /* TEAM 7 coil cross-sectional area:
+       25 mm x 100 mm = 2500 mm^2 = 2500e-6 m^2. */
+    const double coil_area = 2500.0e-6;
+
+    const double phase_rad = 90.0 * M_PI / 180.0;
+    const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
+
+    long long coil_elem_count = 0;
+    long long src_hit_count   = 0;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        const int prop = ned->elem_prop[e];
+
+        if(!is_team7_coil_prop(prop)) continue;
+
+        coil_elem_count++;
+
+        const double NI = get_coil_current_team7(prop);
+        const double J_mag = NI / coil_area;
+
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+
+            for(int p = 0; p < np; ++p){
+                double x_ip[3];
+                double Js[3];
+
+                get_interp_coords(e, p, fe, basis, x_ip);
+
+                if(get_team7_known_Js_by_coord(prop, x_ip, J_mag, Js)){
+                    src_hit_count++;
+                    val_ip[p] = dot3_team7(Js, ned->N_edge[e][p][i]);
+                }else{
+                    val_ip[p] = 0.0;
+                }
+            }
+
+            const double integ = BBFE_std_integ_calc(
+                np,
+                val_ip,
+                basis->integ_weight,
+                Jacobian_ip
+            );
+
+            /* 2nd-order basis is already oriented globally; no edge_sign. */
+            monolis->mat.C.B[gi] += integ * phase_factor;
+        }
+    }
+
+    printf("[TEAM7 coil debug 2nd] coil_elem_count = %lld\n", coil_elem_count);
+    printf("[TEAM7 coil debug 2nd] src_hit_count   = %lld\n", src_hit_count);
+
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
+}
+
+
+void set_element_mat_nedelec_Aphi_team7_2nd(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned
+){
+    (void)bc;
+
+    const int np = basis->num_integ_points;
+
+    if(fe->local_num_nodes != 4){
+        fprintf(stderr,
+            "set_element_mat_nedelec_Aphi_team7_2nd: Tet4 only. local_num_nodes=%d\n",
+            fe->local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    if(ned->local_num_edges != 20){
+        fprintf(stderr,
+            "set_element_mat_nedelec_Aphi_team7_2nd: expected local_num_edges=20, got %d\n",
+            ned->local_num_edges);
+        exit(EXIT_FAILURE);
+    }
+
+    if(ned->nedelec_conn == NULL){
+        fprintf(stderr,
+            "set_element_mat_nedelec_Aphi_team7_2nd: ned->nedelec_conn is NULL\n");
+        exit(EXIT_FAILURE);
+    }
+
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        const int prop = ned->elem_prop[e];
+
+        double nu;
+        double sigma;
+        get_material_for_prop_team7_Aphi(prop, &nu, &sigma);
+
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+
+        /* curl-curl block (A-A) */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+
+                for(int p = 0; p < np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
+                        ned->curl_N_edge[e][p][i],
+                        ned->curl_N_edge[e][p][j],
+                        1.0
+                    );
+                }
+
+                const double _Complex v = BBFE_std_integ_calc_C(
+                    np,
+                    val_ip_C,
+                    basis->integ_weight,
+                    J_ip
                 );
-                */
+
+                /* 2nd-order basis is already oriented globally; no si*sj. */
+                //printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gi, gj, e, e, creal(v), cimag(v));
+                
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
             }
         }
 
+        /* sigma * iω * A mass block */
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+
+                for(int p = 0; p < np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                        ned->N_edge[e][p][i],
+                        ned->N_edge[e][p][j],
+                        sigma
+                    ) * omega_team7 * I;
+                }
+
+                const double _Complex v = BBFE_std_integ_calc_C(
+                    np,
+                    val_ip_C,
+                    basis->integ_weight,
+                    J_ip
+                );
+
+                /* 2nd-order basis is already oriented globally; no si*sj. */
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+            }
+        }
+
+        if(prop == 4){
+            /* phi-phi block */
+            for(int m = 0; m < fe->local_num_nodes; ++m){
+                const int gm = ned->phi_conn[e][m];
+
+                for(int n = 0; n < fe->local_num_nodes; ++n){
+                    const int gn = ned->phi_conn[e][n];
+
+                    for(int p = 0; p < np; ++p){
+                        val_ip_C[p] = 0.0 + 0.0*I;
+                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                            fe->geo[e][p].grad_N[m],
+                            fe->geo[e][p].grad_N[n],
+                            sigma
+                        ) * I * omega_team7;
+                    }
+
+                    const double _Complex v = BBFE_std_integ_calc_C(
+                        np,
+                        val_ip_C,
+                        basis->integ_weight,
+                        J_ip
+                    );
+
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
+                
+                    printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gm, gn, e, e, creal(v), cimag(v));
+                }
+            }
+
+            /* A-phi block */
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+
+                for(int n = 0; n < fe->local_num_nodes; ++n){
+                    const int gn = ned->phi_conn[e][n];
+
+                    for(int p = 0; p < np; ++p){
+                        val_ip_C[p] = 0.0 + 0.0*I;
+                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                            fe->geo[e][p].grad_N[n],
+                            ned->N_edge[e][p][j],
+                            sigma
+                        ) * I * omega_team7;
+                    }
+
+                    const double _Complex v = BBFE_std_integ_calc_C(
+                        np,
+                        val_ip_C,
+                        basis->integ_weight,
+                        J_ip
+                    );
+
+                    /* 2nd-order basis is already oriented globally; no sj. */
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gj, gn, 0, 0, v);
+                }
+            }
+
+            /* phi-A block */
+            for(int m = 0; m < fe->local_num_nodes; ++m){
+                const int gm = ned->phi_conn[e][m];
+
+                for(int i = 0; i < ned->local_num_edges; ++i){
+                    const int gi = ned->nedelec_conn_mat[e][i];
+
+                    for(int p = 0; p < np; ++p){
+                        val_ip_C[p] = 0.0 + 0.0*I;
+                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                            ned->N_edge[e][p][i],
+                            fe->geo[e][p].grad_N[m],
+                            sigma
+                        ) * I * omega_team7;
+                    }
+
+                    const double _Complex v = BBFE_std_integ_calc_C(
+                        np,
+                        val_ip_C,
+                        basis->integ_weight,
+                        J_ip
+                    );
+
+                    /* 2nd-order basis is already oriented globally; no si. */
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
+                }
+            }
+        }
     }
-}
 
-for (int i = 0; i < num_nodes; ++i){
-    //if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
-    if (node_is_conductor[i] == 1||node_is_conductor[i] == 2||node_is_conductor[i] == 3||node_is_conductor[i] == 4||node_is_conductor[i] == 5||node_is_conductor[i] == 6) {
-    //if (node_is_conductor[i] == 2||node_is_conductor[i] == 4 ||node_is_conductor[i] == 3) {
-    //if (node_is_conductor[i] == 4) {
-/*
-    monolis_set_Dirichlet_bc_C(
-            monolis,
-            monolis->mat.C.B,
-            i,
-            0,
-            0.0 + 0.0*I
-
-            );
-            */
-    }
-}
-
-
-BB_std_free_1d_bool(is_dir_edge, is_dir_edge_n);
-
+    BB_std_free_1d_double(J_ip, np);
+    BB_std_free_1d_double_C(val_ip_C, np);
 }

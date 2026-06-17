@@ -54,9 +54,9 @@ typedef struct
 
     int total_num_dof;
 
+    int** elem_global_node_id;  /* [total_num_elems][4], orientation 用 */
+
 } NEDELEC;
-
-
 
 // Aphi -> 要素ごとの B を作る（ガウス点のヤコビアン重み付き平均）
 void compute_B_cell_average(
@@ -75,6 +75,7 @@ void copy_Aphi_to_V_phi_time2(
     double * phi,
     const int total_num_elems);
 
+    
 void build_dirichlet_edge_mask_from_boundary_faces_tet(
     const BBFE_DATA* fe,
     const BBFE_BC* bc,
@@ -88,10 +89,21 @@ void accumulate_B_cell_to_nodes(
     double** B_cell,
     double** B_node_out);
 
+
 // VTK 出力（節点ベクトル）
 void output_B_node_vtk(
     BBFE_DATA* fe, BBFE_BASIS* basis, NEDELEC* ned, const double* Aphi,
     const char* filename, const char* directory);
+
+
+void output_B_node_vtk_2nd(
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* Aphi,
+    const char* filename,
+    const char* directory);
+
 
 void compute_nedelec_edge_coords(
         BBFE_DATA* fe,
@@ -193,6 +205,13 @@ void BBFE_fluid_sups_read_Dirichlet_bc_NR(
         const int    total_num_nodes,
         const int    block_size);
 
+void build_dirichlet_dof_mask_from_boundary_faces_tet_2nd(
+    const BBFE_DATA* fe,
+    const BBFE_BC*   bc,
+    const NEDELEC*   ned,
+    bool*            is_dir_dof,
+    int              total_num_dof);
+
 void BBFE_mag_pre(
 		BBFE_DATA*    fe,
 		BBFE_BASIS*   basis,
@@ -237,3 +256,30 @@ void BBFE_mag_pre_C(
 		const char*   directory,
 		int           num_integ_points_each_axis,
 		bool          manufactured_solution);
+    
+void compute_nedelec_edge_coords_2nd(
+    BBFE_DATA* fe,
+    NEDELEC* ned,
+    int total_elems,
+    int total_edges,
+    const char* directory);
+
+void BBFE_mag_set_basis_2nd(
+    BBFE_DATA*     fe,
+    BBFE_BASIS*    basis,
+    NEDELEC*       ned,
+    int            local_num_nodes,
+    int            num_integ_points_each_axis);
+
+void BBFE_mag_pre_2nd(
+    BBFE_DATA*    fe,
+    BBFE_BASIS*   basis,
+    NEDELEC*      ned,
+    BBFE_BC*      bc,
+    MONOLIS*      monolis,
+    MONOLIS_COM*  monolis_com,
+    int           argc,
+    char*         argv[],
+    const char*   directory,
+    int           num_integ_points_each_axis,
+    bool          manufactured_solution);

@@ -7,89 +7,42 @@
 static const int BUFFER_SIZE = 10000;
 
 const double mu0 = 4.0*M_PI*1e-7; // H/m
-//const double Nu  = 1.0 / mu0;     // ← ここを μ0 に合わせる
 
-/*
-void compute_B_cell_average(
-    BBFE_DATA*   fe,
-    BBFE_BASIS*  basis,
-    NEDELEC*     ned,
-    const double* sol,
-    double**     B_cell
-){
-    const int ne = fe->total_num_elems;
-    const int np = basis->num_integ_points;
 
-    if(!B_cell){
-        fprintf(stderr, "compute_B_cell_average: B_cell must be pre-allocated\n");
-        exit(EXIT_FAILURE);
-    }
+#define TET2_NEDGE        6
+#define TET2_NFACE        4
+#define TET2_EDGE_MODE    2
+#define TET2_FACE_MODE    2
+#define TET2_NDOF         20
+#define TET2_FACE_OFFSET  12
 
-    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+static const int tet_face_conn[4][3] = {
+    {0, 1, 2},
+    {0, 1, 3},
+    {0, 2, 3},
+    {1, 2, 3}
+};
 
-    for(int e = 0; e < ne; ++e){
-        double num[3] = {0.0, 0.0, 0.0};
-        double den = 0.0;
+static const int tet_face_edge_lids[4][3] = {
+    {0, 1, 2}, /* face 0: 0-1-2 */
+    {0, 4, 3}, /* face 1: 0-1-3 */
+    {2, 5, 3}, /* face 2: 0-2-3 */
+    {1, 5, 4}  /* face 3: 1-2-3 */
+};
 
-        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
-
-        for(int p = 0; p < np; ++p){
-            double Tp[3]      = {0.0, 0.0, 0.0};
-            double gradPhi[3] = {0.0, 0.0, 0.0};
-            double Hp[3];
-            double Bp[3];
-
-            
-                for(int j = 0; j < ned->local_num_edges; ++j){
-                    const int ge = ned->nedelec_conn[e][j];
-                    const double cj =
-                        (ned->edge_sign ? ned->edge_sign[e][j] : 1) * sol[ge];
-
-                    Tp[0] += cj * ned->N_edge[e][p][j][0];
-                    Tp[1] += cj * ned->N_edge[e][p][j][1];
-                    Tp[2] += cj * ned->N_edge[e][p][j][2];
-                }
-           
-
-            for(int n = 0; n < fe->local_num_nodes; ++n){
-                const int gn = fe->conn[e][n];
-                const double phi_n = sol[gn];
-
-                gradPhi[0] += phi_n * fe->geo[e][p].grad_N[n][0];
-                gradPhi[1] += phi_n * fe->geo[e][p].grad_N[n][1];
-                gradPhi[2] += phi_n * fe->geo[e][p].grad_N[n][2];
-            }
-
-            Hp[0] = Tp[0] - gradPhi[0];
-            Hp[1] = Tp[1] - gradPhi[1];
-            Hp[2] = Tp[2] - gradPhi[2];
-
-            Bp[0] = mu0 * Hp[0];
-            Bp[1] = mu0 * Hp[1];
-            Bp[2] = mu0 * Hp[2];
-
-            const double w = basis->integ_weight[p] * J_ip[p];
-            num[0] += w * Bp[0];
-            num[1] += w * Bp[1];
-            num[2] += w * Bp[2];
-            den    += w;
-        }
-
-        if(den > 0.0){
-            B_cell[e][0] = num[0] / den;
-            B_cell[e][1] = num[1] / den;
-            B_cell[e][2] = num[2] / den;
-        } else {
-            B_cell[e][0] = 0.0;
-            B_cell[e][1] = 0.0;
-            B_cell[e][2] = 0.0;
-        }
-    }
-
-    BB_std_free_1d_double(J_ip, np);
+static inline void swap_int_2nd(int* a, int* b)
+{
+    int t = *a;
+    *a = *b;
+    *b = t;
 }
-*/
 
+static void cross3_2nd(const double a[3], const double b[3], double c[3])
+{
+    c[0] = a[1]*b[2] - a[2]*b[1];
+    c[1] = a[2]*b[0] - a[0]*b[2];
+    c[2] = a[0]*b[1] - a[1]*b[0];
+}
 
 void compute_B_cell_average(
     BBFE_DATA*   fe,
@@ -143,6 +96,69 @@ void compute_B_cell_average(
         }
 
         printf("B_cell[%d][%d] = %lf\n", e , 0, B_cell[e][0]);
+    }
+
+    BB_std_free_1d_double(J_ip, np);
+}
+
+void compute_B_cell_average_2nd(
+    BBFE_DATA*    fe,
+    BBFE_BASIS*   basis,
+    NEDELEC*      ned,
+    const double* Aphi,
+    double**      B_cell
+){
+    const int ne = fe->total_num_elems;
+    const int np = basis->num_integ_points;
+
+    if(B_cell == NULL){
+        fprintf(stderr,
+            "compute_B_cell_average_2nd: B_cell must be pre-allocated\n");
+        exit(EXIT_FAILURE);
+    }
+
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+
+    for(int e = 0; e < ne; ++e){
+        double num[3] = {0.0, 0.0, 0.0};
+        double den    = 0.0;
+
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+
+        for(int p = 0; p < np; ++p){
+            double Bp[3] = {0.0, 0.0, 0.0};
+
+            for(int j = 0; j < ned->local_num_edges; ++j){
+                const int ge = ned->nedelec_conn_mat[e][j];
+
+                /*
+                 * 2次では edge_sign を掛けない。
+                 * 基底関数側でグローバル向きに合わせているため。
+                 */
+                const double cj = Aphi[ge];
+
+                Bp[0] += cj * ned->curl_N_edge[e][p][j][0];
+                Bp[1] += cj * ned->curl_N_edge[e][p][j][1];
+                Bp[2] += cj * ned->curl_N_edge[e][p][j][2];
+            }
+
+            const double w = basis->integ_weight[p] * J_ip[p];
+
+            num[0] += w * Bp[0];
+            num[1] += w * Bp[1];
+            num[2] += w * Bp[2];
+            den    += w;
+        }
+
+        if(den > 0.0){
+            B_cell[e][0] = num[0] / den;
+            B_cell[e][1] = num[1] / den;
+            B_cell[e][2] = num[2] / den;
+        }else{
+            B_cell[e][0] = 0.0;
+            B_cell[e][1] = 0.0;
+            B_cell[e][2] = 0.0;
+        }
     }
 
     BB_std_free_1d_double(J_ip, np);
@@ -230,6 +246,88 @@ void output_B_node_vtk(
     BB_std_free_2d_double(B_node, fe->total_num_nodes, 3);
 }
 
+void output_B_node_vtk_2nd(
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    NEDELEC* ned,
+    const double* Aphi,
+    const char* filename,
+    const char* directory
+){
+    double** B_cell = BB_std_calloc_2d_double(
+        B_cell,
+        fe->total_num_elems,
+        3
+    );
+
+    double** B_node = BB_std_calloc_2d_double(
+        B_node,
+        fe->total_num_nodes,
+        3
+    );
+
+    double* elem_type = BB_std_calloc_1d_double(
+        elem_type,
+        fe->total_num_nodes
+    );
+
+    compute_B_cell_average_2nd(
+        fe,
+        basis,
+        ned,
+        Aphi,
+        B_cell
+    );
+
+    accumulate_B_cell_to_nodes(
+        fe,
+        B_cell,
+        B_node
+    );
+
+    FILE* fp = BBFE_sys_write_fopen(fp, filename, directory);
+
+    switch(fe->local_num_nodes){
+        case 4:
+            BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+            break;
+
+        case 8:
+            BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+            break;
+
+        default:
+            fprintf(stderr,
+                "output_B_node_vtk_2nd: unsupported local_num_nodes=%d\n",
+                fe->local_num_nodes);
+            exit(EXIT_FAILURE);
+    }
+
+    fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+
+    BB_vtk_write_point_vals_vector(
+        fp,
+        B_node,
+        fe->total_num_nodes,
+        "B_node"
+    );
+
+    set_elem_types(fe, ned, elem_type);
+
+    BB_vtk_write_point_vals_scalar(
+        fp,
+        elem_type,
+        fe->total_num_nodes,
+        "elem_type"
+    );
+
+    fclose(fp);
+
+    BB_std_free_2d_double(B_cell, fe->total_num_elems, 3);
+    BB_std_free_2d_double(B_node, fe->total_num_nodes, 3);
+    BB_std_free_1d_double(elem_type, fe->total_num_nodes);
+}
+
 void copy_Aphi_to_V_phi_time2(
     BBFE_DATA* fe,
     NEDELEC* ned,
@@ -291,6 +389,159 @@ void compute_nedelec_edge_coords(
             int global_edge = ned->nedelec_conn[e][n];
             for (int d = 0; d < 3; d++) {
                 ned->nedelec_coords[global_edge][d] = midpoint[d];
+            }
+        }
+    }
+}
+
+
+void compute_nedelec_edge_coords_2nd(
+    BBFE_DATA* fe,
+    NEDELEC* ned,
+    int total_elems,
+    int total_edges,
+    const char* directory)
+{
+    (void)directory;
+
+    if(total_edges <= 0){
+        fprintf(stderr,
+            "compute_nedelec_edge_coords: total_edges must be positive. total_edges=%d\n",
+            total_edges);
+        exit(EXIT_FAILURE);
+    }
+
+    ned->nedelec_coords = BB_std_calloc_2d_double(
+        ned->nedelec_coords,
+        total_edges,
+        3
+    );
+
+    /* ============================================================
+     * 2nd-order Nedelec on Tet4
+     *   local DOF layout:
+     *     0..11 : 6 edges x 2 modes
+     *     12..19: 4 faces x 2 modes
+     *
+     *  These coordinates are only representative coordinates for
+     *  Nedelec DOFs. They are not interpolation nodes.
+     * ============================================================ */
+    if(fe->local_num_nodes == 4 && ned->local_num_edges == TET2_NDOF){
+        for(int e = 0; e < total_elems; ++e){
+            /* edge modes: use topological edge midpoints */
+            for(int le = 0; le < TET2_NEDGE; ++le){
+                const int ln0 = tet_edge_conn[le][0];
+                const int ln1 = tet_edge_conn[le][1];
+
+                const int gn0 = fe->conn[e][ln0];
+                const int gn1 = fe->conn[e][ln1];
+
+                double midpoint[3];
+                for(int d = 0; d < 3; ++d){
+                    midpoint[d] = 0.5 * (fe->x[gn0][d] + fe->x[gn1][d]);
+                }
+
+                for(int m = 0; m < TET2_EDGE_MODE; ++m){
+                    const int lid  = TET2_EDGE_MODE * le + m;
+                    const int gdof = ned->nedelec_conn[e][lid];
+
+                    if(gdof < 0 || gdof >= total_edges){
+                        fprintf(stderr,
+                            "compute_nedelec_edge_coords: invalid 2nd edge gdof=%d "
+                            "at elem=%d lid=%d total_edges=%d\n",
+                            gdof, e, lid, total_edges);
+                        exit(EXIT_FAILURE);
+                    }
+
+                    for(int d = 0; d < 3; ++d){
+                        ned->nedelec_coords[gdof][d] = midpoint[d];
+                    }
+                }
+            }
+
+            /* face modes: use topological face centroids */
+            for(int lf = 0; lf < TET2_NFACE; ++lf){
+                double centroid[3] = {0.0, 0.0, 0.0};
+
+                for(int q = 0; q < 3; ++q){
+                    const int ln = tet_face_conn[lf][q];
+                    const int gn = fe->conn[e][ln];
+
+                    for(int d = 0; d < 3; ++d){
+                        centroid[d] += fe->x[gn][d] / 3.0;
+                    }
+                }
+
+                for(int m = 0; m < TET2_FACE_MODE; ++m){
+                    const int lid  = TET2_FACE_OFFSET + TET2_FACE_MODE * lf + m;
+                    const int gdof = ned->nedelec_conn[e][lid];
+
+                    if(gdof < 0 || gdof >= total_edges){
+                        fprintf(stderr,
+                            "compute_nedelec_edge_coords: invalid 2nd face gdof=%d "
+                            "at elem=%d lid=%d total_edges=%d\n",
+                            gdof, e, lid, total_edges);
+                        exit(EXIT_FAILURE);
+                    }
+
+                    for(int d = 0; d < 3; ++d){
+                        ned->nedelec_coords[gdof][d] = centroid[d];
+                    }
+                }
+            }
+        }
+
+        return;
+    }
+
+    /* ============================================================
+     * 1st-order Nedelec on Tet4/Hex8
+     * ============================================================ */
+    int num_edges_per_elem = 0;
+    const int (*edge_conn)[2] = NULL;
+
+    if(fe->local_num_nodes == 4 && ned->local_num_edges == TET2_NEDGE){
+        num_edges_per_elem = TET2_NEDGE;
+        edge_conn = tet_edge_conn;
+    }
+    else if(fe->local_num_nodes == 8 && ned->local_num_edges == 12){
+        num_edges_per_elem = 12;
+        edge_conn = hex_edge_conn;
+    }
+    else{
+        fprintf(stderr,
+            "compute_nedelec_edge_coords: unsupported combination "
+            "local_num_nodes=%d local_num_edges=%d\n",
+            fe->local_num_nodes,
+            ned->local_num_edges);
+        exit(EXIT_FAILURE);
+    }
+
+    for(int e = 0; e < total_elems; ++e){
+        for(int le = 0; le < num_edges_per_elem; ++le){
+            const int ln0 = edge_conn[le][0];
+            const int ln1 = edge_conn[le][1];
+
+            const int gn0 = fe->conn[e][ln0];
+            const int gn1 = fe->conn[e][ln1];
+
+            double midpoint[3];
+            for(int d = 0; d < 3; ++d){
+                midpoint[d] = 0.5 * (fe->x[gn0][d] + fe->x[gn1][d]);
+            }
+
+            const int gdof = ned->nedelec_conn[e][le];
+
+            if(gdof < 0 || gdof >= total_edges){
+                fprintf(stderr,
+                    "compute_nedelec_edge_coords: invalid 1st gdof=%d "
+                    "at elem=%d le=%d total_edges=%d\n",
+                    gdof, e, le, total_edges);
+                exit(EXIT_FAILURE);
+            }
+
+            for(int d = 0; d < 3; ++d){
+                ned->nedelec_coords[gdof][d] = midpoint[d];
             }
         }
     }
@@ -407,6 +658,147 @@ void build_dirichlet_edge_mask_from_boundary_faces_tet(
     free(faces);
 }
 
+typedef struct {
+    int g0, g1, g2;
+    int e;
+    int f;
+} FaceRec2nd;
+
+static int cmp_face_2nd(const void* A, const void* B)
+{
+    const FaceRec2nd* a = (const FaceRec2nd*)A;
+    const FaceRec2nd* b = (const FaceRec2nd*)B;
+
+    if(a->g0 != b->g0) return (a->g0 < b->g0) ? -1 : 1;
+    if(a->g1 != b->g1) return (a->g1 < b->g1) ? -1 : 1;
+    if(a->g2 != b->g2) return (a->g2 < b->g2) ? -1 : 1;
+
+    return 0;
+}
+
+static inline void sort3_int_2nd(int* a, int* b, int* c)
+{
+    if(*a > *b) swap_int_2nd(a, b);
+    if(*b > *c) swap_int_2nd(b, c);
+    if(*a > *b) swap_int_2nd(a, b);
+}
+
+void build_dirichlet_dof_mask_from_boundary_faces_tet_2nd(
+    const BBFE_DATA* fe,
+    const BBFE_BC*   bc,
+    const NEDELEC*   ned,
+    bool*            is_dir_dof,
+    int              total_num_dof
+){
+    if(fe->local_num_nodes != 4){
+        fprintf(stderr,
+            "build_dirichlet_dof_mask_from_boundary_faces_tet_2nd: Tet4 only\n");
+        return;
+    }
+
+    const int ne = fe->total_num_elems;
+
+    FaceRec2nd* faces = (FaceRec2nd*)malloc(
+        sizeof(FaceRec2nd) * (size_t)ne * TET2_NFACE
+    );
+
+    if(faces == NULL){
+        fprintf(stderr, "malloc failed in boundary face detection 2nd\n");
+        exit(EXIT_FAILURE);
+    }
+
+    int idx = 0;
+
+    for(int e = 0; e < ne; ++e){
+        for(int f = 0; f < TET2_NFACE; ++f){
+            int g0 = fe->conn[e][tet_face_conn[f][0]];
+            int g1 = fe->conn[e][tet_face_conn[f][1]];
+            int g2 = fe->conn[e][tet_face_conn[f][2]];
+
+            sort3_int_2nd(&g0, &g1, &g2);
+
+            faces[idx].g0 = g0;
+            faces[idx].g1 = g1;
+            faces[idx].g2 = g2;
+            faces[idx].e  = e;
+            faces[idx].f  = f;
+            ++idx;
+        }
+    }
+
+    qsort(
+        faces,
+        (size_t)idx,
+        sizeof(FaceRec2nd),
+        cmp_face_2nd
+    );
+
+    for(int i = 0; i < idx; ){
+        int j = i + 1;
+
+        while(j < idx &&
+              faces[i].g0 == faces[j].g0 &&
+              faces[i].g1 == faces[j].g1 &&
+              faces[i].g2 == faces[j].g2){
+            ++j;
+        }
+
+        if(j - i == 1){
+            const int e = faces[i].e;
+            const int f = faces[i].f;
+
+            const int ln0 = tet_face_conn[f][0];
+            const int ln1 = tet_face_conn[f][1];
+            const int ln2 = tet_face_conn[f][2];
+
+            const int gn0 = fe->conn[e][ln0];
+            const int gn1 = fe->conn[e][ln1];
+            const int gn2 = fe->conn[e][ln2];
+
+            if(bc->D_bc_exists[gn0] &&
+               bc->D_bc_exists[gn1] &&
+               bc->D_bc_exists[gn2]){
+
+                /*
+                 * boundary face の3辺:
+                 * each edge has 2 modes.
+                 */
+                for(int q = 0; q < 3; ++q){
+                    const int led = tet_face_edge_lids[f][q];
+
+                    for(int m = 0; m < TET2_EDGE_MODE; ++m){
+                        const int lid  = TET2_EDGE_MODE * led + m;
+                        const int gdof = ned->nedelec_conn[e][lid];
+
+                        if(0 <= gdof && gdof < total_num_dof){
+                            is_dir_dof[gdof] = true;
+                        }
+                    }
+                }
+
+                /*
+                 * boundary face 自身:
+                 * each face has 2 modes.
+                 */
+                for(int m = 0; m < TET2_FACE_MODE; ++m){
+                    const int lid =
+                        TET2_FACE_OFFSET + TET2_FACE_MODE * f + m;
+
+                    const int gdof = ned->nedelec_conn[e][lid];
+
+                    if(0 <= gdof && gdof < total_num_dof){
+                        is_dir_dof[gdof] = true;
+                    }
+                }
+            }
+        }
+
+        i = j;
+    }
+
+    free(faces);
+}
+
 
 void BBFE_mag_set_basis(
         BBFE_DATA*     fe,
@@ -468,6 +860,74 @@ void BBFE_mag_set_basis(
                     fe->geo[e][ip].J,
                     fe->geo[e][ip].Jacobian);
             }
+        }
+    }
+}
+
+void BBFE_mag_set_basis_2nd(
+    BBFE_DATA*     fe,
+    BBFE_BASIS*    basis,
+    NEDELEC*       ned,
+    int            local_num_nodes,
+    int            num_integ_points_each_axis
+){
+    (void)num_integ_points_each_axis;
+
+    if(local_num_nodes != 4){
+        fprintf(stderr,
+            "BBFE_mag_set_basis_2nd: Tet4 only. local_num_nodes=%d\n",
+            local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    if(ned->elem_global_node_id == NULL){
+        fprintf(stderr,
+            "BBFE_mag_set_basis_2nd: ned->elem_global_node_id is NULL. "
+            "2nd Nedelec orientation requires original global node ids.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    ned->local_num_edges = TET2_NDOF;
+
+    ned->N_edge = BB_std_calloc_4d_double(
+        ned->N_edge,
+        fe->total_num_elems,
+        basis->num_integ_points,
+        TET2_NDOF,
+        3
+    );
+
+    ned->curl_N_edge = BB_std_calloc_4d_double(
+        ned->curl_N_edge,
+        fe->total_num_elems,
+        basis->num_integ_points,
+        TET2_NDOF,
+        3
+    );
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int ip = 0; ip < basis->num_integ_points; ++ip){
+            double J_inv[3][3];
+
+            BB_calc_mat3d_inverse(
+                fe->geo[e][ip].J,
+                fe->geo[e][ip].Jacobian,
+                J_inv
+            );
+
+            /*
+             * fe->conn[e] はローカル節点番号かもしれないので使わない。
+             * edge/face orientation 判定には、元グローバル節点番号を使う。
+             */
+            BBFE_std_shapefunc_tet2nd_nedelec_get_val_curl(
+                basis->integ_point[ip],
+                ned->elem_global_node_id[e],
+                fe->geo[e][ip].J,
+                J_inv,
+                fe->geo[e][ip].Jacobian,
+                ned->N_edge[e][ip],
+                ned->curl_N_edge[e][ip]
+            );
         }
     }
 }
@@ -673,7 +1133,8 @@ void read_elem_types(
     if (fe->local_num_nodes == 8) {
         ned->local_num_edges = 12;
     } else if (fe->local_num_nodes == 4) {
-        ned->local_num_edges = 6;
+        //ned->local_num_edges = 6;
+        ned->local_num_edges = 20;
     } else {
         fprintf(stderr, "Error: unsupported local_num_nodes=%d\n", fe->local_num_nodes);
         exit(EXIT_FAILURE);
@@ -682,68 +1143,6 @@ void read_elem_types(
 }
 
 void read_phi_elem(
-		BBFE_DATA*      fe,
-        NEDELEC*        ned,
-        const char*     filename,
-		const char*     directory)
-{
-    FILE* fp;
-
-    const char* fname;
-    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, filename);
-	fp = BBFE_sys_read_fopen(fp, fname, directory);
-    int total_num_elems;
-    int tmp;
-    //char id[BUFFER_SIZE];
-    fscanf(fp, "%d", &(total_num_elems));
-
-    ned->num_phi_elem = total_num_elems;
-
-    if(total_num_elems==0){
-    }
-    else{
-        ned->phi_conn = BB_std_calloc_2d_int(ned->phi_conn, total_num_elems, fe->local_num_nodes);
-
-        //int id = 0;
-        for (int e = 0; e < total_num_elems; e++)
-        {
-            if (fscanf(fp, "%d ", &(tmp)) != 1)
-            {
-                exit(EXIT_FAILURE);
-            }
-            
-            if (fscanf(fp, "%d ", &(tmp)) != 1)
-            {
-                exit(EXIT_FAILURE);
-            }
-            
-            for (int i = 0; i < (fe->local_num_nodes); i++)
-            {
-                if(fscanf(fp, "%d", &(ned->phi_conn[e][i])) != 1)
-                {
-                    exit(EXIT_FAILURE);
-                }
-            }
-        }
-    }
-
-	fclose(fp);
-
-
-    if(monolis_mpi_get_global_my_rank()==6){
-        //for (int e = 0; e < total_num_elems; e++) {
-        for (int e = 0; e < 10; e++) {    
-            for (int i = 0; i < fe->local_num_nodes; i++) {
-                printf("%d ", ned->phi_conn[e][i]);
-            }
-            printf("\n");
-        }
-    }
-
-}
-
-
-void read_phi_elem2(
 		BBFE_DATA*      fe,
         NEDELEC*        ned,
         const char*     filename,
@@ -904,7 +1303,6 @@ void read_connectivity_graph_lag_nedelec(
     fclose(fp);
 }
 
-
 void read_connectivity_graph_lag_nedelec_from_distval(
     BBFE_DATA *fe,
     NEDELEC *ned,
@@ -1001,21 +1399,31 @@ void read_connectivity_graph_lag_nedelec_from_distval(
         }
     }
 
-
-    /*
-    if(monolis_mpi_get_global_my_rank()==0){
-        for (int e = 0; e < 10; e++) {
-            for (int i = 0; i < fe->local_num_nodes; i++) {
-                printf("%d ", fe->conn[e][i]);
-            }
-            printf("\n");
-        }
-    }
-    */
-
     fclose(fp);
 }
 
+
+void read_connectivity_graph_lag_nedelec_2nd(
+    BBFE_DATA *fe,
+    NEDELEC *ned,
+    const char *filename,
+    const char *directory,
+    int num_integ_points
+){
+    /*
+     * 2次四面体 Nedelec:
+     * 6 edges x 2 + 4 faces x 2 = 20
+     */
+    ned->local_num_edges = TET2_NDOF;
+
+    read_connectivity_graph_lag_nedelec_from_distval(
+        fe,
+        ned,
+        filename,
+        directory,
+        num_integ_points
+    );
+}
 
 void monowrap_solve_C(
         MONOLIS*      monolis,
@@ -1250,6 +1658,229 @@ void BBFE_mag_pre(
             "graph.dat",
             directory);
 
+}
+
+
+void read_elem_global_node_id_2nd(
+    BBFE_DATA*   fe,
+    NEDELEC*     ned,
+    const char*  filename,
+    const char*  directory
+){
+    FILE* fp;
+    char label[BUFFER_SIZE];
+
+    const char* fname = monolis_get_global_input_file_name(
+        MONOLIS_DEFAULT_TOP_DIR,
+        MONOLIS_DEFAULT_PART_DIR,
+        filename
+    );
+
+    fp = BBFE_sys_read_fopen(fp, fname, directory);
+
+    int total_num_elems;
+    int local_num_nodes;
+
+    if(fscanf(fp, "%s", label) != 1){
+        fprintf(stderr, "failed to read label from %s\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    if(fscanf(fp, "%d %d", &total_num_elems, &local_num_nodes) != 2){
+        fprintf(stderr, "failed to read header from %s\n", filename);
+        exit(EXIT_FAILURE);
+    }
+
+    if(total_num_elems != fe->total_num_elems){
+        fprintf(stderr,
+            "elem_global_node_id_2nd mismatch: file elems=%d, fe elems=%d\n",
+            total_num_elems,
+            fe->total_num_elems);
+        exit(EXIT_FAILURE);
+    }
+
+    if(local_num_nodes != 4){
+        fprintf(stderr,
+            "elem_global_node_id_2nd: Tet4 only. local_num_nodes=%d\n",
+            local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    ned->elem_global_node_id = BB_std_calloc_2d_int(
+        ned->elem_global_node_id,
+        total_num_elems,
+        local_num_nodes
+    );
+
+    for(int e = 0; e < total_num_elems; ++e){
+        for(int n = 0; n < local_num_nodes; ++n){
+            if(fscanf(fp, "%d", &(ned->elem_global_node_id[e][n])) != 1){
+                fprintf(stderr,
+                    "failed to read elem_global_node_id_2nd at e=%d n=%d\n",
+                    e, n);
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+    fclose(fp);
+}
+
+
+void BBFE_mag_pre_2nd(
+    BBFE_DATA*    fe,
+    BBFE_BASIS*   basis,
+    NEDELEC*      ned,
+    BBFE_BC*      bc,
+    MONOLIS*      monolis,
+    MONOLIS_COM*  monolis_com,
+    int           argc,
+    char*         argv[],
+    const char*   directory,
+    int           num_integ_points_each_axis,
+    bool          manufactured_solution
+){
+    (void)bc;
+    (void)argc;
+    (void)argv;
+    (void)manufactured_solution;
+
+    BB_calc_void();
+
+    const int n_axis = num_integ_points_each_axis;
+    const char* filename;
+
+    filename = monolis_get_global_input_file_name(
+        MONOLIS_DEFAULT_TOP_DIR,
+        MONOLIS_DEFAULT_PART_DIR,
+        "sorted_nodes.dat"
+    );
+
+    BBFE_sys_read_node(
+        fe,
+        filename,
+        directory
+    );
+
+    read_num_nodes(
+        fe,
+        "sorted_nodes.dat",
+        directory
+    );
+
+    read_elem_types(
+        fe,
+        ned,
+        "elem.dat",
+        directory
+    );
+
+    /*
+     * read_elem_types() は既存1次前提で Tet なら 6 を入れる。
+     * 2次ではここで 20 に上書きする。
+     */
+    if(fe->local_num_nodes == 4){
+        ned->local_num_edges = TET2_NDOF;
+    }else{
+        fprintf(stderr,
+            "BBFE_mag_pre_2nd: Tet4 only. local_num_nodes=%d\n",
+            fe->local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    /*
+     * 2次用ファイル:
+     * header: #nedelec_elem
+     * second line: total_num_elems 24
+     * rows: node0 node1 node2 node3 ned0 ... ned19
+     */
+    /*
+     read_connectivity_graph_lag_nedelec_2nd(
+        fe,
+        ned,
+        "nedelec_elem_2nd.dat",
+        directory,
+        n_axis * n_axis * n_axis
+    );
+    */
+
+        read_phi_elem(
+			fe,
+        	ned,
+            "elem_phi.dat",
+            directory);
+
+    read_connectivity_graph_lag_nedelec_from_distval(
+			fe,
+			ned,
+            "sorted_local_elem.dat",
+            //"nedelec_elem.dat",
+			directory,
+			n_axis*n_axis*n_axis);
+
+    /* 追加：orientation 用の元グローバル節点番号 */
+    read_elem_global_node_id_2nd(
+        fe,
+        ned,
+        "distval_elem_global_node_id_2nd.dat",
+        directory
+    );
+
+    read_connectivity_graph_lag_nedelec(
+			fe,
+			ned,
+            "graph_nedelec_elem_2nd.dat",
+			directory,
+			n_axis*n_axis*n_axis);
+
+    /*
+     * 2次では edge_sign は読まない。
+     * 基底関数側で global node order に合わせる。
+     */
+
+    BBFE_sys_memory_allocation_integ(
+        basis,
+        n_axis * n_axis * n_axis,
+        3
+    );
+
+    BBFE_sys_memory_allocation_shapefunc(
+        basis,
+        fe->local_num_nodes,
+        1,
+        n_axis * n_axis * n_axis
+    );
+
+    BBFE_convdiff_set_basis(
+        basis,
+        fe->local_num_nodes,
+        n_axis
+    );
+
+    BBFE_mag_set_basis_2nd(
+        fe,
+        basis,
+        ned,
+        fe->local_num_nodes,
+        n_axis
+    );
+
+    monolis_initialize(monolis);
+
+    monolis_com_initialize_by_parted_files(
+        monolis_com,
+        monolis_mpi_get_global_comm(),
+        MONOLIS_DEFAULT_TOP_DIR,
+        MONOLIS_DEFAULT_PART_DIR,
+        "graph_nedelec_elem_test.dat"
+    );
+
+    ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
+        monolis,
+        ned,
+        "graph_nedelec_elem_test.dat",
+        directory
+    );
 }
 
 

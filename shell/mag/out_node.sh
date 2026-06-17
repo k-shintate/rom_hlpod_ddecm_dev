@@ -1,7 +1,6 @@
 
 #!/bin/bash
 
-set -e
 
 for i in $(seq 0 7); do
   echo "processing partition ${i}"

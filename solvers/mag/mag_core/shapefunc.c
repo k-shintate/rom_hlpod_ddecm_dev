@@ -1,6 +1,35 @@
 
 #include "shapefunc.h"
 
+
+#define TET2_NEDGE        6
+#define TET2_NFACE        4
+#define TET2_EDGE_MODE    2
+#define TET2_FACE_MODE    2
+#define TET2_NDOF         20
+#define TET2_FACE_OFFSET  12
+
+static const int tet_face_conn[4][3] = {
+    {0, 1, 2},
+    {0, 1, 3},
+    {0, 2, 3},
+    {1, 2, 3}
+};
+
+static inline void swap_int_2nd(int* a, int* b)
+{
+    int t = *a;
+    *a = *b;
+    *b = t;
+}
+
+static void cross3_2nd(const double a[3], const double b[3], double c[3])
+{
+    c[0] = a[1]*b[2] - a[2]*b[1];
+    c[1] = a[2]*b[0] - a[0]*b[2];
+    c[2] = a[0]*b[1] - a[1]*b[0];
+}
+
 void BBFE_std_shapefunc_hex1st_get_derivative_ned(
 		const double    xi[3],
 		double*         dN_dxi,
@@ -313,6 +342,298 @@ void BBFE_std_shapefunc_tet1st_nedelec_get_curl(
                 ( J[0][phys]*curl_hat[0] +
                   J[1][phys]*curl_hat[1] +
                   J[2][phys]*curl_hat[2] ) * inv_detJ;
+        }
+    }
+}
+
+static void tet2_W_ij(
+    int i,
+    int j,
+    const double lam[4],
+    const double glam[4][3],
+    double W[3],
+    double curlW[3]
+){
+    for(int d = 0; d < 3; ++d){
+        W[d] = lam[i]*glam[j][d] - lam[j]*glam[i][d];
+    }
+
+    double c[3];
+    cross3_2nd(glam[i], glam[j], c);
+
+    for(int d = 0; d < 3; ++d){
+        curlW[d] = 2.0 * c[d];
+    }
+}
+
+static void curl_scalar_times_vec_2nd(
+    const double gradf[3],
+    double f,
+    const double V[3],
+    const double curlV[3],
+    double out[3]
+){
+    double tmp[3];
+    cross3_2nd(gradf, V, tmp);
+
+    for(int d = 0; d < 3; ++d){
+        out[d] = tmp[d] + f * curlV[d];
+    }
+}
+
+void BBFE_std_shapefunc_tet2nd_nedelec_get_ref(
+    const double xi[3],
+    const int elem_global_node_id[4],
+    double N[20][3],
+    double curlN[20][3]
+){
+    const double r = xi[0];
+    const double s = xi[1];
+    const double t = xi[2];
+
+    /*
+     * Reference Tet:
+     *   lambda0 = 1 - r - s - t
+     *   lambda1 = r
+     *   lambda2 = s
+     *   lambda3 = t
+     */
+    double lam[4] = {
+        1.0 - r - s - t,
+        r,
+        s,
+        t
+    };
+
+    /*
+     * grad lambda on reference element.
+     * These are indexed by local vertex id 0..3.
+     */
+    const double glam[4][3] = {
+        {-1.0, -1.0, -1.0},
+        { 1.0,  0.0,  0.0},
+        { 0.0,  1.0,  0.0},
+        { 0.0,  0.0,  1.0}
+    };
+
+    for(int a = 0; a < TET2_NDOF; ++a){
+        for(int d = 0; d < 3; ++d){
+            N[a][d]     = 0.0;
+            curlN[a][d] = 0.0;
+        }
+    }
+
+    /*
+     * Edge DOF:
+     *   local layout:
+     *     ed = 0..5
+     *     mode 0: W_ij
+     *     mode 1: (lambda_i - lambda_j) W_ij
+     *
+     * Important:
+     *   elem_global_node_id is used ONLY for orientation sorting.
+     *   i and j remain local vertex ids, so lam[i] and glam[i] are valid.
+     */
+    for(int ed = 0; ed < TET2_NEDGE; ++ed){
+        int i = tet_edge_conn[ed][0];
+        int j = tet_edge_conn[ed][1];
+
+        /*
+         * Make edge direction consistent with original global node ids:
+         *   smaller global node id -> larger global node id
+         *
+         * Do not use fe->conn[e] here if it may contain partition-local ids.
+         */
+        if(elem_global_node_id[i] > elem_global_node_id[j]){
+            swap_int_2nd(&i, &j);
+        }
+
+        double W[3], curlW[3];
+
+        tet2_W_ij(
+            i,
+            j,
+            lam,
+            glam,
+            W,
+            curlW
+        );
+
+        const int id0 = TET2_EDGE_MODE * ed;
+        const int id1 = TET2_EDGE_MODE * ed + 1;
+
+        /*
+         * mode 0: W_ij
+         */
+        for(int d = 0; d < 3; ++d){
+            N[id0][d]     = W[d];
+            curlN[id0][d] = curlW[d];
+        }
+
+        /*
+         * mode 1: (lambda_i - lambda_j) W_ij
+         */
+        const double f = lam[i] - lam[j];
+        double gradf[3];
+
+        for(int d = 0; d < 3; ++d){
+            gradf[d] = glam[i][d] - glam[j][d];
+            N[id1][d] = f * W[d];
+        }
+
+        curl_scalar_times_vec_2nd(
+            gradf,
+            f,
+            W,
+            curlW,
+            curlN[id1]
+        );
+    }
+
+    /*
+     * Face DOF:
+     *   local layout:
+     *     fc = 0..3
+     *     mode 0: lambda_i W_jk
+     *     mode 1: lambda_j W_ki
+     *
+     * Important:
+     *   The face vertices are sorted by original global node ids.
+     *   The sorted values v[0], v[1], v[2] are still local vertex ids.
+     */
+    for(int fc = 0; fc < TET2_NFACE; ++fc){
+        int v[3] = {
+            tet_face_conn[fc][0],
+            tet_face_conn[fc][1],
+            tet_face_conn[fc][2]
+        };
+
+        /*
+         * Sort only by original global node ids.
+         * Never use elem_global_node_id as an index into lam/glam.
+         */
+        for(int p = 0; p < 3; ++p){
+            for(int q = p + 1; q < 3; ++q){
+                if(elem_global_node_id[v[p]] > elem_global_node_id[v[q]]){
+                    swap_int_2nd(&v[p], &v[q]);
+                }
+            }
+        }
+
+        const int i = v[0];
+        const int j = v[1];
+        const int k = v[2];
+
+        const int id0 = TET2_FACE_OFFSET + TET2_FACE_MODE * fc;
+        const int id1 = TET2_FACE_OFFSET + TET2_FACE_MODE * fc + 1;
+
+        /*
+         * mode 0: lambda_i W_jk
+         */
+        {
+            double W[3], curlW[3];
+
+            tet2_W_ij(
+                j,
+                k,
+                lam,
+                glam,
+                W,
+                curlW
+            );
+
+            for(int d = 0; d < 3; ++d){
+                N[id0][d] = lam[i] * W[d];
+            }
+
+            curl_scalar_times_vec_2nd(
+                glam[i],
+                lam[i],
+                W,
+                curlW,
+                curlN[id0]
+            );
+        }
+
+        /*
+         * mode 1: lambda_j W_ki
+         */
+        {
+            double W[3], curlW[3];
+
+            tet2_W_ij(
+                k,
+                i,
+                lam,
+                glam,
+                W,
+                curlW
+            );
+
+            for(int d = 0; d < 3; ++d){
+                N[id1][d] = lam[j] * W[d];
+            }
+
+            curl_scalar_times_vec_2nd(
+                glam[j],
+                lam[j],
+                W,
+                curlW,
+                curlN[id1]
+            );
+        }
+    }
+}
+
+
+void BBFE_std_shapefunc_tet2nd_nedelec_get_val_curl(
+    const double xi[3],
+    const int elem_global_node_id[4],
+    const double J[3][3],
+    const double J_inv[3][3],
+    const double detJ,
+    double **N_phys,
+    double **curlN_phys
+){
+    double N_ref[20][3];
+    double curlN_ref[20][3];
+
+    /*
+     * elem_global_node_id is used inside get_ref()
+     * only to sort edge/face orientation.
+     */
+    BBFE_std_shapefunc_tet2nd_nedelec_get_ref(
+        xi,
+        elem_global_node_id,
+        N_ref,
+        curlN_ref
+    );
+
+    for(int a = 0; a < TET2_NDOF; ++a){
+        for(int d = 0; d < 3; ++d){
+
+            /*
+             * Covariant Piola transform for H(curl):
+             *   N_phys = J^{-T} N_ref
+             *
+             * This follows the existing tet1st implementation convention,
+             * where J_inv[d][ref] is used.
+             */
+            N_phys[a][d] =
+                  J_inv[d][0] * N_ref[a][0]
+                + J_inv[d][1] * N_ref[a][1]
+                + J_inv[d][2] * N_ref[a][2];
+
+            /*
+             * Curl transform:
+             *   curl N_phys = (1 / detJ) J curl N_ref
+             */
+            curlN_phys[a][d] =
+                (
+                  J[0][d] * curlN_ref[a][0]
+                + J[1][d] * curlN_ref[a][1]
+                + J[2][d] * curlN_ref[a][2]
+                ) / detJ;
         }
     }
 }

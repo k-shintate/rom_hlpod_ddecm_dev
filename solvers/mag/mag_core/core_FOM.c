@@ -726,18 +726,23 @@ void solver_fom_NR_Aphi_team7(
     double* x_curr,
     int n_dof_total)
 {
-    //double* dx   = (double*)calloc((size_t)n_dof_total, sizeof(double));
-    double _Complex * Aphi = (double _Complex *)calloc(sys.fe.total_num_nodes, sizeof(double _Complex));
+    double _Complex * Aphi = (double _Complex *)calloc(sys.ned.total_num_dof, sizeof(double _Complex));
     double* A   = BB_std_calloc_1d_double(A,   sys.fe.total_num_nodes);
     double* phi = BB_std_calloc_1d_double(phi, sys.fe.total_num_nodes);
-
+/*
     set_element_mat_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
     set_element_vec_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
-
-    //double val = Bz_of_time(t);
-    apply_dirichlet_bc_for_A_and_phi_team7(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+    apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+*/
+    
+    set_element_mat_nedelec_Aphi_team7_2nd(&(sys.monolis), &(sys.fe), &(sys.basis),
+                            &(sys.bc), &(sys.ned));
+    set_element_vec_nedelec_Aphi_team7_2nd(&(sys.monolis), &(sys.fe), &(sys.basis),
+                            &(sys.bc), &(sys.ned));
+    apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+    
 
     monowrap_solve_C(
         &(sys.monolis),
@@ -747,16 +752,8 @@ void solver_fom_NR_Aphi_team7(
         MONOLIS_PREC_DIAG,
         sys.vals.mat_max_iter,
         sys.vals.mat_epsilon);
-    
-    double loss =  calc_copper_shield_loss_EM1_freq(
-        &sys,
-        Aphi,
-        50,
-       sys.cond.directory);
-    
-    printf("loss = %lf", loss);
 
-    for(int i = 0; i < sys.fe.total_num_nodes; i++){
+    for(int i = 0; i < sys.ned.total_num_dof; i++){
         x_prev[i] = creal(Aphi[i]);
         x_curr[i] = cimag(Aphi[i]);
     }

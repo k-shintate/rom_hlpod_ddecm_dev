@@ -9,6 +9,6 @@ mkdir -p ./../bin
 mv merge_graph ./../bin
 mv elem2graph ./../bin
 mv merge_dist_val ./../bin
-mv vtkddm_hex_elem ./../bin
+mv poiseuille ./../bin
 
 cd ./../..

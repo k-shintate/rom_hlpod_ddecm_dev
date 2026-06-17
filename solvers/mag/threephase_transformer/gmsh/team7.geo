@@ -321,12 +321,12 @@ coilVol[] = {volInner[], volLimb[], volCorner[]};
 // Air box and fragmentation
 // =====================================================
 
-xAir0 = -1453 * Scale;
-xAir1 =  1453 * Scale;
-yAir0 = -1453 * Scale;
-yAir1 =  1453 * Scale;
-zAir0 = -1453 * Scale;
-zAir1 =  1453 * Scale;
+xAir0 = -753 * Scale;
+xAir1 =  753 * Scale;
+yAir0 = -753 * Scale;
+yAir1 =  753 * Scale;
+zAir0 = -753 * Scale;
+zAir1 =  753 * Scale;
 
 vAirBox = newv;
 Box(vAirBox) = {

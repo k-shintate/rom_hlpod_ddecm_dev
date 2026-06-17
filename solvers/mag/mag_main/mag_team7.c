@@ -15,7 +15,7 @@
 #include "team21c.h"
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
-const int DVAL_NUM_IP_EACH_AXIS = 2;
+const int DVAL_NUM_IP_EACH_AXIS = 4;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
 const double  DVAL_MAT_EPSILON  = 1.0e-8;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";
@@ -622,11 +622,21 @@ int main (
 
     monolis_initialize(&(sys.monolis));
     
-	BBFE_mag_pre_C(
-			&(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
-			argc, argv, sys.cond.directory,
-			sys.vals.num_ip_each_axis,
-			true);
+    int nedelec_order = 2;
+    if(nedelec_order == 1){
+        BBFE_mag_pre_C(
+                &(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
+                argc, argv, sys.cond.directory,
+                sys.vals.num_ip_each_axis,
+                true);
+    }
+    else if(nedelec_order == 2){
+        BBFE_mag_pre_2nd(
+                &(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
+                argc, argv, sys.cond.directory,
+                sys.vals.num_ip_each_axis,
+                true);
+    }
 
     const char* filename;
 	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
@@ -654,14 +664,14 @@ int main (
 			&(sys.fe),
 			&(sys.basis));
     
-    BBFE_mag_set_basis(
+    BBFE_mag_set_basis_2nd(
         &(sys.fe),
         &(sys.basis),
         &(sys.ned),
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned_2nd.dat");
 	BBFE_sys_read_Dirichlet_bc(
 			&(sys.bc),
 			filename,
@@ -787,7 +797,12 @@ int main (
     char fnode[BUFFER_SIZE];
     snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);
     const char* fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
-    output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+    if(nedelec_order == 1){
+        output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+    }
+    else if(nedelec_order == 2){
+        output_B_node_vtk_2nd(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+    }
 
     
 /*
@@ -834,7 +849,7 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
   
-        solver_fom_NR_Aphi_team21a(
+        solver_fom_NR_Aphi_team7(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
@@ -868,7 +883,14 @@ int main (
             char fnode[BUFFER_SIZE];
             snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);
             const char* fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
-            output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+            //output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+
+            if(nedelec_order == 1){
+                output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+            }
+            else if(nedelec_order == 2){
+                output_B_node_vtk_2nd(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
+            }
 
             //output_files_nedelec(&sys, step, t);
             //output_files(&sys, step, t);

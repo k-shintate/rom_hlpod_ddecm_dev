@@ -20,12 +20,12 @@ SRC     := $(wildcard $(addsuffix /*.c,$(SRC_DIR)))
 OBJ1    := $(patsubst %.c,%.o,$(SRC)) ./src_main/main.o
 OBJ2    := $(patsubst %.c,%.o,$(SRC)) ./src_main/elem2graph.o
 OBJ3	:= $(patsubst %.c,%.o,$(SRC)) ./src_main/merge_dist_val.o
-OBJ4	:= $(patsubst %.c,%.o,$(SRC)) ./src_main/vtkddm_hex_elem.o
+OBJ4	:= $(patsubst %.c,%.o,$(SRC)) ./src_main/poiseuille.o
 
 TARGET1 := merge_graph
 TARGET2 := elem2graph
 TARGET3 := merge_dist_val
-TARGET4 := vtkddm_hex_elem
+TARGET4 := poiseuille
 
 # Default make target
 all: build clean_data

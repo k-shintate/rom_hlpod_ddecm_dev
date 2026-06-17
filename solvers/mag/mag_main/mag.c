@@ -11,7 +11,7 @@
 #include "mag_dataset.h"
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
-const int DVAL_NUM_IP_EACH_AXIS = 3;
+const int DVAL_NUM_IP_EACH_AXIS = 2;
 const char*     ID_MAT_EPSILON  = "#mat_epsilon";
 const double  DVAL_MAT_EPSILON  = 1.0e-10;
 const char*    ID_MAT_MAX_ITER  = "#mat_max_iter";
@@ -31,6 +31,60 @@ static const char* INPUT_FILENAME_COND          = "cond.dat";
 static const char* OUTPUT_FILENAME_VTK          = "result_%06d.vtk";
 static const char* OUTPUT_FILENAME_ASCII_TEMP   = "temparature_%06d.dat";
 static const char* OUTPUT_FILENAME_ASCII_SOURCE = "source_%06d.dat";
+
+
+#define TET2_NEDGE        6
+#define TET2_NFACE        4
+#define TET2_EDGE_MODE    2
+#define TET2_FACE_MODE    2
+#define TET2_NDOF         20
+#define TET2_FACE_OFFSET  12
+
+static const int tet_face_conn[4][3] = {
+    {0, 1, 2},
+    {0, 1, 3},
+    {0, 2, 3},
+    {1, 2, 3}
+};
+
+static const int tet_face_edge_lids[4][3] = {
+    {0, 1, 2},
+    {0, 4, 3},
+    {2, 5, 3},
+    {1, 5, 4}
+};
+
+typedef struct {
+    int a, b, c;
+    int elem;
+    int lface;
+} FaceCand2nd;
+
+static inline void swap_int_2nd(int* a, int* b)
+{
+    int t = *a;
+    *a = *b;
+    *b = t;
+}
+
+static inline void sort3_int_2nd(int* a, int* b, int* c)
+{
+    if(*a > *b) swap_int_2nd(a, b);
+    if(*b > *c) swap_int_2nd(b, c);
+    if(*a > *b) swap_int_2nd(a, b);
+}
+
+static int cmp_facecand_2nd(const void* pa, const void* pb)
+{
+    const FaceCand2nd* A = (const FaceCand2nd*)pa;
+    const FaceCand2nd* B = (const FaceCand2nd*)pb;
+
+    if(A->a != B->a) return (A->a < B->a) ? -1 : 1;
+    if(A->b != B->b) return (A->b < B->b) ? -1 : 1;
+    if(A->c != B->c) return (A->c < B->c) ? -1 : 1;
+    if(A->elem != B->elem) return (A->elem < B->elem) ? -1 : 1;
+    return (A->lface < B->lface) ? -1 : (A->lface > B->lface);
+}
 
 
 static int cmp_edgecand(const void *pa, const void *pb) {
@@ -231,34 +285,7 @@ void output_set_elems_nedelec_unstructured(
 	FILE* fp;
 
 	fp = fopen(fname, "w");
-    //fprintf(fp,"%d %d\n", fe->total_num_elems, fe->local_num_nodes + ned->local_num_edges);
-    //fprintf(fp,"%d\n", fe->total_num_elems);
-
     printf("ned->part_num_nodes = %d fe->total_num_nodes = %d", ned->part_num_nodes, fe->total_num_nodes);
-
-    // データ書き出し
-    /*
-    int num = 0;
-    for(int e = 0; e < fe->total_num_elems; e++){
-        // ノードID
-        if(ned->elem_prop[e] == 4){
-            fprintf(fp, "%d ", 10);
-            for(int n = 0; n < fe->local_num_nodes; n++){
-                //fprintf(fp, "%d ", fe->conn[e][n]);
-                fprintf(fp, "%d ", ned->phi_conn[num][n]);
-            }
-            num++;
-        }
-        else{
-            fprintf(fp, "%d ", 6);
-        }
-        for(int n = 0; n < ned->local_num_edges; n++){
-            //fprintf(fp, "%d ", ned->nedelec_conn[e][n] + fe->total_num_nodes);
-            fprintf(fp, "%d ", ned->nedelec_conn[e][n] + ned->part_num_nodes);
-        }
-        fprintf(fp, "\n");
-    }
-    */
 
     fprintf(fp,"#elem_id\n");
     fprintf(fp,"%d 10\n", fe->total_num_elems);
@@ -369,6 +396,383 @@ void output_set_elems_nedelec_unstructured(
     fclose(fp);
 }
 
+void output_set_elems_nedelec_unstructured_2nd(
+    BBFE_DATA*   fe,
+    NEDELEC*     ned,
+    const char*  fname,
+    const char*  directory)
+{
+    if(fe->local_num_nodes != 4){
+        fprintf(stderr,
+            "output_set_elems_nedelec_unstructured_2nd: Tet4 only. local_num_nodes=%d\n",
+            fe->local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    const int num_elems = fe->total_num_elems;
+    const int edge_modes = TET2_EDGE_MODE;
+    const int face_modes = TET2_FACE_MODE;
+
+    ned->local_num_edges = TET2_NDOF;
+
+    ned->nedelec_conn = BB_std_calloc_2d_int(
+        ned->nedelec_conn,
+        num_elems,
+        TET2_NDOF
+    );
+
+    /*
+     * 2次では edge_sign は計算本体では使わない。
+     * ただしデバッグ確認用として edge_dir 6個分だけ出力する。
+     */
+    ned->edge_sign = BB_std_calloc_2d_int(
+        ned->edge_sign,
+        num_elems,
+        TET2_NEDGE
+    );
+
+    /* ============================================================
+     * 1. unique edge を作る
+     * ============================================================ */
+    const size_t Me = (size_t)num_elems * TET2_NEDGE;
+
+    EdgeCand* ecand = (EdgeCand*)malloc(sizeof(EdgeCand) * Me);
+    if(ecand == NULL){
+        fprintf(stderr, "alloc failed: ecand\n");
+        exit(EXIT_FAILURE);
+    }
+
+    size_t te = 0;
+
+    for(int e = 0; e < num_elems; ++e){
+        for(int le = 0; le < TET2_NEDGE; ++le){
+            int u = fe->conn[e][tet_edge_conn[le][0]];
+            int v = fe->conn[e][tet_edge_conn[le][1]];
+
+            int a = (u < v) ? u : v;
+            int b = (u < v) ? v : u;
+
+            ecand[te++] = (EdgeCand){
+                .a = a,
+                .b = b,
+                .u = u,
+                .v = v,
+                .elem = e,
+                .ledge = le
+            };
+        }
+    }
+
+    qsort(ecand, Me, sizeof(EdgeCand), cmp_edgecand);
+
+    int next_ned_dof = 0;
+    int num_unique_edges = 0;
+
+    for(size_t i = 0; i < Me; ){
+        size_t j = i + 1;
+
+        while(j < Me &&
+              ecand[j].a == ecand[i].a &&
+              ecand[j].b == ecand[i].b){
+            ++j;
+        }
+
+        /*
+         * この topological edge に 2 個の Nedelec DOF を割り当てる。
+         */
+        int gdof_edge_mode[2];
+        for(int m = 0; m < edge_modes; ++m){
+            gdof_edge_mode[m] = next_ned_dof++;
+        }
+
+        for(size_t k = i; k < j; ++k){
+            const int e  = ecand[k].elem;
+            const int le = ecand[k].ledge;
+
+            const int sign = (ecand[k].u == ecand[k].a) ? +1 : -1;
+            ned->edge_sign[e][le] = sign;
+
+            for(int m = 0; m < edge_modes; ++m){
+                const int lid = edge_modes * le + m;
+                ned->nedelec_conn[e][lid] = gdof_edge_mode[m];
+            }
+        }
+
+        ++num_unique_edges;
+        i = j;
+    }
+
+    free(ecand);
+
+    /* ============================================================
+     * 2. unique face を作る
+     * ============================================================ */
+    const size_t Mf = (size_t)num_elems * TET2_NFACE;
+
+    FaceCand2nd* fcand = (FaceCand2nd*)malloc(sizeof(FaceCand2nd) * Mf);
+    if(fcand == NULL){
+        fprintf(stderr, "alloc failed: fcand\n");
+        exit(EXIT_FAILURE);
+    }
+
+    size_t tf = 0;
+
+    for(int e = 0; e < num_elems; ++e){
+        for(int lf = 0; lf < TET2_NFACE; ++lf){
+            int a = fe->conn[e][tet_face_conn[lf][0]];
+            int b = fe->conn[e][tet_face_conn[lf][1]];
+            int c = fe->conn[e][tet_face_conn[lf][2]];
+
+            sort3_int_2nd(&a, &b, &c);
+
+            fcand[tf++] = (FaceCand2nd){
+                .a = a,
+                .b = b,
+                .c = c,
+                .elem = e,
+                .lface = lf
+            };
+        }
+    }
+
+    qsort(fcand, Mf, sizeof(FaceCand2nd), cmp_facecand_2nd);
+
+    int num_unique_faces = 0;
+
+    for(size_t i = 0; i < Mf; ){
+        size_t j = i + 1;
+
+        while(j < Mf &&
+              fcand[j].a == fcand[i].a &&
+              fcand[j].b == fcand[i].b &&
+              fcand[j].c == fcand[i].c){
+            ++j;
+        }
+
+        /*
+         * この topological face に 2 個の Nedelec DOF を割り当てる。
+         */
+        int gdof_face_mode[2];
+        for(int m = 0; m < face_modes; ++m){
+            gdof_face_mode[m] = next_ned_dof++;
+        }
+
+        for(size_t k = i; k < j; ++k){
+            const int e  = fcand[k].elem;
+            const int lf = fcand[k].lface;
+
+            for(int m = 0; m < face_modes; ++m){
+                const int lid = TET2_FACE_OFFSET + face_modes * lf + m;
+                ned->nedelec_conn[e][lid] = gdof_face_mode[m];
+            }
+        }
+
+        ++num_unique_faces;
+        i = j;
+    }
+
+    free(fcand);
+
+    /*
+     * 既存コードの都合で num_edges を「Nedelec DOF 数」として使う。
+     * 名前は不正確だが、構造体を変更しないならこれが最小変更。
+     */
+    ned->num_edges = next_ned_dof;
+
+    printf("Tet2 Nedelec connectivity generated:\n");
+    printf("  unique edges = %d\n", num_unique_edges);
+    printf("  unique faces = %d\n", num_unique_faces);
+    printf("  Nedelec DOFs = %d\n", next_ned_dof);
+
+    /* ============================================================
+     * 3. nedelec_elem_2nd.dat
+     *
+     * 1行:
+     * node0 node1 node2 node3 ned0 ... ned19
+     * graph_ndof = 4 + 20 = 24
+     * ============================================================ */
+    FILE* fp;
+
+    fp = fopen(fname, "w");
+    if(fp == NULL){
+        perror(fname);
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(fp, "#elem_id\n");
+    fprintf(fp, "%d %d\n", fe->total_num_elems, fe->local_num_nodes + TET2_NDOF);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            fprintf(fp, "%d ", fe->conn[e][n]);
+        }
+
+        for(int j = 0; j < TET2_NDOF; ++j){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][j] + fe->total_num_nodes);
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* ============================================================
+     * 4. distval_elem_lagnedelec_elem_2nd.dat
+     * ============================================================ */
+    fp = BBFE_sys_write_fopen(fp, "distval_elem_lagnedelec_elem_2nd.dat", directory);
+
+    fprintf(fp, "#elem_id\n");
+    fprintf(fp, "%d %d\n", fe->total_num_elems, fe->local_num_nodes + TET2_NDOF);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            fprintf(fp, "%d ", fe->conn[e][n]);
+        }
+
+        for(int j = 0; j < TET2_NDOF; ++j){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][j] + fe->total_num_nodes);
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* ============================================================
+     * 5. node_coordinate_elem_2nd.dat
+     *
+     * 2次 Nedelec DOF は節点座標ではないので、ここでは 0 を出す。
+     * 可視化用に edge/face 中心を出したい場合は別途拡張する。
+     * ============================================================ */
+    fp = BBFE_sys_write_fopen(fp, "node_coordinate_elem_2nd.dat", directory);
+
+    fprintf(fp, "#elem_id\n");
+    fprintf(fp, "%d %d\n",
+        fe->total_num_elems,
+        3 * (fe->local_num_nodes + TET2_NDOF));
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            const int gn = fe->conn[e][n];
+
+            fprintf(fp, "%lf %lf %lf ",
+                fe->x[gn][0],
+                fe->x[gn][1],
+                fe->x[gn][2]);
+        }
+
+        for(int j = 0; j < TET2_NDOF; ++j){
+            fprintf(fp, "0.0 0.0 0.0 ");
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* ============================================================
+     * 6. graph_nedelec_elem_2nd.dat
+     *
+     * elem_prop==4 のときは phi_conn 4個 + Nedelec 20個。
+     * それ以外は Nedelec 20個だけ。
+     * ============================================================ */
+    fp = BBFE_sys_write_fopen(fp, "graph_nedelec_elem_2nd.dat", directory);
+
+    fprintf(fp, "%d\n", fe->total_num_elems);
+
+    int phi_elem_count = 0;
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        fprintf(fp, "%d ", e);
+
+        if(ned->elem_prop[e] == 4){
+            fprintf(fp, "%d ", fe->local_num_nodes + TET2_NDOF);
+
+            for(int n = 0; n < fe->local_num_nodes; ++n){
+                fprintf(fp, "%d ", ned->phi_conn[phi_elem_count][n]);
+            }
+
+            ++phi_elem_count;
+        }else{
+            fprintf(fp, "%d ", TET2_NDOF);
+        }
+
+        for(int j = 0; j < TET2_NDOF; ++j){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][j] + ned->part_num_nodes);
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* ============================================================
+     * 7. nedelec_orient_2nd.dat
+     *
+     * 2次計算では edge_sign は掛けない方針だが、
+     * デバッグ確認用に 6 edge の向きを保存する。
+     * ============================================================ */
+    fp = BBFE_sys_write_fopen(fp, "nedelec_orient_2nd.dat", directory);
+
+    fprintf(fp, "#nedelec_orient_2nd\n");
+    fprintf(fp, "%d %d %d %d\n",
+        fe->total_num_elems,
+        2,
+        fe->local_num_nodes,
+        TET2_NDOF);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        fprintf(fp, "%d ", e);
+
+        for(int le = 0; le < TET2_NEDGE; ++le){
+            fprintf(fp, "%d ", ned->edge_sign[e][le]);
+        }
+
+        /*
+         * face permutation は今は基底評価側で global node order に揃える前提。
+         * 将来 face transform を導入するなら 0..5 の順列IDを保存する。
+         */
+        for(int lf = 0; lf < TET2_NFACE; ++lf){
+            fprintf(fp, "%d ", 0);
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    /* ============================================================
+     * 8. nedelec_conn_all_2nd.dat
+     * ============================================================ */
+    fp = BBFE_sys_write_fopen(fp, "nedelec_conn_all_2nd.dat", directory);
+
+    fprintf(fp, "%d %d\n", fe->total_num_elems, TET2_NDOF);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int j = 0; j < TET2_NDOF; ++j){
+            fprintf(fp, "%d ", ned->nedelec_conn[e][j] + ned->part_num_nodes);
+        }
+
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+
+    fp = BBFE_sys_write_fopen(fp, "distval_elem_global_node_id_2nd.dat", directory);
+
+    fprintf(fp, "#elem_global_node_id_2nd\n");
+    fprintf(fp, "%d %d\n", fe->total_num_elems, fe->local_num_nodes);
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int n = 0; n < fe->local_num_nodes; ++n){
+            fprintf(fp, "%d ", fe->conn[e][n]);
+        }
+        fprintf(fp, "\n");
+    }
+
+    fclose(fp);
+}
+
 
 void compute_nedelec_edge_coords(
     BBFE_DATA* fe,
@@ -439,15 +843,6 @@ void write_bc_ned(
             if(!is_dir_edge[ged]) continue;
 
             num++;
-            /*
-            monolis_set_Dirichlet_bc_C(
-                monolis,
-                monolis->mat.C.B,
-                ged,
-                0,
-                0.0 + 0.0*I
-            );
-            */
         }
     }
 
@@ -476,6 +871,57 @@ void write_bc_ned(
 
 }
 
+void write_bc_ned_2nd(
+    BBFE_DATA*  fe,
+    BBFE_BC*    bc,
+    NEDELEC*    ned,
+    const char* directory)
+{
+    if(fe->local_num_nodes != 4){
+        fprintf(stderr, "write_bc_ned_2nd: Tet4 only\n");
+        exit(EXIT_FAILURE);
+    }
+
+    const int total_num_dof = ned->num_edges;
+
+    bool* is_dir_dof = BB_std_calloc_1d_bool(
+        is_dir_dof,
+        total_num_dof
+    );
+
+    build_dirichlet_dof_mask_from_boundary_faces_tet_2nd(
+        fe,
+        bc,
+        ned,
+        is_dir_dof,
+        total_num_dof
+    );
+
+    int num = 0;
+
+    for(int gdof = 0; gdof < total_num_dof; ++gdof){
+        if(is_dir_dof[gdof]) ++num;
+    }
+
+    FILE* fp = BBFE_sys_write_fopen(fp, "D_bc_ned_2nd.dat", directory);
+
+    fprintf(fp, "%d 1\n", num);
+
+    for(int gdof = 0; gdof < total_num_dof; ++gdof){
+        if(is_dir_dof[gdof]){
+            fprintf(fp, "%d %d %lf\n",
+                gdof + ned->part_num_nodes,
+                0,
+                0.0);
+        }
+    }
+
+    fclose(fp);
+
+    BB_std_free_1d_bool(is_dir_dof, total_num_dof);
+}
+
+
 
 int main (
 		int argc,
@@ -488,6 +934,34 @@ int main (
 	monolis_global_initialize();
 	double t1 = monolis_get_time();
 
+    /*
+     * Nedelec order switch for mesh/connectivity generation.
+     *
+     * Default is 1 because the 1st-order implementation has already been
+     * verified. To test the 2nd-order implementation without editing this
+     * file, run with an environment variable, for example:
+     *
+     *   NEDELEC_ORDER=2 ./your_executable <directory>
+     *
+     * You can also change DEFAULT_NEDELEC_ORDER below to 2 while developing.
+     */
+    const int DEFAULT_NEDELEC_ORDER = 2;
+    int nedelec_order = DEFAULT_NEDELEC_ORDER;
+
+    const char* env_order = getenv("NEDELEC_ORDER");
+    if(env_order != NULL && env_order[0] != '\0'){
+        nedelec_order = atoi(env_order);
+    }
+
+    if(nedelec_order != 1 && nedelec_order != 2){
+        fprintf(stderr,
+            "Unsupported NEDELEC_ORDER=%d. Use 1 or 2.\n",
+            nedelec_order);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Nedelec order for mesh generation: %d\n", nedelec_order);
+
 	sys.cond.directory = BBFE_convdiff_get_directory_name(argc, argv, CODENAME);
 	read_calc_conditions(&(sys.vals), sys.cond.directory);
 
@@ -496,6 +970,14 @@ int main (
 			argc, argv, sys.cond.directory,
 			sys.vals.num_ip_each_axis,
 			true);
+
+    if(nedelec_order == 2 && sys.fe.local_num_nodes != 4){
+        fprintf(stderr,
+            "2nd-order Nedelec mesh generation supports Tet4 only. "
+            "local_num_nodes=%d\n",
+            sys.fe.local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
 
 	FILE* fp;
 	fp = BBFE_sys_write_fopen(fp, "l2_error.txt", sys.cond.directory);
@@ -507,14 +989,31 @@ int main (
 	BBFE_elemmat_set_shapefunc_derivative(
 			&(sys.fe),
 			&(sys.basis));
-    
-    BBFE_mag_set_basis(
-        &(sys.fe),
-        &(sys.basis),
-        &(sys.ned),
-        sys.fe.local_num_nodes,
-        sys.vals.num_ip_each_axis);
-    
+
+    if(nedelec_order == 1){
+        /*
+         * Verified 1st-order path. Keep this branch identical in behavior to
+         * the existing implementation.
+         */
+        BBFE_mag_set_basis(
+            &(sys.fe),
+            &(sys.basis),
+            &(sys.ned),
+            sys.fe.local_num_nodes,
+            sys.vals.num_ip_each_axis);
+    }else{
+        /*
+         * 2nd-order Tet Nedelec candidate basis.
+         * This sets sys.ned.local_num_edges = TET2_NDOF (=20).
+         */
+        BBFE_mag_set_basis_2nd(
+            &(sys.fe),
+            &(sys.basis),
+            &(sys.ned),
+            sys.fe.local_num_nodes,
+            sys.vals.num_ip_each_axis);
+    }
+
     const char* filename;
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
 	BBFE_sys_read_Dirichlet_bc(
@@ -548,26 +1047,55 @@ int main (
             sys.cond.directory,
             filename);
 
-    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "nedelec_elem.dat");
+    if(nedelec_order == 1){
+        filename = monolis_get_global_input_file_name(
+            MONOLIS_DEFAULT_TOP_DIR,
+            MONOLIS_DEFAULT_PART_DIR,
+            "nedelec_elem.dat");
 
-    output_set_elems_nedelec_unstructured(
-			&(sys.fe),
+        output_set_elems_nedelec_unstructured(
+            &(sys.fe),
             &(sys.ned),
             filename,
             sys.cond.directory);
 
-    compute_nedelec_edge_coords(
-        	&(sys.fe),
+        compute_nedelec_edge_coords(
+            &(sys.fe),
             &(sys.ned),
             sys.fe.total_num_elems,
             sys.ned.num_edges,
             sys.cond.directory);
-        
-    write_bc_ned(
-        	&(sys.fe),
-		    &(sys.bc),
+
+        write_bc_ned(
+            &(sys.fe),
+            &(sys.bc),
             &(sys.ned),
-			sys.cond.directory);
+            sys.cond.directory);
+    }else{
+        filename = monolis_get_global_input_file_name(
+            MONOLIS_DEFAULT_TOP_DIR,
+            MONOLIS_DEFAULT_PART_DIR,
+            "nedelec_elem_2nd.dat");
+
+        output_set_elems_nedelec_unstructured_2nd(
+            &(sys.fe),
+            &(sys.ned),
+            filename,
+            sys.cond.directory);
+
+        compute_nedelec_edge_coords_2nd(
+            &(sys.fe),
+            &(sys.ned),
+            sys.fe.total_num_elems,
+            sys.ned.num_edges,
+            sys.cond.directory);
+
+        write_bc_ned_2nd(
+            &(sys.fe),
+            &(sys.bc),
+            &(sys.ned),
+            sys.cond.directory);
+    }
 
 	BBFE_convdiff_finalize(&(sys.fe), &(sys.basis), &(sys.bc));
 
