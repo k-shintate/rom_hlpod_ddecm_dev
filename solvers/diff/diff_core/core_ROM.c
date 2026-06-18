@@ -854,11 +854,7 @@ void solver_rom_NR2(
     monolis_clear_mat_value_R(&(sys->monolis_rom));
 
     if(step == 104){
-<<<<<<< HEAD
         //exit(1);
-=======
-        exit(1);
->>>>>>> e222fa6589ee7c865a5250037c777273f96ddda0
     }
 
 	set_element_mat_NR(
