@@ -787,6 +787,8 @@ int main (
 		&(sys.rom_p),
 		&(sys.rom_v),
 		&(sys.rom_sups),
+        &(sys.fe),
+        &(sys.ned),
 		sys.fe.total_num_nodes,
 		sys.monolis_com.n_internal_vertex,
 		1,

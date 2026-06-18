@@ -59,18 +59,6 @@ void ROM_std_hlpod_read_pod_modes_diag(
     const char* label2,
     const char* directory);
 
-void ROM_std_hlpod_read_pod_modes_Aphi(
-        ROM* 		rom_v,
-        ROM* 		rom_p,
-        ROM* 		rom_sups,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	ndof1,
-        const int 	ndof2,
-        const char* label1,
-        const char* label2,
-        const char* directory);
-
 void ROM_std_hlpod_set_pod_modes(
     ROM* 			rom,
     const int 		total_num_nodes,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-N_PARTS=8
-CASE_DIR="result_mag/3-8-8"
+N_PARTS=16
+CASE_DIR="result_mag/5-16-16"
 
 # 結果ディレクトリへ移動
 cd "${CASE_DIR}"
@@ -38,6 +38,11 @@ python3 "${MAG_SHELL}/elemtograph.py" \
   -ig graph_nedelec_elem_test.dat
 
 # element boolean data partition
+"${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
+  -n "${N_PARTS}" \
+  -i distval_elem_global_node_id_2nd.dat \
+  -ig graph_nedelec_elem.dat
+
 "${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
   -n "${N_PARTS}" \
   -i elem_bool.dat \

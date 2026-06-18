@@ -1006,7 +1006,7 @@ int main (
          * 2nd-order Tet Nedelec candidate basis.
          * This sets sys.ned.local_num_edges = TET2_NDOF (=20).
          */
-        BBFE_mag_set_basis_2nd(
+        BBFE_mag_set_basis_2nd_pre(
             &(sys.fe),
             &(sys.basis),
             &(sys.ned),

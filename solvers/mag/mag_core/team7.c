@@ -4,6 +4,110 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+/* discrete grad-div / gauge regularization for A in air */
+static const double TEAM7_GD_ALPHA_AIR   = 1.0e-5;
+static const double TEAM7_GD_ALPHA_PLATE = 0.0;
+static const double TEAM7_GD_ALPHA_COIL  = 1.0e-5;
+
+static inline double dot3_team21a0(const double a[3], const double b[3]){return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];}
+
+static inline double get_team21a0_graddiv_alpha(int prop)
+{
+    if(prop == 1 ||prop == 5 || prop == 6){
+        /* AIR */
+        return TEAM7_GD_ALPHA_AIR;
+    }
+    else if(prop == 4){
+        /* NONMAG_PLATE */
+        return TEAM7_GD_ALPHA_PLATE;
+    }
+    else if(prop == 2 || prop == 3){
+        /* COIL regions */
+        return TEAM7_GD_ALPHA_COIL;
+    }
+    return 0.0;
+}
+
+/* local incidence of edge i with local node a.
+   edge_tbl[i][0] -> edge_tbl[i][1] is the reference local orientation.
+   ned->edge_sign[e][i] maps local orientation to global edge orientation. */
+static inline int get_local_edge_node_incidence_team21a0(
+    int local_edge_id,
+    int local_node_id,
+    const int (*edge_tbl)[2]
+){
+    if(local_node_id == edge_tbl[local_edge_id][0]) return -1;
+    if(local_node_id == edge_tbl[local_edge_id][1]) return +1;
+    return 0;
+}
+
+#define TEAM7_MAX_LOCAL_NODES 8
+#define TEAM7_MAX_LOCAL_EDGES 20
+
+static int invert_small_real_matrix_team21a0(
+    int n,
+    double A[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES],
+    double Ainv[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES]
+){
+    double aug[TEAM7_MAX_LOCAL_NODES][2 * TEAM7_MAX_LOCAL_NODES];
+
+    for(int i = 0; i < n; ++i){
+        for(int j = 0; j < n; ++j){
+            aug[i][j] = A[i][j];
+            aug[i][j+n] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    for(int k = 0; k < n; ++k){
+        int piv = k;
+        double maxv = fabs(aug[k][k]);
+
+        for(int i = k + 1; i < n; ++i){
+            double v = fabs(aug[i][k]);
+            if(v > maxv){
+                maxv = v;
+                piv = i;
+            }
+        }
+
+        if(maxv < 1.0e-30){
+            return 0;
+        }
+
+        if(piv != k){
+            for(int j = 0; j < 2*n; ++j){
+                double tmp = aug[k][j];
+                aug[k][j] = aug[piv][j];
+                aug[piv][j] = tmp;
+            }
+        }
+
+        double diag = aug[k][k];
+
+        for(int j = 0; j < 2*n; ++j){
+            aug[k][j] /= diag;
+        }
+
+        for(int i = 0; i < n; ++i){
+            if(i == k) continue;
+
+            double f = aug[i][k];
+
+            for(int j = 0; j < 2*n; ++j){
+                aug[i][j] -= f * aug[k][j];
+            }
+        }
+    }
+
+    for(int i = 0; i < n; ++i){
+        for(int j = 0; j < n; ++j){
+            Ainv[i][j] = aug[i][j+n];
+        }
+    }
+
+    return 1;
+}
+
 /* ---------------- material / frequency constants ---------------- */
 
 const double Sigma_al  = 3.526e7;                /* aluminum plate [S/m] */
@@ -37,7 +141,8 @@ void get_material_for_prop_team7_Aphi(int prop,double* nu,double* sigma){
     }
     else if(prop == 2 || prop == 3){
         //*sigma = Sigma_al * 1.0e-6;
-        *sigma = Sigma_al * 1.0e-3;
+        //*sigma = Sigma_al * 1.0e-3;
+        *sigma = 0.0;
     }
     else {
         *sigma = 0.0;
@@ -790,6 +895,120 @@ void set_element_mat_nedelec_Aphi_team7_2nd(
             }
         }
 
+        double alpha_gd = get_team21a0_graddiv_alpha(prop);
+
+            if(alpha_gd > 0.0){
+                const int nn = fe->local_num_nodes;
+                const int ne = ned->local_num_edges;
+
+                double M0[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES];
+                double M0inv[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES];
+                double D[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_EDGES];
+
+                for(int a = 0; a < TEAM7_MAX_LOCAL_NODES; ++a){
+                    for(int b = 0; b < TEAM7_MAX_LOCAL_NODES; ++b){
+                        M0[a][b] = 0.0;
+                        M0inv[a][b] = 0.0;
+                    }
+                }
+
+                for(int a = 0; a < TEAM7_MAX_LOCAL_NODES; ++a){
+                    for(int i = 0; i < TEAM7_MAX_LOCAL_EDGES; ++i){
+                        D[a][i] = 0.0;
+                    }
+                }
+
+                /*
+                Build scalar nodal mass matrix:
+                    M0_mn = ∫ N_m N_n dV
+
+                NOTE:
+                Replace basis->N[p][m] below if your scalar shape
+                function array has a different name.
+                */
+                for(int m = 0; m < nn; ++m){
+                    for(int n = 0; n < nn; ++n){
+                        for(int p = 0; p < np; ++p){
+                            const double Nm = basis->N[p][m];
+                            const double Nn = basis->N[p][n];
+
+                            M0[m][n] +=
+                                Nm * Nn *
+                                basis->integ_weight[p] *
+                                J_ip[p];
+                        }
+                    }
+                }
+
+                /*
+                Build weak divergence matrix:
+                    D_mi = ∫ grad(N_m) · N_edge_i dV
+
+                edge_sign is included here.
+                Do NOT multiply by si/sj again when assembling K_gd.
+                */
+                for(int m = 0; m < nn; ++m){
+                    for(int i = 0; i < ne; ++i){
+                        //const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+                        for(int p = 0; p < np; ++p){
+                            const double val =
+                                dot3_team21a0(
+                                    fe->geo[e][p].grad_N[m],
+                                    ned->N_edge[e][p][i]
+                                );
+
+                            D[m][i] +=
+                                val *
+                                basis->integ_weight[p] *
+                                J_ip[p];
+                        }
+                    }
+                }
+
+                if(!invert_small_real_matrix_team21a0(nn, M0, M0inv)){
+                    printf("[TEAM21a0 warning] local M0 inversion failed at elem %d\n", e);
+                }
+                else{
+                    /*
+                    Assemble:
+                        K_ij += alpha * nu * D_i^T M0^{-1} D_j
+
+                    This has the correct element-size scaling through
+                    D and M0^{-1}.
+                    */
+                    for(int i = 0; i < ne; ++i){
+                        const int gi = ned->nedelec_conn_mat[e][i];
+
+                        for(int j = 0; j < ne; ++j){
+                            const int gj = ned->nedelec_conn_mat[e][j];
+
+                            double kij = 0.0;
+
+                            for(int m = 0; m < nn; ++m){
+                                for(int n = 0; n < nn; ++n){
+                                    kij += D[m][i] * M0inv[m][n] * D[n][j];
+                                }
+                            }
+
+                            if(fabs(kij) > 0.0){
+                                const double _Complex v =
+                                    alpha_gd * nu * kij + 0.0 * I;
+
+                                monolis_add_scalar_to_sparse_matrix_C(
+                                    monolis,
+                                    gi,
+                                    gj,
+                                    0,
+                                    0,
+                                    v
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
         if(prop == 4){
             /* phi-phi block */
             for(int m = 0; m < fe->local_num_nodes; ++m){
@@ -816,7 +1035,7 @@ void set_element_mat_nedelec_Aphi_team7_2nd(
 
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
                 
-                    printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gm, gn, e, e, creal(v), cimag(v));
+                    //printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gm, gn, e, e, creal(v), cimag(v));
                 }
             }
 

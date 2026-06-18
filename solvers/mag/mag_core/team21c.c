@@ -2152,7 +2152,7 @@ double calc_copper_shield_loss_EM1_freq(
             double _Complex grad_phi[3] = {0.0 + 0.0*I, 0.0 + 0.0*I, 0.0 + 0.0*I};
 
             for(int i = 0; i < ned->local_num_edges; ++i){
-                int gi = ned->nedelec_conn[e][i];
+                int gi = ned->nedelec_conn_mat[e][i];
                 int si = ned->edge_sign[e][i];
                 double _Complex ai = x_c[gi];
 
@@ -2163,7 +2163,7 @@ double calc_copper_shield_loss_EM1_freq(
 
             /* phi を使う定式化ならここを有効化 */
             for(int n = 0; n < fe->local_num_nodes; ++n){
-                int gn = fe->conn[e][n];
+                int gn = ned->phi_conn[e][n];
                 double _Complex phi_n = x_c[gn];
 
                 grad_phi[0] += phi_n * fe->geo[e][p].grad_N[n][0];

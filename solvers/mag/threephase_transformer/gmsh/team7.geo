@@ -18,13 +18,14 @@ Mesh.OptimizeNetgen = 1;
 Scale = 0.001;
 
 // ---------------- Base mesh sizes ----------------
-// Coarse mesh setting
-lcCoil = 10 * Scale;
-lcHole = 8  * Scale;
-lcCond = 8  * Scale;
-lcNear = 15 * Scale;
-lcMid  = 30 * Scale;
-lcFar  = 120 * Scale;
+// TEAM 7 精度検証用
+// 必要部位を Mesh Field で局所的に細かくする
+lcCoil = 6  * Scale;
+lcHole = 4  * Scale;
+lcCond = 4  * Scale;
+lcNear = 8  * Scale;
+lcMid  = 16 * Scale;
+lcFar  = 80 * Scale;
 
 // ---------------- Geometry ----------------
 aluX = 294 * Scale;
@@ -81,12 +82,19 @@ z0 = zCoil0;
 
 // =====================================================
 // COIL_INNER
+//
+// IMPORTANT:
+// COIL_INNER must NOT be a simple rectangle.
+// It must be a rounded rectangle with R25 corners.
+// Otherwise it overlaps COIL_CORNER and BooleanFragments
+// splits it into 5 volumes.
 // =====================================================
 
+// Start from inner bounding rectangle
 sInnerBase = news;
 Rectangle(sInnerBase) = {ix0, iy0, z0, ix1-ix0, iy1-iy0};
 
-// ---- BL cut ----
+// ---- BL cut: square outside R25 arc ----
 sIBLsq = news;
 Rectangle(sIBLsq) = {ix0, iy0, z0, rInner, rInner};
 
@@ -321,12 +329,12 @@ coilVol[] = {volInner[], volLimb[], volCorner[]};
 // Air box and fragmentation
 // =====================================================
 
-xAir0 = -753 * Scale;
-xAir1 =  753 * Scale;
-yAir0 = -753 * Scale;
-yAir1 =  753 * Scale;
-zAir0 = -753 * Scale;
-zAir1 =  753 * Scale;
+xAir0 = -1453 * Scale;
+xAir1 =  1453 * Scale;
+yAir0 = -1453 * Scale;
+yAir1 =  1453 * Scale;
+zAir0 = -1453 * Scale;
+zAir1 =  1453 * Scale;
 
 vAirBox = newv;
 Box(vAirBox) = {
@@ -363,6 +371,8 @@ volCond[] = {volAluminumAll[]};
 volCond[] -= {volHole[]};
 
 // ---- COIL_INNER ----
+// Because COIL_INNER is now a rounded rectangle,
+// this should select exactly 1 volume.
 volInnerSel[] = Volume In BoundingBox{
   ix0-eps, iy0-eps, zCoil0-eps,
   ix1+eps, iy1+eps, zCoil1+eps
@@ -439,44 +449,46 @@ volAir[] = Volume{:};
 volAir[] -= {volSolid[], volHole[]};
 
 // =====================================================
-// Mesh fields for TEAM 7 coarse mesh
+// Mesh fields for TEAM 7 accuracy verification
 // =====================================================
 
 // -----------------------------------------------------
-// Coarse mesh sizes
+// Accuracy verification mesh sizes
 // -----------------------------------------------------
-// とりあえず計算が回るか確認するための荒め設定。
-// 精度比較用に細かくしたい場合は、この値を小さくする。
+// coarse / medium / fine の精度検証を行う場合は、
+// 主に以下の値だけを変更する。
 
-lcCoilFine   = 15.0  * Scale;   // コイル導体まわり
-lcAlFine     = 12.0  * Scale;   // アルミ板まわり
-lcHoleFine   = 10.0  * Scale;   // 穴まわり
-lcGapFine    = 15.0  * Scale;   // コイル-アルミ間の空気
-lcLineFine   = 10.0  * Scale;   // 評価線近傍
-lcNearFine   = 25.0  * Scale;   // 全固体境界近傍
-lcFarFine    = 200.0 * Scale;   // 遠方空気
+lcCoilFine   = 5.0 * Scale;   // コイル導体まわり
+lcAlFine     = 3.5 * Scale;   // アルミ板まわり
+lcHoleFine   = 3.0 * Scale;   // 穴まわり
+lcGapFine    = 4.0 * Scale;   // コイル-アルミ間の空気
+lcLineFine   = 3.0 * Scale;   // 評価線近傍
+lcNearFine   = 9.0 * Scale;   // 全固体境界近傍
+lcFarFine    = lcFar;
 
 // -----------------------------------------------------
 // Distance field from all solid boundaries
 // -----------------------------------------------------
-// アルミ、穴、コイル、空気との界面近傍を荒めに制御する。
+// アルミ、穴、コイル、空気との界面近傍を全体的に細かくする。
 
 solidBnd[] = Boundary{ Volume{volSolid[]}; };
 
 Field[1] = Distance;
 Field[1].SurfacesList = {solidBnd[]};
-Field[1].Sampling = 100;
+Field[1].Sampling = 200;
 
 Field[2] = Threshold;
 Field[2].IField = 1;
 Field[2].LcMin = lcNearFine;
 Field[2].LcMax = lcFarFine;
-Field[2].DistMin = 10 * Scale;
-Field[2].DistMax = 80 * Scale;
+Field[2].DistMin = 5   * Scale;
+Field[2].DistMax = 120 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around aluminum plate
+// Fine mesh around aluminum plate
 // -----------------------------------------------------
+// アルミ板本体およびその近傍。
+// 渦電流密度 Jey の精度に直接効く。
 
 Field[3] = Box;
 Field[3].VIn  = lcAlFine;
@@ -489,8 +501,9 @@ Field[3].ZMin = -8  * Scale;
 Field[3].ZMax = aluZ + 8 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around the hole in aluminum
+// Very fine mesh around the hole in aluminum
 // -----------------------------------------------------
+// 穴の角・周辺は渦電流が変化しやすいため細かくする。
 
 Field[4] = Box;
 Field[4].VIn  = lcHoleFine;
@@ -503,8 +516,9 @@ Field[4].ZMin = -4 * Scale;
 Field[4].ZMax = aluZ + 4 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around coil conductor
+// Fine mesh around coil conductor
 // -----------------------------------------------------
+// 励磁電流による磁界分布の精度に効く。
 
 Field[5] = Box;
 Field[5].VIn  = lcCoilFine;
@@ -517,8 +531,10 @@ Field[5].ZMin = zCoil0 - 15 * Scale;
 Field[5].ZMax = zCoil1 + 15 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh in air gap between aluminum and coil
+// Fine mesh in air gap between aluminum and coil
 // -----------------------------------------------------
+// z = aluZ から z = zCoil0 の空気領域。
+// コイルとアルミ板の磁気結合に効く。
 
 Field[6] = Box;
 Field[6].VIn  = lcGapFine;
@@ -531,7 +547,7 @@ Field[6].ZMin = aluZ - 3 * Scale;
 Field[6].ZMax = zCoil0 + 3 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around Bz evaluation line A1-B1
+// Fine mesh around Bz evaluation line A1-B1
 // y = 72 mm, z = 34 mm
 // -----------------------------------------------------
 
@@ -546,7 +562,7 @@ Field[7].ZMin = 34 * Scale - 4 * Scale;
 Field[7].ZMax = 34 * Scale + 4 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around Bz evaluation line A2-B2
+// Fine mesh around Bz evaluation line A2-B2
 // y = 144 mm, z = 34 mm
 // -----------------------------------------------------
 
@@ -561,7 +577,7 @@ Field[8].ZMin = 34 * Scale - 4 * Scale;
 Field[8].ZMax = 34 * Scale + 4 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around Jey evaluation line A3-B3
+// Fine mesh around Jey evaluation line A3-B3
 // y = 72 mm, z = 19 mm
 // upper aluminum surface
 // -----------------------------------------------------
@@ -577,7 +593,7 @@ Field[9].ZMin = aluZ - 2 * Scale;
 Field[9].ZMax = aluZ + 2 * Scale;
 
 // -----------------------------------------------------
-// Coarse mesh around Jey evaluation line A4-B4
+// Fine mesh around Jey evaluation line A4-B4
 // y = 72 mm, z = 0 mm
 // lower aluminum surface
 // -----------------------------------------------------
@@ -595,6 +611,7 @@ Field[10].ZMax =  2 * Scale;
 // -----------------------------------------------------
 // Combine all mesh fields
 // -----------------------------------------------------
+// Min を使うことで、各領域で最も細かいメッシュサイズを採用する。
 
 Field[200] = Min;
 Field[200].FieldsList = {

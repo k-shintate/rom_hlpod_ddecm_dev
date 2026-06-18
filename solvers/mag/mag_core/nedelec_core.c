@@ -864,6 +864,67 @@ void BBFE_mag_set_basis(
     }
 }
 
+void BBFE_mag_set_basis_2nd_pre(
+    BBFE_DATA*     fe,
+    BBFE_BASIS*    basis,
+    NEDELEC*       ned,
+    int            local_num_nodes,
+    int            num_integ_points_each_axis
+){
+    (void)num_integ_points_each_axis;
+
+    if(local_num_nodes != 4){
+        fprintf(stderr,
+            "BBFE_mag_set_basis_2nd: Tet4 only. local_num_nodes=%d\n",
+            local_num_nodes);
+        exit(EXIT_FAILURE);
+    }
+
+    ned->local_num_edges = TET2_NDOF;
+
+    ned->N_edge = BB_std_calloc_4d_double(
+        ned->N_edge,
+        fe->total_num_elems,
+        basis->num_integ_points,
+        TET2_NDOF,
+        3
+    );
+
+    ned->curl_N_edge = BB_std_calloc_4d_double(
+        ned->curl_N_edge,
+        fe->total_num_elems,
+        basis->num_integ_points,
+        TET2_NDOF,
+        3
+    );
+
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        for(int ip = 0; ip < basis->num_integ_points; ++ip){
+            double J_inv[3][3];
+
+            BB_calc_mat3d_inverse(
+                fe->geo[e][ip].J,
+                fe->geo[e][ip].Jacobian,
+                J_inv
+            );
+
+            /*
+             * fe->conn[e] はローカル節点番号かもしれないので使わない。
+             * edge/face orientation 判定には、元グローバル節点番号を使う。
+             */
+            BBFE_std_shapefunc_tet2nd_nedelec_get_val_curl(
+                basis->integ_point[ip],
+                fe->conn[e],
+                fe->geo[e][ip].J,
+                J_inv,
+                fe->geo[e][ip].Jacobian,
+                ned->N_edge[e][ip],
+                ned->curl_N_edge[e][ip]
+            );
+        }
+    }
+}
+
 void BBFE_mag_set_basis_2nd(
     BBFE_DATA*     fe,
     BBFE_BASIS*    basis,

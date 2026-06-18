@@ -133,3 +133,16 @@ void calc_reduced_mat_linear_team21a2(
     double* x_curr,
     int n_dof_total);
 
+void ROM_std_hlpod_read_pod_modes_Aphi(
+        ROM* 		rom_v,
+        ROM* 		rom_p,
+        ROM* 		rom_sups,
+        BBFE_DATA*  fe,
+        NEDELEC*    ned,
+        const int 	total_num_nodes,
+        const int 	n_internal_vertex,
+        const int 	ndof1,
+        const int 	ndof2,
+        const char* label1,
+        const char* label2,
+        const char* directory);

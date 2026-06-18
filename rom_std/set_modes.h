@@ -192,23 +192,6 @@ void ROM_std_hlpod_set_podmodes_local_para_diag_decoupled(
     const int		num_2nd_subdomains,
     const char*     directory);
 
-void ROM_std_hlpod_set_podmodes_local_para_Aphi(
-    HLPOD_VALUES*	hlpod_vals,
-    HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*    	hlpod_meta,
-    const int		total_num_nodes,
-    const int 		n_internal_vertex,
-    double** 		v,
-    double** 		p,
-    int* 			num_modes_v,
-    int* 			num_modes_p,
-    const int       num_modes_max_1,
-    const int       num_modes_max_2,
-    const int 		dof_1,
-    const int 		dof_2,
-    const int		num_2nd_subdomains,
-    const char*     directory);
-
 void ROM_std_hlpod_set_podmodes_global_para(
     HLPOD_VALUES*	hlpod_vals,
     HLPOD_MAT*      hlpod_mat,

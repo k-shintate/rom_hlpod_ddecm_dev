@@ -4,6 +4,96 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+
+/* discrete grad-div / gauge regularization for A in air */
+static const double TEAM7_GD_ALPHA_AIR   = 1.0e-7;
+static const double TEAM7_GD_ALPHA_PLATE = 0.0;
+static const double TEAM7_GD_ALPHA_COIL  = 1.0e-7;
+
+static inline double get_team21a0_graddiv_alpha(int prop)
+{
+    if(prop == 4){
+        /* AIR */
+        return TEAM7_GD_ALPHA_AIR;
+    }
+    else if(prop == 3){
+        /* NONMAG_PLATE */
+        return TEAM7_GD_ALPHA_PLATE;
+    }
+    else if(prop == 1 || prop == 2){
+        /* COIL regions */
+        return TEAM7_GD_ALPHA_COIL;
+    }
+    return 0.0;
+}
+
+#define TEAM7_MAX_LOCAL_NODES 8
+#define TEAM7_MAX_LOCAL_EDGES 12
+
+static int invert_small_real_matrix_team21a0(
+    int n,
+    double A[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES],
+    double Ainv[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES]
+){
+    double aug[TEAM7_MAX_LOCAL_NODES][2 * TEAM7_MAX_LOCAL_NODES];
+
+    for(int i = 0; i < n; ++i){
+        for(int j = 0; j < n; ++j){
+            aug[i][j] = A[i][j];
+            aug[i][j+n] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    for(int k = 0; k < n; ++k){
+        int piv = k;
+        double maxv = fabs(aug[k][k]);
+
+        for(int i = k + 1; i < n; ++i){
+            double v = fabs(aug[i][k]);
+            if(v > maxv){
+                maxv = v;
+                piv = i;
+            }
+        }
+
+        if(maxv < 1.0e-30){
+            return 0;
+        }
+
+        if(piv != k){
+            for(int j = 0; j < 2*n; ++j){
+                double tmp = aug[k][j];
+                aug[k][j] = aug[piv][j];
+                aug[piv][j] = tmp;
+            }
+        }
+
+        double diag = aug[k][k];
+
+        for(int j = 0; j < 2*n; ++j){
+            aug[k][j] /= diag;
+        }
+
+        for(int i = 0; i < n; ++i){
+            if(i == k) continue;
+
+            double f = aug[i][k];
+
+            for(int j = 0; j < 2*n; ++j){
+                aug[i][j] -= f * aug[k][j];
+            }
+        }
+    }
+
+    for(int i = 0; i < n; ++i){
+        for(int j = 0; j < n; ++j){
+            Ainv[i][j] = aug[i][j+n];
+        }
+    }
+
+    return 1;
+}
+
 /* ---------------- material / frequency constants ---------------- */
 
 const double Sigma_p21_plate = 1.3889e6;             /* TEAM Problem 21a-2 non-magnetic steel plate [S/m] */
@@ -39,12 +129,11 @@ void get_material_for_prop_team21a0_Aphi(int prop,double* nu,double* sigma){
         /* NONMAG_PLATE */
         *sigma = Sigma_p21_plate;
         //*sigma = 0.0;
-        //*sigma = Sigma_p21_plate*1.0e-3;
     }
     else if(prop == 1 || prop == 2){
         /* COIL_1 / COIL_2: impressed current source regions. */
-        //*sigma = 0.0;
-        *sigma = Sigma_p21_plate*1.0e-3;
+        *sigma = 0.0;
+        //*sigma = Sigma_p21_plate*1.0e-4;
     }
     else {
         /* AIR and any other non-conducting region */
@@ -388,176 +477,277 @@ static int get_team21a0_known_Js_by_coord(int prop,const double x_ip[3],double J
 void set_element_vec_nedelec_Aphi_team21a0(MONOLIS*     monolis,BBFE_DATA*   fe,BBFE_BASIS*  basis,BBFE_BC*     bc,NEDELEC*     ned){
     (void)bc;
 
-const int np = basis->num_integ_points;
+    const int np = basis->num_integ_points;
 
-double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
-double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
+    double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+    double* val_ip      = BB_std_calloc_1d_double(val_ip, np);
 
-/* TEAM Problem 21a-2 coil cross-sectional area normal to current:
-   radial build 35 mm x coil height 217 mm = 7595 mm^2. */
-const double coil_area = (35.0 * 217.0) * 1.0e-6;
+    /* TEAM Problem 21a-2 coil cross-sectional area normal to current:
+    radial build 35 mm x coil height 217 mm = 7595 mm^2. */
+    const double coil_area = (35.0 * 217.0) * 1.0e-6;
 
-/* Problem 21a-2: 50 Hz sinusoidal RMS current. Keep the phase used by your solver convention. */
-const double phase_rad = 90.0 * M_PI / 180.0;
-//const double phase_rad = 0.0;
-const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
+    /* Problem 21a-2: 50 Hz sinusoidal RMS current. Keep the phase used by your solver convention. */
+    const double phase_rad = 90.0 * M_PI / 180.0;
+    //const double phase_rad = 0.0;
+    const double _Complex phase_factor = cos(phase_rad) + I * sin(phase_rad);
 
-long long coil_elem_count = 0;
-long long src_hit_count   = 0;
+    long long coil_elem_count = 0;
+    long long src_hit_count   = 0;
 
-for(int e = 0; e < fe->total_num_elems; ++e){
-    const int prop = ned->elem_prop[e];
+    for(int e = 0; e < fe->total_num_elems; ++e){
+        const int prop = ned->elem_prop[e];
 
-    if(!is_team21a0_coil_prop(prop)) continue;
+        if(!is_team21a0_coil_prop(prop)) continue;
 
-    coil_elem_count++;
+        coil_elem_count++;
 
-    const double NI = get_coil_current_team21a0(prop);
-    const double J_mag = NI / coil_area;
+        const double NI = get_coil_current_team21a0(prop);
+        const double J_mag = NI / coil_area;
 
-    BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-    for(int i = 0; i < ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn_mat[e][i];
-        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+        for(int i = 0; i < ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-        for(int p = 0; p < np; ++p){
-            double x_ip[3];
-            double Js[3];
+            for(int p = 0; p < np; ++p){
+                double x_ip[3];
+                double Js[3];
 
-            get_interp_coords(e, p, fe, basis, x_ip);
+                get_interp_coords(e, p, fe, basis, x_ip);
 
-            if(get_team21a0_known_Js_by_coord(prop, x_ip, J_mag, Js)){
-                src_hit_count++;
-                val_ip[p] = dot3_team21a0(Js, ned->N_edge[e][p][i]);
-            } else {
-                val_ip[p] = 0.0;
+                if(get_team21a0_known_Js_by_coord(prop, x_ip, J_mag, Js)){
+                    src_hit_count++;
+                    val_ip[p] = dot3_team21a0(Js, ned->N_edge[e][p][i]);
+                } else {
+                    val_ip[p] = 0.0;
+                }
+            }
+
+            {
+                const double integ =
+                    BBFE_std_integ_calc(
+                        np,
+                        val_ip,
+                        basis->integ_weight,
+                        Jacobian_ip
+                    );
+
+                /* Sign convention:
+                Use += for curl(nu curl A) ... = Js.
+                If your whole formulation uses the opposite RHS sign,
+                change only this line consistently. */
+                monolis->mat.C.B[gi] += (double)si * integ * phase_factor;
             }
         }
-
-        {
-            const double integ =
-                BBFE_std_integ_calc(
-                    np,
-                    val_ip,
-                    basis->integ_weight,
-                    Jacobian_ip
-                );
-
-            /* Sign convention:
-               Use += for curl(nu curl A) ... = Js.
-               If your whole formulation uses the opposite RHS sign,
-               change only this line consistently. */
-            monolis->mat.C.B[gi] += (double)si * integ * phase_factor;
-        }
     }
-}
 
-printf("[TEAM21a0 coil debug] coil_elem_count = %lld\n", coil_elem_count);
-printf("[TEAM21a0 coil debug] src_hit_count   = %lld\n", src_hit_count);
+    printf("[TEAM21a0 coil debug] coil_elem_count = %lld\n", coil_elem_count);
+    printf("[TEAM21a0 coil debug] src_hit_count   = %lld\n", src_hit_count);
 
-BB_std_free_1d_double(Jacobian_ip, np);
-BB_std_free_1d_double(val_ip, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+    BB_std_free_1d_double(val_ip, np);
 
 }
 
 /* =========================================================Matrix assembly for A-phi========================================================= */
-void set_element_mat_nedelec_Aphi_team21a0(MONOLIS*     monolis,BBFE_DATA*   fe,BBFE_BASIS*  basis,BBFE_BC*     bc,NEDELEC*     ned){(void)bc;
+void set_element_mat_nedelec_Aphi_team21a0(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    BBFE_BC*     bc,
+    NEDELEC*     ned)
+{
+    (void)bc;
 
-const int np = basis->num_integ_points;
+    const int np = basis->num_integ_points;
 
-double* J_ip = BB_std_calloc_1d_double(J_ip, np);
-double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
+    double* J_ip = BB_std_calloc_1d_double(J_ip, np);
+    double _Complex* val_ip_C = BB_std_calloc_1d_double_C(val_ip_C, np);
 
-bool* bool_phi_node = BB_std_calloc_1d_bool(bool_phi_node, fe->total_num_nodes);
+    for(int e=0; e<fe->total_num_elems; ++e){
 
-printf("add matrix\n");
+        int prop = ned->elem_prop[e];
+        double nu;
+        double sigma;
+        get_material_for_prop_team21a0_Aphi(prop, &nu, &sigma);
 
-int elem = 0;
+        int nonlinear_mu = 0;
+        (void)nonlinear_mu;
 
-for(int e=0; e<fe->total_num_elems; ++e){
+        BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
 
-    int prop = ned->elem_prop[e];
-    double nu;
-    double sigma;
-    get_material_for_prop_team21a0_Aphi(prop, &nu, &sigma);
+        /* curl-curl block (A-A) */
+        for(int i=0; i<ned->local_num_edges; ++i){
+            const int gi = ned->nedelec_conn_mat[e][i];
+            const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-    int nonlinear_mu = 0;
-    (void)nonlinear_mu;
+            for(int j=0; j<ned->local_num_edges; ++j){
+                const int gj = ned->nedelec_conn_mat[e][j];
+                const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
 
-    BBFE_elemmat_set_Jacobian_array(J_ip, np, e, fe);
+                for(int p=0; p<np; ++p){
+                    val_ip_C[p] = 0.0 + 0.0*I;
+                    val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
+                        ned->curl_N_edge[e][p][i],
+                        ned->curl_N_edge[e][p][j],
+                        1.0
+                    );
+                }
 
-    /* curl-curl block (A-A) */
-    for(int i=0; i<ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn_mat[e][i];
-        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+                double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                v *= (double)(si*sj);
 
-        for(int j=0; j<ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn_mat[e][j];
-            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
-
-            for(int p=0; p<np; ++p){
-                val_ip_C[p] = 0.0 + 0.0*I;
-                val_ip_C[p] += nu * BBFE_elemmat_mag_mat_curl(
-                    ned->curl_N_edge[e][p][i],
-                    ned->curl_N_edge[e][p][j],
-                    1.0
-                );
-            }
-
-            double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-            v *= (double)(si*sj);
-
-            //printf(" real v  = %lf im v = %lf", creal(v), cimg(v));
-
-            //printf("myrank = %d, real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), creal(v), cimag(v));
-            monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-            
-            if(gi == gj){
-                bool_phi_node[gi] = "true";
+                monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
             }
         }
 
-    }
+            double alpha_gd = get_team21a0_graddiv_alpha(prop);
 
-    /* sigma * iω * A mass block */
-    for(int i=0; i<ned->local_num_edges; ++i){
-        const int gi = ned->nedelec_conn_mat[e][i];
-        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+            if(alpha_gd > 0.0){
+                const int nn = fe->local_num_nodes;
+                const int ne = ned->local_num_edges;
 
-        for(int j=0; j<ned->local_num_edges; ++j){
-            const int gj = ned->nedelec_conn_mat[e][j];
-            const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+                double M0[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES];
+                double M0inv[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_NODES];
+                double D[TEAM7_MAX_LOCAL_NODES][TEAM7_MAX_LOCAL_EDGES];
 
-            for(int p=0; p<np; ++p){
-                val_ip_C[p] = 0.0 + 0.0*I;
-                val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
-                    ned->N_edge[e][p][i],
-                    ned->N_edge[e][p][j],
-                    sigma
-                ) * omega_team21a0 * I;
+                for(int a = 0; a < TEAM7_MAX_LOCAL_NODES; ++a){
+                    for(int b = 0; b < TEAM7_MAX_LOCAL_NODES; ++b){
+                        M0[a][b] = 0.0;
+                        M0inv[a][b] = 0.0;
+                    }
+                }
+
+                for(int a = 0; a < TEAM7_MAX_LOCAL_NODES; ++a){
+                    for(int i = 0; i < TEAM7_MAX_LOCAL_EDGES; ++i){
+                        D[a][i] = 0.0;
+                    }
+                }
+
+                /*
+                Build scalar nodal mass matrix:
+                    M0_mn = ∫ N_m N_n dV
+
+                NOTE:
+                Replace basis->N[p][m] below if your scalar shape
+                function array has a different name.
+                */
+                for(int m = 0; m < nn; ++m){
+                    for(int n = 0; n < nn; ++n){
+                        for(int p = 0; p < np; ++p){
+                            const double Nm = basis->N[p][m];
+                            const double Nn = basis->N[p][n];
+
+                            M0[m][n] +=
+                                Nm * Nn *
+                                basis->integ_weight[p] *
+                                J_ip[p];
+                        }
+                    }
+                }
+
+                /*
+                Build weak divergence matrix:
+                    D_mi = ∫ grad(N_m) · N_edge_i dV
+
+                edge_sign is included here.
+                Do NOT multiply by si/sj again when assembling K_gd.
+                */
+                for(int m = 0; m < nn; ++m){
+                    for(int i = 0; i < ne; ++i){
+                        const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
+
+                        for(int p = 0; p < np; ++p){
+                            const double val =
+                                dot3_team21a0(
+                                    fe->geo[e][p].grad_N[m],
+                                    ned->N_edge[e][p][i]
+                                );
+
+                            D[m][i] +=
+                                (double)si *
+                                val *
+                                basis->integ_weight[p] *
+                                J_ip[p];
+                        }
+                    }
+                }
+
+                if(!invert_small_real_matrix_team21a0(nn, M0, M0inv)){
+                    printf("[TEAM21a0 warning] local M0 inversion failed at elem %d\n", e);
+                }
+                else{
+                    /*
+                    Assemble:
+                        K_ij += alpha * nu * D_i^T M0^{-1} D_j
+
+                    This has the correct element-size scaling through
+                    D and M0^{-1}.
+                    */
+                    for(int i = 0; i < ne; ++i){
+                        const int gi = ned->nedelec_conn_mat[e][i];
+
+                        for(int j = 0; j < ne; ++j){
+                            const int gj = ned->nedelec_conn_mat[e][j];
+
+                            double kij = 0.0;
+
+                            for(int m = 0; m < nn; ++m){
+                                for(int n = 0; n < nn; ++n){
+                                    kij += D[m][i] * M0inv[m][n] * D[n][j];
+                                }
+                            }
+
+                            if(fabs(kij) > 0.0){
+                                const double _Complex v =
+                                    alpha_gd * nu * kij + 0.0 * I;
+
+                                monolis_add_scalar_to_sparse_matrix_C(
+                                    monolis,
+                                    gi,
+                                    gj,
+                                    0,
+                                    0,
+                                    v
+                                );
+                            }
+                        }
+                    }
+                }
             }
 
-            double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-            v *= (double)(si*sj);
-            monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
-        }
-    }
+        if(prop == 4){
+            /* sigma * iω * A mass block */
+            for(int i=0; i<ned->local_num_edges; ++i){
+                const int gi = ned->nedelec_conn_mat[e][i];
+                const int si = (ned->edge_sign ? ned->edge_sign[e][i] : 1);
 
-    if(ned->num_phi_elem == 0){
-    }
-    else{
-        if(prop == 3){
+                for(int j=0; j<ned->local_num_edges; ++j){
+                    const int gj = ned->nedelec_conn_mat[e][j];
+                    const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
+
+                    for(int p=0; p<np; ++p){
+                        val_ip_C[p] = 0.0 + 0.0*I;
+                        val_ip_C[p] += BBFE_elemmat_mag_mat_mass(
+                            ned->N_edge[e][p][i],
+                            ned->N_edge[e][p][j],
+                            sigma
+                        ) * omega_team21a0 * I;
+                    }
+
+                    double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
+                    v *= (double)(si*sj);
+                    monolis_add_scalar_to_sparse_matrix_C(monolis, gi, gj, 0, 0, v);
+                }
+            }
+
             /* phi-phi block */
             for(int m=0; m<fe->local_num_nodes; ++m){
                 const int gm = ned->phi_conn[e][m];
 
                 for(int n=0; n<fe->local_num_nodes; ++n){
                     const int gn = ned->phi_conn[e][n];
-
-                    if(gm == gn){
-                        bool_phi_node[gm] = "true";
-                    }
 
                     for(int p=0; p<np; ++p){
                         val_ip_C[p] = 0.0 + 0.0*I;
@@ -569,11 +759,11 @@ for(int e=0; e<fe->total_num_elems; ++e){
                     }
 
                     double _Complex v = BBFE_std_integ_calc_C(np, val_ip_C, basis->integ_weight, J_ip);
-                    //printf("myrank = %d, gm = %d, gn = %d, elem = %d, m = %d real v  = %lf im v = %lf\n", monolis_mpi_get_global_my_rank(), gm, gn, e, m , creal(v), cimag(v));
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gn, 0, 0, v);
                 }
             }
-            
+
+            /* A-phi block */
             for(int j=0; j<ned->local_num_edges; ++j){
                 const int gj = ned->nedelec_conn_mat[e][j];
                 const int sj = (ned->edge_sign ? ned->edge_sign[e][j] : 1);
@@ -597,6 +787,7 @@ for(int e=0; e<fe->total_num_elems; ++e){
                 }
             }
 
+            /* phi-A block */
             for(int m=0; m<fe->local_num_nodes; ++m){
                 const int gm = ned->phi_conn[e][m];
 
@@ -619,15 +810,11 @@ for(int e=0; e<fe->total_num_elems; ++e){
                     monolis_add_scalar_to_sparse_matrix_C(monolis, gm, gi, 0, 0, v);
                 }
             }
-
-
         }
     }
-    
-}
 
-BB_std_free_1d_double(J_ip, np);
-BB_std_free_1d_double_C(val_ip_C, np);
+    BB_std_free_1d_double(J_ip, np);
+    BB_std_free_1d_double_C(val_ip_C, np);
 
 }
 

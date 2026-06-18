@@ -58,6 +58,15 @@ typedef struct
 
 } NEDELEC;
 
+
+void BBFE_mag_set_basis_2nd_pre(
+    BBFE_DATA*     fe,
+    BBFE_BASIS*    basis,
+    NEDELEC*       ned,
+    int            local_num_nodes,
+    int            num_integ_points_each_axis);
+
+
 // Aphi -> 要素ごとの B を作る（ガウス点のヤコビアン重み付き平均）
 void compute_B_cell_average(
     BBFE_DATA*   fe,

@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 
-N_PARTS=8
-CASE_DIR="result_mag/3-8-8"
-
-# 結果ディレクトリへ移動
-#cd "${CASE_DIR}"
+N_PARTS=16
+CASE_DIR="result_mag/5-16-16"
 
 GEDATSU_BIN="./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin"
 UTIL_BIN="./../../utils/bin"
@@ -43,6 +40,12 @@ python3 "${MAG_SHELL}/elemtograph.py" \
   -i elem_bool.dat \
   -ig graph_nedelec_elem_2nd.dat
 
+# element boolean data partition
+"${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
+  -n "${N_PARTS}" \
+  -i distval_elem_global_node_id_2nd.dat \
+  -ig graph_nedelec_elem_2nd.dat
+
 # elem_phi.dat.* 作成
 for i in $(seq 0 $((N_PARTS - 1))); do
   python3 "${MAG_SHELL}/find_part_elem.py" \
@@ -61,12 +64,6 @@ done
 "${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
   -n "${N_PARTS}" \
   -i nedelec_elem_2nd.dat \
-  -ig graph_nedelec_elem_2nd.dat
-
-# nedelec edge sign partition
-"${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
-  -n "${N_PARTS}" \
-  -i nedelec_edge_sign.dat \
   -ig graph_nedelec_elem_2nd.dat
 
 # D boundary condition partition

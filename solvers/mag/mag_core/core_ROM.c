@@ -2229,3 +2229,535 @@ if(step >= 1){
     BB_std_free_1d_double(phi_old,   sys.fe.total_num_nodes);
 }
 
+
+void ROM_std_hlpod_set_podmodes_local_para_Aphi(
+    HLPOD_VALUES*	hlpod_vals,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*    	hlpod_meta,
+    BBFE_DATA*      fe,
+    NEDELEC*        ned,
+    const int		total_num_nodes,
+    const int 		n_internal_vertex,
+    double** 		v,
+    double** 		p,
+    int* 			num_modes_v,
+    int* 			num_modes_p,
+    const int       num_modes_max_1,
+    const int       num_modes_max_2,
+    const int 		dof_1,
+    const int 		dof_2,
+    const int		num_2nd_subdomains,
+    const char*     directory)
+{
+    FILE* fp;
+    char fname[BUFFER_SIZE];
+    char id[BUFFER_SIZE];
+
+    double** snapmat_local;
+    int* node_id_local;
+    int n_internal_vertex_1stdd;
+
+    hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
+    hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
+	//for arbit dof ddecm
+	hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
+
+    
+    int index = 0;
+    int index_row = 0;
+    int index_column = 0;
+    int index_column_v = 0;
+    int index_column_p = 0;
+
+    for(int m = 0; m < num_2nd_subdomains; m++){
+        int subdomain_id = hlpod_meta->subdomain_id[m];
+        n_internal_vertex_1stdd = hlpod_mat->n_internal_vertex_subd[m];
+
+        for(int j = 0; j < num_modes_v[m]; j++){
+            for(int i = 0; i < n_internal_vertex_1stdd; i++){
+                hlpod_mat->pod_modes[index_row+ i][index_column + j] = v[index_row + i][index_column_v + j];
+            }
+        }
+    
+        index_column_v += num_modes_v[m];
+        index_column += num_modes_v[m];
+
+        hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
+
+        if(ned->num_phi_elem > 0){
+            for(int j = 0; j < num_modes_p[m]; j++){
+                for(int i = 0; i < n_internal_vertex_1stdd; i++){
+
+                    for(int e = 0; e < fe->total_num_elems; e++){
+
+                        for(int k = 0; k < ned->local_num_edges; k++){
+
+                            if(ned->nedelec_conn_mat[e][k] == index_row + i){
+                                hlpod_mat->pod_modes[index_row + i][index_column + j] = p[index_row + i][index_column_p + j];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for(int i = 0; i < n_internal_vertex_1stdd; i++){
+            hlpod_mat->node_id[index] = index;
+            hlpod_mat->subdomain_id_in_nodes_internal[index][m] = m + 1;
+            index++;
+        }
+        hlpod_mat->n_internal_vertex_subd[m] = n_internal_vertex_1stdd;
+
+        index_row += n_internal_vertex_1stdd;
+        index_column_p += num_modes_p[m];
+        index_column += num_modes_p[m];
+    }
+
+    hlpod_vals->num_modes = index_column;
+
+}
+
+void ROM_std_hlpod_read_pod_modes_Aphi(
+        ROM* 		rom_v,
+        ROM* 		rom_p,
+        ROM* 		rom_sups,
+        BBFE_DATA*  fe,
+        NEDELEC*    ned,
+        const int 	total_num_nodes,
+        const int 	n_internal_vertex,
+        const int 	ndof1,
+        const int 	ndof2,
+        const char* label1,
+        const char* label2,
+        const char* directory)
+{
+    if(monolis_mpi_get_global_comm_size() == 1){
+
+        if(rom_sups->hlpod_vals.num_1st_subdomains == 0){
+            printf("\nError : num_1st_subdomains is not set\n");
+            exit(1);
+        }
+        else if(rom_sups->hlpod_vals.num_1st_subdomains==1){
+            ROM_std_hlpod_read_podmodes(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    ndof1,
+                    label1,
+                    directory);
+
+            ROM_std_hlpod_read_podmodes(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_snapshot,
+                    rom_p->hlpod_vals.rom_epsilon,
+                    ndof2,
+                    label2,
+                    directory);
+
+            ROM_std_hlpod_set_podmodes_diag(
+                    &(rom_sups->hlpod_vals),
+                    &(rom_sups->hlpod_mat),
+                    rom_v->hlpod_mat.pod_modes,
+                    rom_p->hlpod_mat.pod_modes,
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes,
+                    rom_p->hlpod_vals.num_modes,
+                    ndof1,
+                    ndof2,
+                    directory);
+            
+            rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
+
+            ROM_std_hlpod_free_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    ndof1);
+            
+            ROM_std_hlpod_free_podmodes(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof2);
+        }
+        else{
+            ROM_std_hlpod_read_podmodes_local(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_v->hlpod_vals.num_1st_subdomains,
+                    3,
+                    label1,
+                    directory);
+
+                ROM_std_hlpod_read_podmodes_local(
+                        &(rom_p->hlpod_vals),
+                        &(rom_p->hlpod_mat),
+                        total_num_nodes,
+                        rom_p->hlpod_vals.num_modes_pre,
+                        rom_p->hlpod_vals.num_snapshot,
+                        rom_p->hlpod_vals.num_1st_subdomains,
+                        1,
+                        label2,
+                        directory);
+            
+            ROM_std_hlpod_set_podmodes_local_diag(
+                    &(rom_sups->hlpod_vals),
+                    &(rom_sups->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_mat.pod_modes,
+                    rom_p->hlpod_mat.pod_modes,
+                    rom_v->hlpod_mat.num_modes_internal,
+                    rom_p->hlpod_mat.num_modes_internal,
+                    rom_p->hlpod_mat.n_internal_vertex_subd,
+                    rom_p->hlpod_mat.node_id,
+                    rom_sups->hlpod_vals.num_1st_subdomains,
+                    rom_v->hlpod_vals.num_modes,
+                    rom_p->hlpod_vals.num_modes,
+                    ndof1,
+                    ndof2,
+                    directory);
+            
+            rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
+
+            ROM_std_hlpod_free_local_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_2nd_subdomains,
+                    ndof1);
+
+                ROM_std_hlpod_free_local_podmodes(
+                        &(rom_p->hlpod_mat),
+                        total_num_nodes,
+                        n_internal_vertex,
+                        rom_p->hlpod_vals.num_modes_pre,
+                        rom_p->hlpod_vals.num_2nd_subdomains,
+                        ndof2);
+            
+        }
+    }		
+    else{
+        if(rom_sups->hlpod_vals.bool_global_mode==false){
+            ROM_std_hlpod_read_podmodes_local_para(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    &(rom_sups->hlpod_meta),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_sups->hlpod_vals.num_2nd_subdomains,
+                    ndof1,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    label1,
+                    directory);
+            
+            if(ned->num_phi_elem > 0){
+            ROM_std_hlpod_read_podmodes_local_para(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    &(rom_sups->hlpod_meta),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_snapshot,
+                    rom_sups->hlpod_vals.num_2nd_subdomains,
+                    ndof2,
+                    rom_p->hlpod_vals.rom_epsilon,
+                    label2,
+                    directory);
+            }
+            
+            ROM_std_hlpod_set_podmodes_local_para_Aphi(
+                    &(rom_sups->hlpod_vals),
+                    &(rom_sups->hlpod_mat),
+                    &(rom_sups->hlpod_meta),
+                    fe,
+                    ned,
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_mat.pod_modes,
+                    rom_p->hlpod_mat.pod_modes,
+                    rom_v->hlpod_mat.num_modes_internal,
+                    rom_p->hlpod_mat.num_modes_internal,
+                    rom_v->hlpod_vals.num_modes,
+                    rom_p->hlpod_vals.num_modes,
+                    ndof1,
+                    ndof2,
+                    rom_sups->hlpod_vals.num_2nd_subdomains,
+                    directory);
+                    
+            
+            rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
+
+            ROM_std_hlpod_free_local_podmodes_para(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_2nd_subdomains,
+                    ndof1);
+            
+            if(ned->num_phi_elem > 0){
+            ROM_std_hlpod_free_local_podmodes_para(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_2nd_subdomains,
+                    ndof2);
+            }
+            
+        }
+        else{
+            ROM_std_hlpod_read_podmodes_global_para(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    ndof1,
+                    label1,
+                    directory);
+
+            ROM_std_hlpod_read_podmodes_global_para(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof2,
+                    label2,
+                    directory);
+            
+            ROM_std_hlpod_set_podmodes_global_para_Aphi(
+                    &(rom_sups->hlpod_vals),
+                    &(rom_sups->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_mat.pod_modes,
+                    rom_p->hlpod_mat.pod_modes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof1,
+                    ndof2,
+                    directory);
+            
+            rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
+
+            ROM_std_hlpod_free_global_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    ndof1);
+
+            ROM_std_hlpod_free_global_podmodes(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof2);
+        }
+    }
+}
+
+
+void ROM_std_hlpod_set_pod_modes_diag(
+        ROM* 		rom_v,
+        ROM* 		rom_p,
+        ROM* 		rom_sups,
+        NEDELEC*    ned,
+        const int 	total_num_nodes,
+        const int 	n_internal_vertex,
+        const int 	ndof1,
+        const int 	ndof2,
+        const char* label1,
+        const char* label2,
+        const char* directory)
+{
+    if(monolis_mpi_get_global_comm_size() == 1){
+
+        if(rom_sups->hlpod_vals.num_1st_subdomains == 0){
+            printf("\nError : num_1st_subdomains is not set\n");
+            exit(1);
+        }
+        else if(rom_sups->hlpod_vals.num_1st_subdomains==1){
+            ROM_std_hlpod_set_podmodes(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    ndof1,
+                    label1,
+                    directory);
+
+            ROM_std_hlpod_set_podmodes(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_snapshot,
+                    rom_p->hlpod_vals.rom_epsilon,
+                    ndof2,
+                    label2,
+                    directory);
+
+            ROM_std_hlpod_free_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    ndof1);
+            
+            ROM_std_hlpod_free_podmodes(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof2);
+        }
+        else{
+            ROM_std_hlpod_set_podmodes_local(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_v->hlpod_vals.num_1st_subdomains,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    3,
+                    label1,
+                    directory);
+
+            ROM_std_hlpod_set_podmodes_local(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_snapshot,
+                    rom_p->hlpod_vals.num_1st_subdomains,
+                    rom_p->hlpod_vals.rom_epsilon,
+                    1,
+                    label2,
+                    directory);
+
+            ROM_std_hlpod_free_local_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_2nd_subdomains,
+                    ndof1);
+            
+            ROM_std_hlpod_free_local_podmodes(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_2nd_subdomains,
+                    ndof2);
+        }
+    }		
+    else{
+        if(rom_sups->hlpod_vals.bool_global_mode==false){
+
+            ROM_std_hlpod_set_podmodes_local_para(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    &(rom_sups->hlpod_meta),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_sups->hlpod_vals.num_2nd_subdomains,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    ndof1,
+                    label1,
+                    directory);
+
+            if(ned->num_phi_elem > 0){
+                ROM_std_hlpod_set_podmodes_local_para(
+                        &(rom_p->hlpod_vals),
+                        &(rom_p->hlpod_mat),
+                        &(rom_sups->hlpod_meta),
+                        total_num_nodes,
+                        n_internal_vertex,
+                        rom_p->hlpod_vals.num_modes_pre,
+                        rom_p->hlpod_vals.num_snapshot,
+                        rom_sups->hlpod_vals.num_2nd_subdomains,
+                        rom_p->hlpod_vals.rom_epsilon,
+                        ndof2,
+                        label2,
+                        directory);
+            }
+
+            ROM_std_hlpod_free_local_podmodes_para(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_2nd_subdomains,
+                    ndof1);
+
+            if(ned->num_phi_elem > 0){
+                ROM_std_hlpod_free_local_podmodes_para(
+                        &(rom_p->hlpod_mat),
+                        total_num_nodes,
+                        n_internal_vertex,
+                        rom_p->hlpod_vals.num_modes_pre,
+                        rom_p->hlpod_vals.num_2nd_subdomains,
+                        ndof2);
+            }
+        }
+        else{
+
+            ROM_std_hlpod_set_podmodes_global_para(
+                    &(rom_v->hlpod_vals),
+                    &(rom_v->hlpod_mat),
+                    rom_v->hlpod_mat.snapmat,
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    rom_v->hlpod_vals.num_snapshot,
+                    rom_v->hlpod_vals.rom_epsilon,
+                    ndof1,
+                    label1,
+                    directory);
+
+            ROM_std_hlpod_set_podmodes_global_para(
+                    &(rom_p->hlpod_vals),
+                    &(rom_p->hlpod_mat),
+                    rom_p->hlpod_mat.snapmat,
+                    total_num_nodes,
+                    n_internal_vertex,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    rom_p->hlpod_vals.num_snapshot,
+                    rom_p->hlpod_vals.rom_epsilon,
+                    ndof2,
+                    label2,
+                    directory);
+
+            ROM_std_hlpod_free_global_podmodes(
+                    &(rom_v->hlpod_mat),
+                    total_num_nodes,
+                    rom_v->hlpod_vals.num_modes_pre,
+                    ndof1);
+
+            ROM_std_hlpod_free_global_podmodes(
+                    &(rom_p->hlpod_mat),
+                    total_num_nodes,
+                    rom_p->hlpod_vals.num_modes_pre,
+                    ndof2);
+        }
+    }
+}

@@ -783,12 +783,12 @@ void solver_fom_NR_Aphi_team21a(
     //                        &(sys.bc), &(sys.ned));
     //double t2 = monolis_get_time_global_sync();
     //printf("test2");
-
+/*
     set_element_mat_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
     set_element_vec_nedelec_Aphi_team7(&(sys.monolis), &(sys.fe), &(sys.basis),
                             &(sys.bc), &(sys.ned));
-
+*/
     //double val = Bz_of_time(t);
     //apply_dirichlet_bc_for_A_and_phi_team21a0(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
     apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
@@ -802,13 +802,13 @@ void solver_fom_NR_Aphi_team21a(
         MONOLIS_PREC_DIAG,
         sys.vals.mat_max_iter,
         sys.vals.mat_epsilon);
-    /*
+    
     double loss =  calc_copper_shield_loss_EM1_freq(
         &sys,
         Aphi,
         50,
        sys.cond.directory);
-    */
+    
     //printf("loss = %lf", loss);
 
     for(int i = 0; i < sys.fe.total_num_nodes; i++){
@@ -1023,23 +1023,24 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
     if(step%sys.vals.snapshot_interval == 0) {
         printf("set modes p: %d\n", (int)(step/sys.vals.snapshot_interval));
 
-        if(monolis_mpi_get_global_comm_size() == 1){
-            ROM_std_hlpod_set_snapmat_nobc(
-                    phi,
-                    &(sys.rom_p.hlpod_mat),
-                    sys.fe.total_num_nodes,
-                    1,
-                    (int)(step/sys.vals.snapshot_interval));
-        }
-        else{
-            ROM_std_hlpod_set_snapmat_nobc(
-                    phi,
-                    &(sys.rom_p.hlpod_mat),
-                    sys.monolis_com.n_internal_vertex,
-                    1,
-                    (int)(step/sys.vals.snapshot_interval));
-        }
-
+        //if(ned->num_phi_elem > 0){
+            if(monolis_mpi_get_global_comm_size() == 1){
+                ROM_std_hlpod_set_snapmat_nobc(
+                        phi,
+                        &(sys.rom_p.hlpod_mat),
+                        sys.fe.total_num_nodes,
+                        1,
+                        (int)(step/sys.vals.snapshot_interval));
+            }
+            else{
+                ROM_std_hlpod_set_snapmat_nobc(
+                        phi,
+                        &(sys.rom_p.hlpod_mat),
+                        sys.monolis_com.n_internal_vertex,
+                        1,
+                        (int)(step/sys.vals.snapshot_interval));
+            }
+        //}
     }
 
     if(step%sys.vals.snapshot_interval == 0) {
