@@ -1194,8 +1194,8 @@ void read_elem_types(
     if (fe->local_num_nodes == 8) {
         ned->local_num_edges = 12;
     } else if (fe->local_num_nodes == 4) {
-        //ned->local_num_edges = 6;
-        ned->local_num_edges = 20;
+        ned->local_num_edges = 6;
+        //ned->local_num_edges = 20;
     } else {
         fprintf(stderr, "Error: unsupported local_num_nodes=%d\n", fe->local_num_nodes);
         exit(EXIT_FAILURE);
@@ -1659,7 +1659,7 @@ void BBFE_mag_pre(
 	int n_axis = num_integ_points_each_axis;
 	const char* filename;
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_NODE);
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "sorted_nodes.dat");
 	BBFE_sys_read_node(
 			fe,
 			filename,
@@ -1667,7 +1667,9 @@ void BBFE_mag_pre(
     
     read_num_nodes(
 			fe,
-            "graph.dat",
+            //"graph.dat",
+            //"graph_nedelec_elem_test.dat",
+            "sorted_nodes.dat",
             directory);
     
     read_elem_types(
@@ -1676,12 +1678,31 @@ void BBFE_mag_pre(
             "elem.dat",
             directory);
 
-    read_connectivity_graph_lag_nedelec(
+    //read_connectivity_graph_lag_nedelec(
+    read_connectivity_graph_lag_nedelec_from_distval(
 			fe,
 			ned,
+            "sorted_local_elem.dat",
+            //"nedelec_elem.dat",
+			directory,
+			n_axis*n_axis*n_axis);
+
+    read_connectivity_graph_lag_nedelec(
+    //read_connectivity_graph_lag_nedelec_from_distval(
+			fe,
+			ned,
+            //"sorted_local_elem.dat",
+            //"graph_nedelec_conn_all.dat",
             "graph_nedelec_elem.dat",
 			directory,
 			n_axis*n_axis*n_axis);
+
+    read_phi_elem(
+			fe,
+        	ned,
+            //"graph_elem_conn.dat",
+            "elem_phi.dat",
+            directory);
 
     read_edge_sign(
 			fe,
@@ -1712,11 +1733,14 @@ void BBFE_mag_pre(
 			monolis_mpi_get_global_comm(),
 			MONOLIS_DEFAULT_TOP_DIR,
 			MONOLIS_DEFAULT_PART_DIR,
-			"graph.dat");
+			//"graph.dat",
+            "graph_nedelec_elem_test.dat");
 
     ROM_std_hlpod_set_nonzero_pattern_bcsr(
             monolis,
-            "graph.dat",
+            ned,
+            //"graph.dat",
+            "graph_nedelec_elem_test.dat",
             directory);
 
 }

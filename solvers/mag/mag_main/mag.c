@@ -345,7 +345,7 @@ void output_set_elems_nedelec_unstructured(
     num = 0;
     for(int e = 0; e < fe->total_num_elems; e++){
         // ノードID
-        if(ned->elem_prop[e] == 4){
+        if(ned->elem_prop[e] == 3){
             fprintf(fp, "%d ", e);
             fprintf(fp, "%d ", 10);
             for(int n = 0; n < fe->local_num_nodes; n++){

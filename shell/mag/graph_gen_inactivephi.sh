@@ -4,7 +4,7 @@ N_PARTS=16
 CASE_DIR="result_mag/5-16-16"
 
 # 結果ディレクトリへ移動
-cd "${CASE_DIR}"
+#cd "${CASE_DIR}"
 
 GEDATSU_BIN="./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin"
 UTIL_BIN="./../../utils/bin"
@@ -36,12 +36,6 @@ python3 "${MAG_SHELL}/elemtograph.py" \
   -n "${N_PARTS}" \
   -i graph_elem_conn.dat \
   -ig graph_nedelec_elem_test.dat
-
-# element boolean data partition
-"${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
-  -n "${N_PARTS}" \
-  -i distval_elem_global_node_id_2nd.dat \
-  -ig graph_nedelec_elem.dat
 
 "${GEDATSU_BIN}/gedatsu_dist_val_partitioner_I" \
   -n "${N_PARTS}" \
