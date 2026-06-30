@@ -708,6 +708,7 @@ void solver_hrom_NR(
         
 
         double r_hrom_old;
+        /*
         if(it == 0){
             r_hrom_old = 0.0;
             int index = 0;
@@ -718,22 +719,22 @@ void solver_hrom_NR(
                 index += hlpod_mat->num_modes_internal[k];
             }
         }
+        */
 
         double r_hrom = 0.0;
         int index = 0;
+        /*
         for(int k = 0; k < sys->rom_sups.hlpod_vals.num_2nd_subdomains; k++){
             for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
                 r_hrom += sys->monolis_hr.mat.R.B[i + index] * sys->monolis_hr.mat.R.B[i + index];
             }
             index += hlpod_mat->num_modes_internal[k];
         }
+        */
 
         monolis_allreduce_R(1, &r_hrom_old,       MONOLIS_MPI_SUM, sys->mono_com.comm);
         monolis_allreduce_R(1, &r_hrom,   MONOLIS_MPI_SUM, sys->mono_com.comm);
-
-        double nrm_v        = sqrt(r_hrom_old);
-        double nrm_dv       = sqrt(r_hrom);
-
+        
         ROM_monowrap_solve(
             &(sys->monolis_hr),
             &(sys->mono_com_rom_solv),

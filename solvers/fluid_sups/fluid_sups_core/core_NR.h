@@ -295,3 +295,28 @@ void HROM_ddecm_read_NNLS_data(
         const double    dt,
         double          t,
         const char*     directory);
+
+
+void set_element_mat_NR_linear_VMS(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals);
+
+void set_element_vec_NR_linear_VMS(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals);
+
+void set_element_mat_NR_nonlinear_VMS(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals);
+
+void set_element_vec_NR_nonlinear_VMS(
+    MONOLIS* monolis,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis,
+    VALUES* vals);

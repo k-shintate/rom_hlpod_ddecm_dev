@@ -5280,3 +5280,832 @@ void HROM_set_element_vec_NR_p(
     BB_std_free_2d_double(val_ip_vec, 4, np);
     BB_std_free_1d_double(integ_val_vec, 4);
 }
+
+
+
+static void BBFE_vms_strong_residual_qs(
+    double       rM[3],
+    double*      rC,
+    const double u[3],
+    const double u_old[3],
+    double**     grad_u,
+    const double grad_p[3],
+    const double rho,
+    const double dt)
+{
+    const double eps = 1.0e-30;
+
+    double adv[3];
+    for (int d = 0; d < 3; ++d) {
+        adv[d] =
+            u[0] * grad_u[d][0] +
+            u[1] * grad_u[d][1] +
+            u[2] * grad_u[d][2];
+    }
+
+    const double inv_dt = 1.0 / fmax(dt, eps);
+
+    for (int d = 0; d < 3; ++d) {
+        rM[d] =
+            (u[d] - u_old[d]) * inv_dt
+            + adv[d]
+            + grad_p[d] / rho;
+    }
+
+    *rC = grad_u[0][0] + grad_u[1][1] + grad_u[2][2];
+}
+
+
+static double BBFE_vms_nu_quasistatic_residual(
+    const double tau_m,
+    const double h_e,
+    const double rM[3],
+    const double u[3],
+    const double C_vms,
+    const double cap_coeff)
+{
+    const double eps = 1.0e-30;
+
+    const double r_norm = sqrt(
+        rM[0]*rM[0] +
+        rM[1]*rM[1] +
+        rM[2]*rM[2] + eps);
+
+    /*
+      quasi-static subscale:
+      u' = - tau_m rM
+    */
+    const double u_prime_norm = tau_m * r_norm;
+
+    double nu_vms = C_vms * h_e * u_prime_norm;
+
+    /*
+      過大散逸を防ぐ cap
+    */
+    const double u_norm = sqrt(
+        u[0]*u[0] +
+        u[1]*u[1] +
+        u[2]*u[2] + eps);
+
+    const double nu_cap = cap_coeff * h_e * u_norm;
+
+    if (nu_vms > nu_cap) nu_vms = nu_cap;
+    if (nu_vms < 0.0)    nu_vms = 0.0;
+
+    return nu_vms;
+}
+
+
+static void BBFE_vms_mu_eff_tau(
+    double*      mu_eff,
+    double*      tau,
+    double*      tau_c,
+    const double J_inv[3][3],
+    const double Jacobian,
+    const double h_e,
+    const double u[3],
+    const double u_old[3],
+    double**     grad_u,
+    const double grad_p[3],
+    const double rho,
+    const double mu,
+    const double dt,
+    const double C_vms,
+    const double cap_coeff)
+{
+    /*
+      まず分子粘性で tau0 を作る
+    */
+    const double tau0 =
+        BBFE_elemmat_fluid_sups_coef_metric_tensor(
+            J_inv, Jacobian, rho, mu, u, dt);
+
+    double rM[3];
+    double rC;
+
+    BBFE_vms_strong_residual_qs(
+        rM, &rC, u, u_old, grad_u, grad_p, rho, dt);
+
+    const double nu_vms =
+        BBFE_vms_nu_quasistatic_residual(
+            tau0, h_e, rM, u, C_vms, cap_coeff);
+
+    *mu_eff = mu + rho * nu_vms;
+
+    /*
+      有効粘性で tau, tau_c を再計算する
+    */
+    *tau =
+        BBFE_elemmat_fluid_sups_coef_metric_tensor(
+            J_inv, Jacobian, rho, *mu_eff, u, dt);
+
+    *tau_c =
+        BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
+            J_inv, Jacobian, rho, *mu_eff, u, dt);
+}
+
+void set_element_mat_NR_linear_VMS(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    VALUES*      vals)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip      = BB_std_calloc_3d_double(NULL, 4, 4, np);
+    double*   Jacobian_ip = BB_std_calloc_1d_double(NULL, np);
+
+    double** val_ip_vec    = BB_std_calloc_2d_double(NULL, 4, np);
+    double*  integ_val_vec = BB_std_calloc_1d_double(NULL, 4);
+
+    double**  local_v   = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip      = BB_std_calloc_2d_double(NULL, np, 3);
+    double*** grad_v_ip = BB_std_calloc_3d_double(NULL, np, 3, 3);
+
+    double** local_v_old = BB_std_calloc_2d_double(NULL, nl, 3);
+    double** v_ip_old    = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*  local_p   = BB_std_calloc_1d_double(NULL, nl);
+    double*  p_ip      = BB_std_calloc_1d_double(NULL, np);
+    double** grad_p_ip = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double* mu_eff_ip = BB_std_calloc_1d_double(NULL, np);
+    double* tau_ip    = BB_std_calloc_1d_double(NULL, np);
+    double* tau_c_ip  = BB_std_calloc_1d_double(NULL, np);
+
+    double A[4][4];
+    double J_inv[3][3];
+
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+        BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+        BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+
+        for (int p = 0; p < np; ++p) {
+            BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+            BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+
+            BBFE_std_mapping_vector3d_grad(
+                grad_v_ip[p],
+                nl,
+                local_v,
+                fe->geo[e][p].grad_N);
+
+            BBFE_std_mapping_scalar_grad(
+                grad_p_ip[p],
+                nl,
+                local_p,
+                fe->geo[e][p].grad_N);
+
+            p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+        }
+
+        const double vol = BBFE_std_integ_calc_volume(
+            np,
+            basis->integ_weight,
+            Jacobian_ip);
+
+        const double h_e = cbrt(vol);
+
+        /*
+          quasi-static residual-based VMS:
+          各積分点で mu_eff, tau, tau_c を事前計算する。
+        */
+        for (int p = 0; p < np; ++p) {
+            BB_calc_mat3d_inverse(
+                fe->geo[e][p].J,
+                fe->geo[e][p].Jacobian,
+                J_inv);
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_ip[p],
+                &tau_ip[p],
+                &tau_c_ip[p],
+                J_inv,
+                fe->geo[e][p].Jacobian,
+                h_e,
+                v_ip[p],
+                v_ip_old[p],
+                grad_v_ip[p],
+                grad_p_ip[p],
+                vals->density,
+                vals->viscosity,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+        }
+
+        for (int i = 0; i < nl; ++i) {
+            for (int p = 0; p < np; ++p) {
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = 0.0;
+                }
+            }
+
+            for (int j = 0; j < nl; ++j) {
+                for (int p = 0; p < np; ++p) {
+                    double du_time[3] = {
+                        v_ip[p][0] - v_ip_old[p][0],
+                        v_ip[p][1] - v_ip_old[p][1],
+                        v_ip[p][2] - v_ip_old[p][2]
+                    };
+
+                    BB_calc_mat3d_inverse(
+                        fe->geo[e][p].J,
+                        fe->geo[e][p].Jacobian,
+                        J_inv);
+
+                    const double mu_eff = mu_eff_ip[p];
+                    const double tau    = tau_ip[p];
+                    const double tau_c  = tau_c_ip[p];
+
+                    BBFE_elemmat_fluid_mat_rom_linear(
+                        A,
+                        J_inv,
+                        basis->N[p][i],
+                        basis->N[p][j],
+                        fe->geo[e][p].grad_N[i],
+                        fe->geo[e][p].grad_N[j],
+                        v_ip[p],
+                        grad_v_ip[p],
+                        grad_p_ip[p],
+                        vals->density,
+                        mu_eff,
+                        tau,
+                        tau_c,
+                        vals->dt,
+                        du_time);
+
+                    for (int a = 0; a < 4; ++a) {
+                        for (int b = 0; b < 4; ++b) {
+                            val_ip[a][b][p] = A[a][b];
+                            A[a][b] = 0.0;
+                        }
+                    }
+                }
+
+                for (int a = 0; a < 4; ++a) {
+                    for (int b = 0; b < 4; ++b) {
+                        const double integ_val = BBFE_std_integ_calc(
+                            np,
+                            val_ip[a][b],
+                            basis->integ_weight,
+                            Jacobian_ip);
+
+                        monolis_add_scalar_to_sparse_matrix_R(
+                            monolis,
+                            fe->conn[e][i],
+                            fe->conn[e][j],
+                            a,
+                            b,
+                            integ_val);
+                    }
+                }
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip, 4, 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip, np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old, np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip, np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+
+    BB_std_free_1d_double(mu_eff_ip, np);
+    BB_std_free_1d_double(tau_ip, np);
+    BB_std_free_1d_double(tau_c_ip, np);
+}
+
+
+void set_element_vec_NR_linear_VMS(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    VALUES*      vals)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip      = BB_std_calloc_3d_double(NULL, 4, 4, np);
+    double*   Jacobian_ip = BB_std_calloc_1d_double(NULL, np);
+
+    double** val_ip_vec    = BB_std_calloc_2d_double(NULL, 4, np);
+    double*  integ_val_vec = BB_std_calloc_1d_double(NULL, 4);
+
+    double**  local_v   = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip      = BB_std_calloc_2d_double(NULL, np, 3);
+    double*** grad_v_ip = BB_std_calloc_3d_double(NULL, np, 3, 3);
+
+    double** local_v_old = BB_std_calloc_2d_double(NULL, nl, 3);
+    double** v_ip_old    = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*  local_p   = BB_std_calloc_1d_double(NULL, nl);
+    double*  p_ip      = BB_std_calloc_1d_double(NULL, np);
+    double** grad_p_ip = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double* mu_eff_ip = BB_std_calloc_1d_double(NULL, np);
+    double* tau_ip    = BB_std_calloc_1d_double(NULL, np);
+    double* tau_c_ip  = BB_std_calloc_1d_double(NULL, np);
+
+    double vec[4];
+    double J_inv[3][3];
+
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+        BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+        BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+
+        for (int p = 0; p < np; ++p) {
+            BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+            BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+
+            BBFE_std_mapping_vector3d_grad(
+                grad_v_ip[p],
+                nl,
+                local_v,
+                fe->geo[e][p].grad_N);
+
+            BBFE_std_mapping_scalar_grad(
+                grad_p_ip[p],
+                nl,
+                local_p,
+                fe->geo[e][p].grad_N);
+
+            p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+        }
+
+        const double vol = BBFE_std_integ_calc_volume(
+            np,
+            basis->integ_weight,
+            Jacobian_ip);
+
+        const double h_e = cbrt(vol);
+
+        for (int p = 0; p < np; ++p) {
+            BB_calc_mat3d_inverse(
+                fe->geo[e][p].J,
+                fe->geo[e][p].Jacobian,
+                J_inv);
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_ip[p],
+                &tau_ip[p],
+                &tau_c_ip[p],
+                J_inv,
+                fe->geo[e][p].Jacobian,
+                h_e,
+                v_ip[p],
+                v_ip_old[p],
+                grad_v_ip[p],
+                grad_p_ip[p],
+                vals->density,
+                vals->viscosity,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+        }
+
+        for (int i = 0; i < nl; ++i) {
+            for (int p = 0; p < np; ++p) {
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = 0.0;
+                }
+            }
+
+            for (int p = 0; p < np; ++p) {
+                double du_time[3] = {
+                    v_ip[p][0] - v_ip_old[p][0],
+                    v_ip[p][1] - v_ip_old[p][1],
+                    v_ip[p][2] - v_ip_old[p][2]
+                };
+
+                BB_calc_mat3d_inverse(
+                    fe->geo[e][p].J,
+                    fe->geo[e][p].Jacobian,
+                    J_inv);
+
+                const double mu_eff = mu_eff_ip[p];
+                const double tau    = tau_ip[p];
+                const double tau_c  = tau_c_ip[p];
+
+                BBFE_elemmat_fluid_vec_rom_linear(
+                    vec,
+                    basis->N[p][i],
+                    fe->geo[e][p].grad_N[i],
+                    v_ip[p],
+                    v_ip_old[p],
+                    grad_v_ip[p],
+                    p_ip[p],
+                    grad_p_ip[p],
+                    vals->density,
+                    mu_eff,
+                    tau,
+                    tau_c,
+                    vals->dt,
+                    du_time);
+
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = vec[d];
+                    vec[d] = 0.0;
+                }
+            }
+
+            for (int d = 0; d < 4; ++d) {
+                integ_val_vec[d] = BBFE_std_integ_calc(
+                    np,
+                    val_ip_vec[d],
+                    basis->integ_weight,
+                    Jacobian_ip);
+
+                monolis->mat.R.B[4 * fe->conn[e][i] + d] -= integ_val_vec[d];
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip, 4, 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip, np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old, np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip, np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+
+    BB_std_free_1d_double(mu_eff_ip, np);
+    BB_std_free_1d_double(tau_ip, np);
+    BB_std_free_1d_double(tau_c_ip, np);
+}
+
+
+void set_element_mat_NR_nonlinear_VMS(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    VALUES*      vals)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip      = BB_std_calloc_3d_double(NULL, 4, 4, np);
+    double*   Jacobian_ip = BB_std_calloc_1d_double(NULL, np);
+
+    double** val_ip_vec    = BB_std_calloc_2d_double(NULL, 4, np);
+    double*  integ_val_vec = BB_std_calloc_1d_double(NULL, 4);
+
+    double**  local_v   = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip      = BB_std_calloc_2d_double(NULL, np, 3);
+    double*** grad_v_ip = BB_std_calloc_3d_double(NULL, np, 3, 3);
+
+    double** local_v_old = BB_std_calloc_2d_double(NULL, nl, 3);
+    double** v_ip_old    = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*  local_p   = BB_std_calloc_1d_double(NULL, nl);
+    double*  p_ip      = BB_std_calloc_1d_double(NULL, np);
+    double** grad_p_ip = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double* mu_eff_ip = BB_std_calloc_1d_double(NULL, np);
+    double* tau_ip    = BB_std_calloc_1d_double(NULL, np);
+    double* tau_c_ip  = BB_std_calloc_1d_double(NULL, np);
+
+    double A[4][4];
+    double J_inv[3][3];
+
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+        BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+        BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+
+        for (int p = 0; p < np; ++p) {
+            BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+            BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+
+            BBFE_std_mapping_vector3d_grad(
+                grad_v_ip[p],
+                nl,
+                local_v,
+                fe->geo[e][p].grad_N);
+
+            BBFE_std_mapping_scalar_grad(
+                grad_p_ip[p],
+                nl,
+                local_p,
+                fe->geo[e][p].grad_N);
+
+            p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+        }
+
+        const double vol = BBFE_std_integ_calc_volume(
+            np,
+            basis->integ_weight,
+            Jacobian_ip);
+
+        const double h_e = cbrt(vol);
+
+        for (int p = 0; p < np; ++p) {
+            BB_calc_mat3d_inverse(
+                fe->geo[e][p].J,
+                fe->geo[e][p].Jacobian,
+                J_inv);
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_ip[p],
+                &tau_ip[p],
+                &tau_c_ip[p],
+                J_inv,
+                fe->geo[e][p].Jacobian,
+                h_e,
+                v_ip[p],
+                v_ip_old[p],
+                grad_v_ip[p],
+                grad_p_ip[p],
+                vals->density,
+                vals->viscosity,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+        }
+
+        for (int i = 0; i < nl; ++i) {
+            for (int p = 0; p < np; ++p) {
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = 0.0;
+                }
+            }
+
+            for (int j = 0; j < nl; ++j) {
+                for (int p = 0; p < np; ++p) {
+                    double du_time[3] = {
+                        v_ip[p][0] - v_ip_old[p][0],
+                        v_ip[p][1] - v_ip_old[p][1],
+                        v_ip[p][2] - v_ip_old[p][2]
+                    };
+
+                    BB_calc_mat3d_inverse(
+                        fe->geo[e][p].J,
+                        fe->geo[e][p].Jacobian,
+                        J_inv);
+
+                    const double mu_eff = mu_eff_ip[p];
+                    const double tau    = tau_ip[p];
+                    const double tau_c  = tau_c_ip[p];
+
+                    BBFE_elemmat_fluid_mat_rom_nonlinear(
+                        A,
+                        J_inv,
+                        fe->geo[e][p].Jacobian,
+                        basis->N[p][i],
+                        basis->N[p][j],
+                        fe->geo[e][p].grad_N[i],
+                        fe->geo[e][p].grad_N[j],
+                        v_ip[p],
+                        grad_v_ip[p],
+                        grad_p_ip[p],
+                        vals->density,
+                        mu_eff,
+                        tau,
+                        tau_c,
+                        vals->dt,
+                        du_time);
+
+                    for (int a = 0; a < 4; ++a) {
+                        for (int b = 0; b < 4; ++b) {
+                            val_ip[a][b][p] = A[a][b];
+                            A[a][b] = 0.0;
+                        }
+                    }
+                }
+
+                for (int a = 0; a < 4; ++a) {
+                    for (int b = 0; b < 4; ++b) {
+                        const double integ_val = BBFE_std_integ_calc(
+                            np,
+                            val_ip[a][b],
+                            basis->integ_weight,
+                            Jacobian_ip);
+
+                        monolis_add_scalar_to_sparse_matrix_R(
+                            monolis,
+                            fe->conn[e][i],
+                            fe->conn[e][j],
+                            a,
+                            b,
+                            integ_val);
+                    }
+                }
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip, 4, 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip, np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old, np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip, np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+
+    BB_std_free_1d_double(mu_eff_ip, np);
+    BB_std_free_1d_double(tau_ip, np);
+    BB_std_free_1d_double(tau_c_ip, np);
+}
+
+
+void set_element_vec_NR_nonlinear_VMS(
+    MONOLIS*     monolis,
+    BBFE_DATA*   fe,
+    BBFE_BASIS*  basis,
+    VALUES*      vals)
+{
+    const int nl = fe->local_num_nodes;
+    const int np = basis->num_integ_points;
+
+    double*** val_ip      = BB_std_calloc_3d_double(NULL, 4, 4, np);
+    double*   Jacobian_ip = BB_std_calloc_1d_double(NULL, np);
+
+    double** val_ip_vec    = BB_std_calloc_2d_double(NULL, 4, np);
+    double*  integ_val_vec = BB_std_calloc_1d_double(NULL, 4);
+
+    double**  local_v   = BB_std_calloc_2d_double(NULL, nl, 3);
+    double**  v_ip      = BB_std_calloc_2d_double(NULL, np, 3);
+    double*** grad_v_ip = BB_std_calloc_3d_double(NULL, np, 3, 3);
+
+    double** local_v_old = BB_std_calloc_2d_double(NULL, nl, 3);
+    double** v_ip_old    = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double*  local_p   = BB_std_calloc_1d_double(NULL, nl);
+    double*  p_ip      = BB_std_calloc_1d_double(NULL, np);
+    double** grad_p_ip = BB_std_calloc_2d_double(NULL, np, 3);
+
+    double* mu_eff_ip = BB_std_calloc_1d_double(NULL, np);
+    double* tau_ip    = BB_std_calloc_1d_double(NULL, np);
+    double* tau_c_ip  = BB_std_calloc_1d_double(NULL, np);
+
+    double vec[4];
+    double J_inv[3][3];
+
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+
+        BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+        BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
+        BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
+
+        for (int p = 0; p < np; ++p) {
+            BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+            BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
+
+            BBFE_std_mapping_vector3d_grad(
+                grad_v_ip[p],
+                nl,
+                local_v,
+                fe->geo[e][p].grad_N);
+
+            BBFE_std_mapping_scalar_grad(
+                grad_p_ip[p],
+                nl,
+                local_p,
+                fe->geo[e][p].grad_N);
+
+            p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
+        }
+
+        const double vol = BBFE_std_integ_calc_volume(
+            np,
+            basis->integ_weight,
+            Jacobian_ip);
+
+        const double h_e = cbrt(vol);
+
+        for (int p = 0; p < np; ++p) {
+            BB_calc_mat3d_inverse(
+                fe->geo[e][p].J,
+                fe->geo[e][p].Jacobian,
+                J_inv);
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_ip[p],
+                &tau_ip[p],
+                &tau_c_ip[p],
+                J_inv,
+                fe->geo[e][p].Jacobian,
+                h_e,
+                v_ip[p],
+                v_ip_old[p],
+                grad_v_ip[p],
+                grad_p_ip[p],
+                vals->density,
+                vals->viscosity,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+        }
+
+        for (int i = 0; i < nl; ++i) {
+            for (int p = 0; p < np; ++p) {
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = 0.0;
+                }
+            }
+
+            for (int p = 0; p < np; ++p) {
+                double du_time[3] = {
+                    v_ip[p][0] - v_ip_old[p][0],
+                    v_ip[p][1] - v_ip_old[p][1],
+                    v_ip[p][2] - v_ip_old[p][2]
+                };
+
+                BB_calc_mat3d_inverse(
+                    fe->geo[e][p].J,
+                    fe->geo[e][p].Jacobian,
+                    J_inv);
+
+                const double mu_eff = mu_eff_ip[p];
+                const double tau    = tau_ip[p];
+                const double tau_c  = tau_c_ip[p];
+
+                BBFE_elemmat_fluid_vec_rom_nonlinear(
+                    vec,
+                    basis->N[p][i],
+                    fe->geo[e][p].grad_N[i],
+                    v_ip[p],
+                    v_ip_old[p],
+                    grad_v_ip[p],
+                    p_ip[p],
+                    grad_p_ip[p],
+                    vals->density,
+                    mu_eff,
+                    tau,
+                    tau_c,
+                    vals->dt,
+                    du_time);
+
+                for (int d = 0; d < 4; ++d) {
+                    val_ip_vec[d][p] = vec[d];
+                    vec[d] = 0.0;
+                }
+            }
+
+            for (int d = 0; d < 4; ++d) {
+                integ_val_vec[d] = BBFE_std_integ_calc(
+                    np,
+                    val_ip_vec[d],
+                    basis->integ_weight,
+                    Jacobian_ip);
+
+                monolis->mat.R.B[4 * fe->conn[e][i] + d] -= integ_val_vec[d];
+            }
+        }
+    }
+
+    BB_std_free_3d_double(val_ip, 4, 4, np);
+    BB_std_free_1d_double(Jacobian_ip, np);
+
+    BB_std_free_2d_double(local_v, nl, 3);
+    BB_std_free_2d_double(v_ip, np, 3);
+    BB_std_free_2d_double(local_v_old, nl, 3);
+    BB_std_free_2d_double(v_ip_old, np, 3);
+    BB_std_free_3d_double(grad_v_ip, np, 3, 3);
+
+    BB_std_free_1d_double(local_p, nl);
+    BB_std_free_1d_double(p_ip, np);
+    BB_std_free_2d_double(grad_p_ip, np, 3);
+
+    BB_std_free_2d_double(val_ip_vec, 4, np);
+    BB_std_free_1d_double(integ_val_vec, 4);
+
+    BB_std_free_1d_double(mu_eff_ip, np);
+    BB_std_free_1d_double(tau_ip, np);
+    BB_std_free_1d_double(tau_c_ip, np);
+}

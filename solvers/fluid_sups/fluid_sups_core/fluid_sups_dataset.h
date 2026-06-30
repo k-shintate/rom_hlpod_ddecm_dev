@@ -23,6 +23,9 @@ typedef struct
     double** v_old;
 	double** delta_v;
 	double*  delta_p;
+
+    double C_vms;
+    double vms_cap_coeff;
     
     /*for ROM input data*/
     double  rom_finish_time;
