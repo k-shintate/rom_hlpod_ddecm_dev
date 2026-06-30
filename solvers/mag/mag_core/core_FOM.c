@@ -825,25 +825,25 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
     int step,
     double* x_prev,
     double* x_curr,
-    int n_dof_total
-){
+    int total_num_dof)
+{
     const int max_iter = 20;
     const double relaxation = 1.0;
 
-    double* dx   = (double*)calloc((size_t)n_dof_total, sizeof(double));
-    double* rvec = (double*)calloc((size_t)n_dof_total, sizeof(double));
-    double* rvec_old = (double*)calloc((size_t)n_dof_total, sizeof(double));
+    double* dx   = (double*)calloc((size_t)sys.ned.total_num_dof, sizeof(double));
+    double* rvec = (double*)calloc((size_t)sys.ned.total_num_dof, sizeof(double));
+    double* rvec_old = (double*)calloc((size_t)sys.ned.total_num_dof, sizeof(double));
 
-    double* A_delta   = BB_std_calloc_1d_double(A_delta,   sys.fe.total_num_nodes);
-    double* phi_delta = BB_std_calloc_1d_double(phi_delta, sys.fe.total_num_nodes);
-    double* A   = BB_std_calloc_1d_double(A,   sys.fe.total_num_nodes);
-    double* phi = BB_std_calloc_1d_double(phi, sys.fe.total_num_nodes);
-    double* A_old   = BB_std_calloc_1d_double(A_old,   sys.fe.total_num_nodes);
-    double* phi_old = BB_std_calloc_1d_double(phi_old, sys.fe.total_num_nodes);
-    copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), x_prev, A_old, phi_old, sys.fe.total_num_elems);
+    double* A_delta   = BB_std_calloc_1d_double(A_delta,   sys.ned.total_num_dof);
+    double* phi_delta = BB_std_calloc_1d_double(phi_delta, sys.ned.total_num_dof);
+    double* A   = BB_std_calloc_1d_double(A,   sys.ned.total_num_dof);
+    double* phi = BB_std_calloc_1d_double(phi, sys.ned.total_num_dof);
+    double* A_old   = BB_std_calloc_1d_double(A_old,   sys.ned.total_num_dof);
+    double* phi_old = BB_std_calloc_1d_double(phi_old, sys.ned.total_num_dof);
+    copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), x_prev, A_old, phi_old, sys.fe.total_num_elems);
 
     /* 初期値 */
-    for(int i=0; i<n_dof_total; ++i){
+    for(int i=0; i<sys.ned.total_num_dof; ++i){
         x_curr[i] = x_prev[i];
     }
 
@@ -858,25 +858,25 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
 
     for(int it=0; it<max_iter; ++it){
 
-        debug_max_B_and_nu_core(&sys, x_curr, n_dof_total, it, step, t, sys.cond.directory);
+        //debug_max_B_and_nu_core(&sys, x_curr, sys.ned.total_num_dof, it, step, t, sys.cond.directory);
 
         monolis_clear_mat_value_R(&(sys.monolis));
-        for(int i=0; i<n_dof_total; ++i){
+        for(int i=0; i<sys.ned.total_num_dof; ++i){
             sys.monolis.mat.R.B[i] = 0.0;
             sys.monolis.mat.R.X[i] = 0.0;
             dx[i] = 0.0;
         }
 
         /* 組み立て */
-        set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+        set_element_mat_NR_Aphi_team21a02c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_curr, sys.vals.dt);
-        set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+        set_element_vec_NR_Aphi_team21a02(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t);
-        apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+        apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
         /* 残差ベクトルを保存（B = -F） */
         if(it==0){
-            for(int i=0; i<n_dof_total; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
+            for(int i=0; i<sys.ned.total_num_dof; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
         }
 
         /* 線形解は dx に入れる（x_curr と分ける！） */
@@ -890,37 +890,23 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
             sys.vals.mat_epsilon);
 
         /* Newton update */
-        update_Aphi_NR(x_curr, dx, n_dof_total, relaxation);
-
-        SHIELD_LOSS_DIAG diag;
-        diag = calc_copper_shield_loss_EM1_diag(&sys, x_prev, x_curr, sys.vals.dt);
-
-        log_copper_shield_loss_EM1(&sys, step, t, sys.vals.dt, diag.loss_total);
-        log_copper_shield_loss_EM1_diag(&sys, step, t, sys.vals.dt, &diag);
-        log_copper_shield_loss_EM1_cycle_average(&sys, step, t, sys.vals.dt, diag.loss_total);
-
-        log_coil_ampere_turn_diag_team21c(&sys, step, t);
-
-        SHIELD_FIELD_INT_DIAG fint;
-        fint = calc_shield_field_integrals_EM1(&sys, x_prev, x_curr,  sys.vals.dt, 1);
-
-        log_shield_field_integrals_EM1(&sys, step, t,  sys.vals.dt, &fint);
+        update_Aphi_NR(x_curr, dx, sys.ned.total_num_dof, relaxation);
 
         /* 残差ベクトルを保存（B = -F） */
-        for(int i=0; i<n_dof_total; ++i){
+        for(int i=0; i<sys.ned.total_num_dof; ++i){
             sys.monolis.mat.R.B[i] = 0.0;
             sys.monolis.mat.R.X[i] = 0.0;
         }
 
-        copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), x_curr, A, phi, sys.fe.total_num_elems);
-        copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), dx, A_delta, phi_delta, sys.fe.total_num_elems);
+        copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), x_curr, A, phi, sys.fe.total_num_elems);
+        copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), dx, A_delta, phi_delta, sys.fe.total_num_elems);
 
         set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_prev, x_curr, sys.vals.dt, t);
         
-        apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
+        apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
-        for(int i=0; i<n_dof_total; ++i) rvec[i] = sys.monolis.mat.R.B[i];
+        for(int i=0; i<sys.ned.total_num_dof; ++i) rvec[i] = sys.monolis.mat.R.B[i];
 
         /*収束判定 別の関数にまとめたい*/
         double norm_v = calc_internal_norm_1d(
@@ -1000,7 +986,7 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
 
         if (conv_v && conv_p) {
             double max_du = 0.0;
-            for (int ii = 0; ii < sys.fe.total_num_nodes; ++ii) {    
+            for (int ii = 0; ii < sys.ned.total_num_dof; ++ii) {    
                 double du = fabs(A[ii] - A_old[ii]);
                     if (du > max_du) max_du = du;
             }
@@ -1011,7 +997,7 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
             ROM_BB_vec_copy_1d(
                 A,
                 A_old,
-                sys.fe.total_num_nodes,
+                sys.ned.total_num_dof,
                 1);
 
             break;
@@ -1023,12 +1009,12 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
     if(step%sys.vals.snapshot_interval == 0) {
         printf("set modes p: %d\n", (int)(step/sys.vals.snapshot_interval));
 
-        //if(ned->num_phi_elem > 0){
+        if(sys.ned.num_phi_elem > 0){
             if(monolis_mpi_get_global_comm_size() == 1){
                 ROM_std_hlpod_set_snapmat_nobc(
                         phi,
                         &(sys.rom_p.hlpod_mat),
-                        sys.fe.total_num_nodes,
+                        sys.ned.total_num_dof,
                         1,
                         (int)(step/sys.vals.snapshot_interval));
             }
@@ -1040,7 +1026,7 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
                         1,
                         (int)(step/sys.vals.snapshot_interval));
             }
-        //}
+        }
     }
 
     if(step%sys.vals.snapshot_interval == 0) {
@@ -1053,7 +1039,7 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
                     &(sys.rom_v.hlpod_mat),
                     &(sys.bc),
                     &(sys.ned),
-                    sys.fe.total_num_nodes,
+                    sys.ned.total_num_dof,
                     1,
                     ((int)step/sys.vals.snapshot_interval));
         }
@@ -1074,4 +1060,11 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
 
     free(dx);
     free(rvec);
+    free(A_delta);
+    free(phi_delta);
+    free(A);
+    free(phi);
+    free(A_old);
+    free(phi_old);
+
 }

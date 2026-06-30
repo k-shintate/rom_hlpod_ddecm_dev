@@ -592,7 +592,7 @@ void hot_start_write_initialize_val(
         for(int j = 0; j < ndof; j++) {
             fprintf(fp, "%e ", int_val[i * ndof + j]);
         }
-        fprintf(fp, "\n");        
+        fprintf(fp, "\n");
     }
 	fclose(fp);
 
@@ -660,24 +660,24 @@ int main (
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
 	BBFE_sys_read_Dirichlet_bc(
 			&(sys.bc),
 			filename,
 			sys.cond.directory,
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
 			BLOCK_SIZE);
    
-    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC);
+    filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
     BBFE_fluid_sups_read_Dirichlet_bc_NR(
             &(sys.bc_NR),
             filename,
             sys.cond.directory,
-            sys.fe.total_num_nodes,
+            sys.ned.total_num_dof,
             BLOCK_SIZE);
 
-    sys.vals.Aphi_time = (double *)calloc(sys.fe.total_num_nodes, sizeof(double));
-    sys.vals.Aphi_time_curr = (double *)calloc(sys.fe.total_num_nodes, sizeof(double));
+    sys.vals.Aphi_time = (double *)calloc(sys.ned.total_num_dof, sizeof(double));
+    sys.vals.Aphi_time_curr = (double *)calloc(sys.ned.total_num_dof, sizeof(double));
 
     /*for ROM *****************************************/
 	
@@ -715,7 +715,7 @@ int main (
 
 	ROM_std_hlpod_pre(
             &(sys.rom_v),
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
@@ -724,7 +724,7 @@ int main (
 
 	ROM_std_hlpod_pre(
             &(sys.rom_p),
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
@@ -733,7 +733,7 @@ int main (
 
 	ROM_std_hlpod_pre(
             &(sys.rom_sups),
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
@@ -799,7 +799,7 @@ int main (
 */
 	ROM_std_hlpod_offline_memory_allocation_snapmat(
 			&(sys.rom_v),
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             ((double)sys.vals.finish_time - t_hs),
             sys.vals.dt,
@@ -809,7 +809,7 @@ int main (
 
 	ROM_std_hlpod_offline_memory_allocation_snapmat(
 			&(sys.rom_p),
-			sys.fe.total_num_nodes,
+			sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             ((double)sys.vals.finish_time - t_hs),
             sys.vals.dt,
@@ -831,33 +831,33 @@ int main (
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
-            sys.fe.total_num_nodes);
+            sys.ned.total_num_dof);
  */      
         solver_fom_NR_Aphi_team21c_collect_snapmat(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
-            sys.fe.total_num_nodes);
+            sys.ned.total_num_dof);
 
 /*        
         solver_fom_NR_Aphi(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
-            sys.fe.total_num_nodes);
+            sys.ned.total_num_dof);
 */    
 /*
         solver_fom_NR_Aphi_collect_snapmat(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
-            sys.fe.total_num_nodes);
+            sys.ned.total_num_dof);
 */
-        log_accuracy_metrics_JA(
-            &sys, sys.vals.Aphi_time,
-            sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
+        //log_accuracy_metrics_JA(
+        //    &sys, sys.vals.Aphi_time,
+        //    sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
       
-        for(int i=0; i<sys.fe.total_num_nodes; ++i){
+        for(int i=0; i<sys.ned.total_num_dof; ++i){
             sys.vals.Aphi_time[i] = sys.vals.Aphi_time_curr[i];
         }
 
@@ -871,12 +871,12 @@ int main (
         // 可視化・ログ
         
         if (step % sys.vals.output_interval == 0) {
-            sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.fe.total_num_nodes);
-            sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
-            copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.vals.Aphi_time, sys.vals.V, sys.vals.phi, sys.fe.total_num_elems);
+            //sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.ned.total_num_dof);
+            //sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.ned.total_num_dof);
+            //copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.vals.Aphi_time, sys.vals.V, sys.vals.phi, sys.fe.total_num_elems);
 
-            BB_std_free_1d_double(sys.vals.V, sys.fe.total_num_nodes);
-            BB_std_free_1d_double(sys.vals.phi, sys.fe.total_num_nodes);
+            //BB_std_free_1d_double(sys.vals.V, sys.ned.total_num_dof);
+            //BB_std_free_1d_double(sys.vals.phi, sys.ned.total_num_dof);
 
             char fnode[BUFFER_SIZE];
             snprintf(fnode, BUFFER_SIZE, "B_node_%06d.vtk", step);
@@ -887,23 +887,24 @@ int main (
             //output_files(&sys, step, t);
         }
         
-/*
+
         if(step%1 == 0){
                 char fname[BUFFER_SIZE];
                 snprintf(fname, BUFFER_SIZE, "hot_start/%s.%d.dat", "velosity_pressure", monolis_mpi_get_global_my_rank());
-                hot_start_write_initialize_val(sys.vals.Aphi_time, sys.fe.total_num_nodes, 1, t, fname, sys.cond.directory);
+                hot_start_write_initialize_val(sys.vals.Aphi_time, sys.ned.total_num_dof, 1, t, fname, sys.cond.directory);
             }
         else{
         }
-*/
+
     }
 
     
-    ROM_std_hlpod_set_pod_modes_diag(
+    ROM_std_hlpod_set_pod_modes_Aphi(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
-		sys.fe.total_num_nodes,
+        &(sys.ned),
+		sys.ned.total_num_dof,
 		sys.monolis_com.n_internal_vertex,
 		1,
 		1,
@@ -919,7 +920,7 @@ int main (
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
-		sys.fe.total_num_nodes,
+		sys.ned.total_num_dof,
 		sys.monolis_com.n_internal_vertex,
 		1,
 		1,
@@ -928,11 +929,13 @@ int main (
 		sys.cond.directory);
 */
     /*for writing vtk*/
-    ROM_std_hlpod_read_pod_modes_diag(
+    ROM_std_hlpod_read_pod_modes_Aphi(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
-		sys.fe.total_num_nodes,
+        &(sys.fe),
+        &(sys.ned),
+		sys.ned.total_num_dof,
 		sys.monolis_com.n_internal_vertex,
 		1,
 		1,
@@ -943,7 +946,7 @@ int main (
 	ROM_sys_hlpod_fe_write_pod_modes_vtk_diag(
 		&(sys.fe),
 		&(sys.rom_sups),
-		sys.fe.total_num_nodes,
+		sys.ned.total_num_dof,
 		10,
 		10,
 		1,

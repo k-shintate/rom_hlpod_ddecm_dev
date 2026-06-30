@@ -686,6 +686,73 @@ void ROM_std_hlpod_read_podmodes_local_para(
     //exit(1);
 }
 
+void ROM_std_hlpod_read_podmodes_local_para(
+    HLPOD_VALUES*       hlpod_vals,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*         hlpod_meta,
+    const int           total_num_nodes,
+    const int           N_internal_vertex,
+    const int       num_modes,
+    const int       num_snapshots,
+    const int           num_2nd_subdomains,
+    const int           dof,
+    const double    rom_epsilon,
+    const char*         label,
+    const char*     directory)
+{
+    FILE* fp;
+    char fname[BUFFER_SIZE];
+    char id[BUFFER_SIZE];
+
+    double** S;
+    int n_internal_vertex;
+    const int myrank = monolis_mpi_get_global_my_rank();
+
+    hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, total_num_nodes*dof, num_modes * num_2nd_subdomains);
+    hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
+
+	//for arbit dof ddecm
+	hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
+	
+
+    printf("\nrank %d, total_num_nodes = %d, n_internal_vertex = %d, num_2nd_subdomains = %d\n", myrank, total_num_nodes, N_internal_vertex, num_2nd_subdomains);
+
+
+    int index = 0;
+    int index_row = 0;
+    int index_column = 0;
+
+    for(int m = 0; m < num_2nd_subdomains; m++){
+        int subdomain_id = hlpod_meta->subdomain_id[m];
+        n_internal_vertex = hlpod_mat->n_internal_vertex_subd[m];
+
+    	n_basis = 0;
+
+        printf("n_basis = %d\n", n_basis);
+
+        hlpod_mat->num_modes_internal[m] = n_basis;
+
+        S = BB_std_calloc_2d_double(S, n_internal_vertex*dof, n_basis);
+        ROM_std_hlpod_read_pod_modes_node(fp, S, dof, n_internal_vertex, n_basis, hlpod_meta->subdomain_id[m], label, directory);
+
+    	//for arbit dof ddecm
+	    for(int i = 0; i < n_internal_vertex; i++){
+			hlpod_mat->subdomain_id_in_nodes_internal[index_row + i][m] = m + 1;
+        }
+	
+
+        index_row += n_internal_vertex;
+        index_column += n_basis;
+    }
+
+    double t = monolis_get_time_global_sync();
+
+    hlpod_vals->num_modes = index_column;
+
+
+    //exit(1);
+}
+
 
 
 void ROM_std_hlpod_set_podmodes_global_para(

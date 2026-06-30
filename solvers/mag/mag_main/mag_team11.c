@@ -885,7 +885,7 @@ int main (
     }
 
     
-    ROM_std_hlpod_set_pod_modes_diag(
+    ROM_std_hlpod_set_pod_modes_Aphi(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),
@@ -914,7 +914,7 @@ int main (
 		sys.cond.directory);
 */
     /*for writing vtk*/
-    ROM_std_hlpod_read_pod_modes_diag(
+    ROM_std_hlpod_read_pod_modes_Aphi(
 		&(sys.rom_v),
 		&(sys.rom_p),
 		&(sys.rom_sups),

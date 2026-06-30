@@ -1089,13 +1089,13 @@ void solver_rom_NR_Aphi_team21a2(
     double* rvec = (double*)calloc((size_t)n_dof_total, sizeof(double));
     double* rvec_old = (double*)calloc((size_t)n_dof_total, sizeof(double));
 
-    double* A_delta   = BB_std_calloc_1d_double(A_delta,   sys.fe.total_num_nodes);
-    double* phi_delta = BB_std_calloc_1d_double(phi_delta, sys.fe.total_num_nodes);
-    double* A   = BB_std_calloc_1d_double(A,   sys.fe.total_num_nodes);
-    double* phi = BB_std_calloc_1d_double(phi, sys.fe.total_num_nodes);
-    double* A_old   = BB_std_calloc_1d_double(A_old,   sys.fe.total_num_nodes);
-    double* phi_old = BB_std_calloc_1d_double(phi_old, sys.fe.total_num_nodes);
-    copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), x_prev, A_old, phi_old, sys.fe.total_num_elems);
+    double* A_delta   = BB_std_calloc_1d_double(A_delta,   sys.ned.total_num_dof);
+    double* phi_delta = BB_std_calloc_1d_double(phi_delta, sys.ned.total_num_dof);
+    double* A   = BB_std_calloc_1d_double(A,   sys.ned.total_num_dof);
+    double* phi = BB_std_calloc_1d_double(phi, sys.ned.total_num_dof);
+    double* A_old   = BB_std_calloc_1d_double(A_old,   sys.ned.total_num_dof);
+    double* phi_old = BB_std_calloc_1d_double(phi_old, sys.ned.total_num_dof);
+    copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), x_prev, A_old, phi_old, sys.fe.total_num_elems);
 
     /* 初期値 */
     for(int i=0; i<n_dof_total; ++i){
@@ -1112,108 +1112,106 @@ void solver_rom_NR_Aphi_team21a2(
     int max_iter_NR = 1;
 
 
-        //debug_max_B_and_nu_core(&sys, x_curr, n_dof_total, it, step, t, sys.cond.directory);
+    //debug_max_B_and_nu_core(&sys, x_curr, n_dof_total, it, step, t, sys.cond.directory);
 
-        monolis_clear_mat_value_R(&(sys.monolis));
-        monolis_clear_mat_value_R(&(sys.monolis_rom));
-        monolis_com_initialize_by_self(&(sys.mono_com0));
+    monolis_clear_mat_value_R(&(sys.monolis));
+    monolis_clear_mat_value_R(&(sys.monolis_rom));
+    monolis_com_initialize_by_self(&(sys.mono_com0));
 
-        for(int i=0; i<n_dof_total; ++i){
-            sys.monolis.mat.R.B[i] = 0.0;
-            sys.monolis.mat.R.X[i] = 0.0;
-            //dx[i] = 0.0;
-        }
+    for(int i = 0; i < sys.ned.total_num_dof; ++i){
+        sys.monolis.mat.R.B[i] = 0.0;
+        sys.monolis.mat.R.X[i] = 0.0;
+        //dx[i] = 0.0;
+    }
 
-        /* 組み立て */
-        /*
-	set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                                x_curr, sys.vals.dt);
+    /* 組み立て */
+    /*
+    set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+                            x_curr, sys.vals.dt);
+    
+    set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+                            x_curr, sys.vals.dt);
+    */
 
-        
-        set_element_mat_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                                x_curr, sys.vals.dt);
-        */
+    monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
+    
+    set_element_vec_NR_Aphi_team21a02(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+                            x_prev, x_curr, sys.vals.dt, t);
+    apply_dirichlet_bc_ned_R(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
-        monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
-        
-
-	set_element_vec_NR_Aphi_team21c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                                x_prev, x_curr, sys.vals.dt, t);
-        apply_dirichlet_bc_for_A_and_phi_team21c(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
-
-        /* 残差ベクトルを保存（B = -F） */
+    /* 残差ベクトルを保存（B = -F） */
 //        if(it==0){
 //            for(int i=0; i<n_dof_total; ++i) rvec_old[i] = sys.monolis.mat.R.B[i];
- //       }
+//       }
 /*
-        ROM_std_hlpod_calc_reduced_mat(
-            &(sys.monolis),
-            &(sys.monolis_rom),
-            &(sys.monolis_com),
-            &(sys.mono_com0),
-            &(sys.mono_com_rom_solv),
-            &(sys.rom_sups),
-            sys.fe.total_num_nodes,
-            1);
+    ROM_std_hlpod_calc_reduced_mat(
+        &(sys.monolis),
+        &(sys.monolis_rom),
+        &(sys.monolis_com),
+        &(sys.mono_com0),
+        &(sys.mono_com_rom_solv),
+        &(sys.rom_sups),
+        sys.ned.total_num_dof,
+        1);
 */
-        ROM_std_hlpod_solve_ROM(
-            &(sys.monolis),
-            &(sys.monolis_rom),
-            &(sys.mono_com_rom_solv),
-            &(sys.rom_sups),
-            sys.fe.total_num_nodes,
-            1,
-            sys.vals.mat_max_iter,
-            sys.vals.mat_epsilon,
-            MONOLIS_ITER_BICGSTAB,
-            MONOLIS_PREC_DIAG);
+    ROM_std_hlpod_solve_ROM(
+        &(sys.monolis),
+        &(sys.monolis_rom),
+        &(sys.mono_com_rom_solv),
+        &(sys.rom_sups),
+        sys.ned.total_num_dof,
+        1,
+        sys.vals.mat_max_iter,
+        sys.vals.mat_epsilon,
+        MONOLIS_ITER_BICGSTAB,
+        MONOLIS_PREC_DIAG);
 
-        monolis_mpi_update_R(
-            &(sys.monolis_com),
-            sys.fe.total_num_nodes,
-            1,
-            sys.rom_sups.hlpod_vals.sol_vec);
+    monolis_mpi_update_R(
+        &(sys.monolis_com),
+        sys.ned.total_num_dof,
+        1,
+        sys.rom_sups.hlpod_vals.sol_vec);
 
-        /* Newton update */
-        //update_Aphi_NR(x_curr, dx, n_dof_total, relaxation);
-        update_Aphi_NR(x_curr, sys.rom_sups.hlpod_vals.sol_vec, n_dof_total, relaxation);
-
-
-
-        /* 残差ベクトルを保存（B = -F） */
-        for(int i=0; i<n_dof_total; ++i){
-            sys.monolis.mat.R.B[i] = 0.0;
-            sys.monolis.mat.R.X[i] = 0.0;
-        }
-
-        copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), x_curr, A, phi, sys.fe.total_num_elems);
-        copy_Aphi_to_V_phi_time2(&(sys.fe), &(sys.ned), sys.rom_sups.hlpod_vals.sol_vec, A_delta, phi_delta, sys.fe.total_num_elems);
-
-        char fnode[BUFFER_SIZE];
-        const char* fn1;
-        snprintf(fnode, BUFFER_SIZE, "B_node_rom_%06d.vtk", step);
-        fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
-        output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.rom_sups.hlpod_vals.sol_vec, fn1, sys.cond.directory);
+    /* Newton update */
+    //update_Aphi_NR(x_curr, dx, n_dof_total, relaxation);
+    update_Aphi_NR(x_curr, sys.rom_sups.hlpod_vals.sol_vec, n_dof_total, relaxation);
 
 
-            ROM_BB_vec_copy_1d(
-                A,
-                A_old,
-                sys.fe.total_num_nodes,
-                1);
+
+    /* 残差ベクトルを保存（B = -F） */
+    for(int i=0; i<n_dof_total; ++i){
+        sys.monolis.mat.R.B[i] = 0.0;
+        sys.monolis.mat.R.X[i] = 0.0;
+    }
+
+    copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), x_curr, A, phi, sys.fe.total_num_elems);
+    copy_Aphi_to_V_phi_time3(&(sys.fe), &(sys.ned), sys.rom_sups.hlpod_vals.sol_vec, A_delta, phi_delta, sys.fe.total_num_elems);
+
+    char fnode[BUFFER_SIZE];
+    const char* fn1;
+    snprintf(fnode, BUFFER_SIZE, "B_node_rom_%06d.vtk", step);
+    fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
+    output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.rom_sups.hlpod_vals.sol_vec, fn1, sys.cond.directory);
 
 
-    //free(dx);
-    free(rvec);
-    free(rvec_old);
+        ROM_BB_vec_copy_1d(
+            A,
+            A_old,
+            sys.ned.total_num_dof,
+            1);
 
 
-    BB_std_free_1d_double(A_delta,   sys.fe.total_num_nodes);
-    BB_std_free_1d_double(phi_delta, sys.fe.total_num_nodes);
-    BB_std_free_1d_double(A,         sys.fe.total_num_nodes);
-    BB_std_free_1d_double(phi,       sys.fe.total_num_nodes);
-    BB_std_free_1d_double(A_old,     sys.fe.total_num_nodes);
-    BB_std_free_1d_double(phi_old,   sys.fe.total_num_nodes);
+//free(dx);
+free(rvec);
+free(rvec_old);
+
+
+    BB_std_free_1d_double(A_delta,   sys.ned.total_num_dof);
+    BB_std_free_1d_double(phi_delta, sys.ned.total_num_dof);
+    BB_std_free_1d_double(A,         sys.ned.total_num_dof);
+    BB_std_free_1d_double(phi,       sys.ned.total_num_dof);
+    BB_std_free_1d_double(A_old,     sys.ned.total_num_dof);
+    BB_std_free_1d_double(phi_old,   sys.ned.total_num_dof);
 }
 
 
@@ -2257,9 +2255,14 @@ void ROM_std_hlpod_set_podmodes_local_para_Aphi(
     int* node_id_local;
     int n_internal_vertex_1stdd;
 
-    hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes)* 4, (num_modes_max_1 + num_modes_max_2));
+    if(ned->num_phi_elem > 0){
+        hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes), (num_modes_max_1 + num_modes_max_2));
+    }
+    else{
+        hlpod_mat->pod_modes = BB_std_calloc_2d_double(hlpod_mat->pod_modes, (total_num_nodes), (num_modes_max_1));
+    }
     hlpod_mat->num_modes_internal = BB_std_calloc_1d_int(hlpod_mat->num_modes_internal, num_2nd_subdomains);
-	//for arbit dof ddecm
+
 	hlpod_mat->subdomain_id_in_nodes_internal = BB_std_calloc_2d_int(hlpod_mat->subdomain_id_in_nodes_internal, total_num_nodes, num_2nd_subdomains);
 
     
@@ -2282,7 +2285,6 @@ void ROM_std_hlpod_set_podmodes_local_para_Aphi(
         index_column_v += num_modes_v[m];
         index_column += num_modes_v[m];
 
-        hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
 
         if(ned->num_phi_elem > 0){
             for(int j = 0; j < num_modes_p[m]; j++){
@@ -2299,6 +2301,16 @@ void ROM_std_hlpod_set_podmodes_local_para_Aphi(
                     }
                 }
             }
+
+            if(hits){
+                printf()
+                hlpod_mat->num_modes_internal[m] = num_modes_v[m] + num_modes_p[m];
+                index_column_p += num_modes_p[m];
+                index_column += num_modes_p[m];
+            }
+            else{
+                hlpod_mat->num_modes_internal[m] = num_modes_v[m];
+            }
         }
 
         for(int i = 0; i < n_internal_vertex_1stdd; i++){
@@ -2309,12 +2321,229 @@ void ROM_std_hlpod_set_podmodes_local_para_Aphi(
         hlpod_mat->n_internal_vertex_subd[m] = n_internal_vertex_1stdd;
 
         index_row += n_internal_vertex_1stdd;
-        index_column_p += num_modes_p[m];
-        index_column += num_modes_p[m];
     }
 
     hlpod_vals->num_modes = index_column;
 
+}
+
+void ROM_std_hlpod_set_podmodes_local_para_Aphi(
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*     hlpod_meta,
+    BBFE_DATA*      fe,
+    NEDELEC*        ned,
+    const int       total_num_nodes,
+    const int       n_internal_vertex,
+    double**        v,
+    double**        p,
+    int*            num_modes_v,
+    int*            num_modes_p,
+    const int       num_modes_max_1,
+    const int       num_modes_max_2,
+    const int       dof_1,
+    const int       dof_2,
+    const int       num_2nd_subdomains,
+    const char*     directory)
+{
+    (void)hlpod_meta;
+    (void)n_internal_vertex;
+    (void)dof_1;
+    (void)dof_2;
+    (void)directory;
+
+    if(ned->num_phi_elem > 0){
+        hlpod_mat->pod_modes =
+            BB_std_calloc_2d_double(
+                hlpod_mat->pod_modes,
+                total_num_nodes,
+                num_modes_max_1 + num_modes_max_2
+            );
+    }
+    else{
+        hlpod_mat->pod_modes =
+            BB_std_calloc_2d_double(
+                hlpod_mat->pod_modes,
+                total_num_nodes,
+                num_modes_max_1
+            );
+    }
+
+    hlpod_mat->num_modes_internal =
+        BB_std_calloc_1d_int(
+            hlpod_mat->num_modes_internal,
+            num_2nd_subdomains
+        );
+
+    hlpod_mat->subdomain_id_in_nodes_internal =
+        BB_std_calloc_2d_int(
+            hlpod_mat->subdomain_id_in_nodes_internal,
+            total_num_nodes,
+            num_2nd_subdomains
+        );
+
+    hlpod_mat->node_id =
+        BB_std_calloc_1d_int(
+            hlpod_mat->node_id,
+            total_num_nodes
+        );
+
+    /*
+     * ------------------------------------------------------------
+     * 高速化ポイント：
+     * Nedelec 接続に含まれる node_id を事前に記録する
+     * ------------------------------------------------------------
+     */
+    int* is_nedelec_node = NULL;
+
+    is_nedelec_node =
+        BB_std_calloc_1d_int(
+            is_nedelec_node,
+            total_num_nodes
+        );
+
+    if(ned->num_phi_elem > 0){
+
+        for(int e = 0; e < fe->total_num_elems; e++){
+
+            for(int k = 0; k < ned->local_num_edges; k++){
+
+                int node_id = ned->nedelec_conn_mat[e][k];
+
+                if(0 <= node_id && node_id < total_num_nodes){
+                    is_nedelec_node[node_id] = 1;
+                }
+            }
+        }
+    }
+
+    int index = 0;
+    int index_row = 0;
+
+    int index_column = 0;
+    int index_column_v = 0;
+    int index_column_p = 0;
+
+    for(int m = 0; m < num_2nd_subdomains; m++){
+
+        int n_internal_vertex_1stdd =
+            hlpod_mat->n_internal_vertex_subd[m];
+
+        /*
+         * ------------------------------------------------------------
+         * この部分領域 m に Nedelec 接続があるか判定
+         * ここでは全要素探索をしない
+         * ------------------------------------------------------------
+         */
+        int hits = 0;
+
+        if(ned->num_phi_elem > 0){
+
+            for(int i = 0; i < n_internal_vertex_1stdd; i++){
+
+                int node_id = index_row + i;
+
+                if(is_nedelec_node[node_id]){
+                    hits = 1;
+                    break;
+                }
+            }
+        }
+
+        /*
+         * ------------------------------------------------------------
+         * velocity POD modes
+         * 行方向にまとめてコピーする形にして少し高速化
+         * ------------------------------------------------------------
+         */
+        for(int i = 0; i < n_internal_vertex_1stdd; i++){
+
+            int row = index_row + i;
+
+            for(int j = 0; j < num_modes_v[m]; j++){
+
+                hlpod_mat->pod_modes[row][index_column + j]
+                    = v[row][index_column_v + j];
+            }
+        }
+
+        index_column_v += num_modes_v[m];
+        index_column   += num_modes_v[m];
+
+        /*
+         * ------------------------------------------------------------
+         * p / phi POD modes
+         * hits がある部分領域だけ格納
+         * ------------------------------------------------------------
+         */
+        if(ned->num_phi_elem > 0 && hits){
+
+            for(int i = 0; i < n_internal_vertex_1stdd; i++){
+
+                int node_id = index_row + i;
+
+                /*
+                 * この node が Nedelec 接続に含まれないならスキップ
+                 */
+                if(!is_nedelec_node[node_id]){
+                    continue;
+                }
+
+                for(int j = 0; j < num_modes_p[m]; j++){
+
+                    hlpod_mat->pod_modes[node_id][index_column + j]
+                        = p[node_id][index_column_p + j];
+                }
+            }
+
+            hlpod_mat->num_modes_internal[m]
+                = num_modes_v[m] + num_modes_p[m];
+
+            index_column   += num_modes_p[m];
+            index_column_p += num_modes_p[m];
+        }
+        else{
+
+            hlpod_mat->num_modes_internal[m]
+                = num_modes_v[m];
+
+            /*
+             * p 行列が全部分領域ぶんの列を持っている場合は必要。
+             * hits した部分領域だけ p が詰められているなら、
+             * この加算は削除してください。
+             */
+            if(ned->num_phi_elem > 0){
+                index_column_p += num_modes_p[m];
+            }
+        }
+
+        /*
+         * ------------------------------------------------------------
+         * 内部節点情報
+         * ------------------------------------------------------------
+         */
+        for(int i = 0; i < n_internal_vertex_1stdd; i++){
+
+            hlpod_mat->node_id[index] = index;
+            hlpod_mat->subdomain_id_in_nodes_internal[index][m] = m + 1;
+
+            index++;
+        }
+
+        hlpod_mat->n_internal_vertex_subd[m]
+            = n_internal_vertex_1stdd;
+
+        index_row += n_internal_vertex_1stdd;
+    }
+
+    hlpod_vals->num_modes = index_column;
+
+    /*
+     * is_nedelec_node を標準 calloc/free で確保している場合は free。
+     * BB_std_calloc_1d_int の対応する free 関数があるなら、
+     * プロジェクト側の free 関数に置き換えてください。
+     */
+    free(is_nedelec_node);
 }
 
 void ROM_std_hlpod_read_pod_modes_Aphi(
@@ -2572,7 +2801,7 @@ void ROM_std_hlpod_read_pod_modes_Aphi(
 }
 
 
-void ROM_std_hlpod_set_pod_modes_diag(
+void ROM_std_hlpod_set_pod_modes_Aphi(
         ROM* 		rom_v,
         ROM* 		rom_p,
         ROM* 		rom_sups,

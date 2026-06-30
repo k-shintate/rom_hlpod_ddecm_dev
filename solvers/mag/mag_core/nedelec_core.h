@@ -215,11 +215,11 @@ void BBFE_fluid_sups_read_Dirichlet_bc_NR(
         const int    block_size);
 
 void build_dirichlet_dof_mask_from_boundary_faces_tet_2nd(
-    const BBFE_DATA* fe,
-    const BBFE_BC*   bc,
-    const NEDELEC*   ned,
-    bool*            is_dir_dof,
-    int              total_num_dof);
+        const BBFE_DATA* fe,
+        const BBFE_BC*   bc,
+        const NEDELEC*   ned,
+        bool*            is_dir_dof,
+        int              total_num_dof);
 
 void BBFE_mag_pre(
 		BBFE_DATA*    fe,
@@ -252,6 +252,13 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
         MONOLIS*     	monolis,
         const char*     label,
         const char*		directory);
+
+void ROM_std_hlpod_set_nonzero_pattern_bcsr_ned(
+    MONOLIS*     	monolis,
+    NEDELEC *ned,
+    const char*     label,
+    const char*		directory);
+
 
 void BBFE_mag_pre_C(
 		BBFE_DATA*    fe,
@@ -292,3 +299,12 @@ void BBFE_mag_pre_2nd(
     const char*   directory,
     int           num_integ_points_each_axis,
     bool          manufactured_solution);
+
+void copy_Aphi_to_V_phi_time3(
+    BBFE_DATA* fe,
+    NEDELEC* ned,
+    double * Aphi,
+    double * V,
+    double * phi,
+    const int total_num_elems);
+

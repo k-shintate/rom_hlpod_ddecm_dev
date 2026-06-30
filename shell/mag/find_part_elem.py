@@ -61,7 +61,7 @@ def convert_graph1(graph1_file, graph2_map, ignore_order=True):
 
             matched_nodes = None
 
-            if elem_type == 24:
+            if elem_type == 10:
                 # 10節点要素の先頭4節点を使って照合
                 corner_nodes = cols[2:6]
                 key = make_key(corner_nodes, ignore_order)

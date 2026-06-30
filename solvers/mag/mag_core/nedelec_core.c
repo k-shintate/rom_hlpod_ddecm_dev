@@ -351,6 +351,29 @@ void copy_Aphi_to_V_phi_time2(
 
 }
 
+
+void copy_Aphi_to_V_phi_time3(
+    BBFE_DATA* fe,
+    NEDELEC* ned,
+    double * Aphi,
+    double * V,
+    double * phi,
+    const int total_num_elems)
+{
+    for(int i = 0; i < total_num_elems; i++){
+        for(int j = 0; j < ned->local_num_edges; j++){
+            V[ned->nedelec_conn[i][j]] = Aphi[ned->nedelec_conn_mat[i][j]];
+        }
+    }
+
+    for(int i = 0; i < total_num_elems; i++){
+        for(int j = 0; j < fe->local_num_nodes; j++){
+            phi[fe->conn[i][j]] = Aphi[ned->phi_conn[i][j]];
+        }
+    }
+}
+
+
 void compute_nedelec_edge_coords(
     BBFE_DATA* fe,
     NEDELEC* ned,
@@ -1219,7 +1242,7 @@ void read_phi_elem(
     //char id[BUFFER_SIZE];
     fscanf(fp, "%d", &(total_num_elems));
 
-    ned->num_phi_elem = total_num_elems;
+    //ned->num_phi_elem = total_num_elems;
 
     if(total_num_elems==0){
     }
@@ -1248,6 +1271,18 @@ void read_phi_elem(
             }
         }
     }
+
+	fclose(fp);
+
+    const char* fname;
+    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "graph_elem_conn.dat");
+	fp = BBFE_sys_read_fopen(fp, fname, directory);
+    int total_num_elems;
+    int tmp;
+    //char id[BUFFER_SIZE];
+    fscanf(fp, "%d", &(total_num_elems));
+
+    ned->num_phi_elem = total_num_elems;
 
 	fclose(fp);
 
@@ -1641,6 +1676,72 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_C(
 }
 
 
+void ROM_std_hlpod_set_nonzero_pattern_bcsr_ned(
+    MONOLIS*     	monolis,
+    NEDELEC *ned,
+    const char*     label,
+    const char*		directory)
+{
+    const char* fname;
+    FILE* fp;
+
+    int num_nodes;
+    int num_adj_nodes;
+    int tmp;
+    int sum = 0;
+
+    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, label);
+
+    fp = BBFE_sys_read_fopen(fp, fname, directory);
+
+    fscanf(fp, "%d", &(num_nodes));
+    ned->total_num_dof = num_nodes;
+    
+    for(int e = 0; e < num_nodes; e++) {
+        fscanf(fp, "%d", &(tmp));
+        fscanf(fp, "%d", &(num_adj_nodes) );
+
+        for(int i = 0; i < num_adj_nodes; i++) {
+            fscanf(fp, "%d", &(tmp));
+        }
+        sum += num_adj_nodes;
+    }
+    fclose(fp);
+    int* index = BB_std_calloc_1d_int(index, num_nodes + 1);
+    int* item = BB_std_calloc_1d_int(item, sum);
+
+    sum = 0;
+    int index_sum = 0;
+    index[0] = 0;
+
+    fname = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, label);
+    fp = BBFE_sys_read_fopen(fp, fname, directory);
+    fscanf(fp, "%d", &(num_nodes));
+
+    for(int i = 0; i < num_nodes; i++) {
+        fscanf(fp, "%d", &(tmp));
+        fscanf(fp, "%d", &(num_adj_nodes));
+
+        for(int j = 0; j < num_adj_nodes; j++) {
+            fscanf(fp, "%d", &(tmp));
+            item[index_sum] = tmp;
+            index_sum++;
+        }
+        sum += num_adj_nodes;
+        index[i + 1] = sum;
+    }	
+    fclose(fp);
+
+    monolis_get_nonzero_pattern_by_nodal_graph_R(
+        monolis,
+        num_nodes,
+        1,
+        index,
+        item);
+
+}
+
+
 void BBFE_mag_pre(
 		BBFE_DATA*    fe,
 		BBFE_BASIS*   basis,
@@ -1736,7 +1837,7 @@ void BBFE_mag_pre(
 			//"graph.dat",
             "graph_nedelec_elem_test.dat");
 
-    ROM_std_hlpod_set_nonzero_pattern_bcsr(
+    ROM_std_hlpod_set_nonzero_pattern_bcsr_ned(
             monolis,
             ned,
             //"graph.dat",
