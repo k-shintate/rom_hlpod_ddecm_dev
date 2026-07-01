@@ -112,7 +112,7 @@ int main (
             sys.fe.total_num_nodes,
             4);
 
-/*
+
     pre_surface(
             //&(sys.monolis_com_surf),
             &(sys.surf),
@@ -120,7 +120,7 @@ int main (
             sys.cond.directory,
             "surf_graph.dat",
             sys.vals.num_ip_each_axis);
-*/
+
     FILE* fp;
     if(monolis_mpi_get_global_my_rank() == 0){
             fp = BBFE_sys_write_fopen(fp, "cylinder_drag_force.txt", sys.cond.directory);
@@ -190,7 +190,7 @@ int main (
     while (t < sys.vals.finish_time) {
         t += sys.vals.dt;
         step += 1;
-
+/*
         //if(sys.rom_prm_p.hot_start == 1){
             char fname[BUFFER_SIZE];         
             snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
@@ -210,9 +210,10 @@ int main (
 
             BB_std_free_1d_double(val, 4*sys.fe.total_num_nodes);
         //}
-
+*/
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-        solver_fom_NR(sys, t, count);
+        //solver_fom_NR(sys, t, count);
+        solver_fom_VMS(sys, &(sys.surf), &(sys.basis_surf), t, count);
         count ++;
 
         if(step%sys.vals.output_interval == 0) {
@@ -220,6 +221,7 @@ int main (
             file_num += 1;
         }
         
+        /*
         if(step%10 == 0) {
             double D_out = 0.0; double L_out = 0.0; double Cd_out = 0.0; double Cl_out = 0.0;
             const double eU[3] = {1.0, 0.0, 0.0};
@@ -247,6 +249,7 @@ int main (
             ROM_std_hlpod_output_add_calc_time(Cl_out, t,
                             "cylinder_lift_coeff.txt", sys.cond.directory);
         }
+        */
                             
 
         BBFE_fluid_sups_add_velocity_pressure(
@@ -254,7 +257,7 @@ int main (
                         sys.vals.p,
                         sys.monolis.mat.R.X,
                         sys.fe.total_num_nodes);
-        
+        /*
         if(step%1000 == 0){
             output_result_file_karman_vortex_pressure(
                 &(sys.fe),
@@ -262,6 +265,7 @@ int main (
                 t,
                 sys.cond.directory);
         }
+        */
 
         if(step%1 == 0){
                 char fname[BUFFER_SIZE];

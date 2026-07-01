@@ -3328,7 +3328,53 @@ if (nrm_r / nrm_r_old < 1.0e-6) {
 }
 
 
+static int inv3x3(
+    const double A[3][3],
+    double invA[3][3]);
 
+static double det3x3_local(const double A[3][3])
+{
+    return
+        A[0][0]*(A[1][1]*A[2][2] - A[1][2]*A[2][1])
+      - A[0][1]*(A[1][0]*A[2][2] - A[1][2]*A[2][0])
+      + A[0][2]*(A[1][0]*A[2][1] - A[1][1]*A[2][0]);
+}
+
+static int hex8_grad_phys_metric(
+    const double xvol[8][3],
+    const double dN_dxi[8][3],
+    double dN_dx[8][3],
+    double J_inv[3][3],
+    double* Jacobian)
+{
+    double J[3][3] = {{0.0}};
+
+    for (int a = 0; a < 8; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                J[i][j] += xvol[a][i] * dN_dxi[a][j];
+            }
+        }
+    }
+
+    const double detJ = det3x3_local(J);
+    if (fabs(detJ) < 1.0e-300) return 0;
+
+    if (!inv3x3(J, J_inv)) return 0;
+
+    *Jacobian = fabs(detJ);
+
+    for (int a = 0; a < 8; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            dN_dx[a][i] = 0.0;
+            for (int j = 0; j < 3; ++j) {
+                dN_dx[a][i] += dN_dxi[a][j] * J_inv[j][i];
+            }
+        }
+    }
+
+    return 1;
+}
 
 static double dot3(const double a[3], const double b[3])
 {
@@ -3523,15 +3569,8 @@ static double compute_utau_all_yplus(
     return ut_norm / u_plus;
 }
 
-/*
- * Complete symmetric Nitsche local residual/tangent for one test i and trial j.
- *
- * Arguments needed beyond the old penalty-only version:
- *   p_q      : pressure at the face quadrature point
- *   grad_u_q : velocity gradient at the face quadrature point
- *   gradNi   : physical gradient of volume basis N_i at the face point
- *   gradNj   : physical gradient of volume basis N_j at the face point
- */
+
+
 static void wall_sym_nitsche_local_vecmat(
     double       vec_i[4],
     double       mat_ij[4][4],
@@ -3545,7 +3584,8 @@ static void wall_sym_nitsche_local_vecmat(
     const double grad_u_q[3][3],
     const double Uw[3],
     double       rho,
-    double       mu_eff,
+    double       mu_eff,       /* VMS 有効粘性: 法線 Nitsche 用 */
+    double       mu_wall_law,  /* 分子粘性: all-y+ wall law 用 */
     double       h_n,
     double       y_wall,
     double       dt,
@@ -3553,107 +3593,146 @@ static void wall_sym_nitsche_local_vecmat(
 {
     for (int a = 0; a < 4; ++a) {
         vec_i[a] = 0.0;
-        for (int b = 0; b < 4; ++b) mat_ij[a][b] = 0.0;
+        for (int b = 0; b < 4; ++b) {
+            mat_ij[a][b] = 0.0;
+        }
     }
 
-    const double eps = 1.0e-14;
+    const double eps = 1.0e-30;
+
+    const double dt_eff = fmax(dt, eps);
+    const double h_eff  = fmax(h_n, 1.0e-12);
+    const double y_eff  = fmax(y_wall, 1.0e-12);
 
     double ur[3];
-    for (int a = 0; a < 3; ++a) ur[a] = u_q[a] - Uw[a];
+    for (int a = 0; a < 3; ++a) {
+        ur[a] = u_q[a] - Uw[a];
+    }
 
     const double un = dot3(ur, n);
 
     double ut[3];
-    for (int a = 0; a < 3; ++a) ut[a] = ur[a] - un*n[a];
+    for (int a = 0; a < 3; ++a) {
+        ut[a] = ur[a] - un * n[a];
+    }
 
-    const double ut_norm = sqrt(dot3(ut, ut) + eps);
+    const double ut_norm = sqrt(dot3(ut, ut));
 
-    /* User-provided wall law. Treat beta_t as Picard-frozen in the tangent. */
-    const double u_tau = compute_utau_all_yplus(ut_norm, y_wall, rho, mu_eff);
+    /*
+      法線方向: no-penetration を symmetric Nitsche で課す。
+      接線方向: penalty ではなく all-y+ wall law にする。
+    */
+    const double beta_base =
+        mu_eff / h_eff + rho * h_eff / dt_eff;
 
-    const double beta_n = gamma_n * mu_eff / h_n;
-    const double beta_t = rho * u_tau * u_tau / sqrt(ut_norm*ut_norm + eps);
+    const double beta_n = gamma_n * beta_base;
+
+    /*
+      all-y+ wall law:
+        tau_w = rho * u_tau^2
+        tau_vec = beta_wall * u_t
+        beta_wall = rho * u_tau^2 / |u_t|
+
+      |u_t| -> 0 では Spalding の粘性底層極限として
+        beta_wall ≈ mu_wall_law / y_wall
+      を使う。
+    */
+    double beta_wall = mu_wall_law / y_eff;
+
+    if (ut_norm > 1.0e-14) {
+        const double u_tau =
+            compute_utau_all_yplus(
+                ut_norm,
+                y_eff,
+                rho,
+                mu_wall_law);
+
+        if (u_tau > 0.0) {
+            beta_wall = rho * u_tau * u_tau / ut_norm;
+        }
+    }
 
     const double gni = dot3(gradNi, n);
     const double gnj = dot3(gradNj, n);
 
-    /* t_nn(u,p) = n · sigma(u,p)n = -p + 2 mu eps_nn(u) */
     const double epsnn_u = eps_nn_from_grad_u(grad_u_q, n);
-    const double tnn_u = -p_q + 2.0 * mu_eff * epsnn_u;
+    const double tnn_u   = -p_q + 2.0 * mu_eff * epsnn_u;
 
     /*
-     * Residual terms:
-     * 1) - (sigma(u,p)n) · Pn(v)
-     * 2) - (sigma(v,q)n) · Pn(u-Uw)
-     * 3) + beta_n Pn(u-Uw) · Pn(v)
-     * 4) + beta_t Pt(u-Uw) · Pt(v)
-     */
+      Residual:
+        法線: symmetric Nitsche
+        接線: all-y+ wall law Robin
+    */
     for (int a = 0; a < 3; ++a) {
-        /* 1) consistency term */
+        /* normal consistency */
         vec_i[a] += dt * (-Ni * n[a] * tnn_u);
 
-        /* 2) adjoint-consistency term for velocity test v=Ni e_a:
-         *    n · 2mu eps(Ni e_a)n = 2mu n_a (gradNi·n)
-         */
+        /* normal adjoint consistency */
         vec_i[a] += dt * (-(2.0 * mu_eff * n[a] * gni) * un);
 
-        /* 3) normal penalty */
+        /* normal penalty */
         vec_i[a] += dt * (Ni * beta_n * un * n[a]);
 
-        /* 4) tangential Robin wall law */
-        vec_i[a] += dt * (Ni * beta_t * ut[a]);
+        /* tangential all-y+ wall law */
+        vec_i[a] += dt * (Ni * beta_wall * ut[a]);
     }
 
-    /* Pressure test q=Ni from adjoint-consistency:
-     * - sigma(0,Ni)n · (un n) = + Ni un
-     */
+    /*
+      pressure test q = Ni:
+      no-penetration Nitsche の pressure consistency
+    */
     vec_i[3] += dt * Ni * un;
 
-    /* Tangent matrix, Picard-frozen beta_t and mu_eff. */
+    /*
+      Tangent matrix.
+      まずは beta_wall を frozen とする Picard/Newton 混合。
+      max_iter_NR = 1 の現状ではこの方が安定。
+    */
     for (int a = 0; a < 3; ++a) {
         for (int b = 0; b < 3; ++b) {
-            const double Pt_ab = (a == b ? 1.0 : 0.0) - n[a]*n[b];
+            const double Pt_ab =
+                (a == b ? 1.0 : 0.0) - n[a] * n[b];
 
-            /* d/d u_b of consistency term:
-             * d t_nn(Nj e_b) = 2mu n_b (gradNj·n)
-             */
-            mat_ij[a][b] += dt * (-Ni * n[a] * (2.0 * mu_eff * n[b] * gnj));
+            /* d/d u_b of normal consistency term */
+            mat_ij[a][b] +=
+                dt * (-Ni * n[a] *
+                      (2.0 * mu_eff * n[b] * gnj));
 
-            /* d/d u_b of adjoint term via un */
-            mat_ij[a][b] += dt * (-(2.0 * mu_eff * n[a] * gni) * Nj * n[b]);
+            /* d/d u_b of normal adjoint-consistency term */
+            mat_ij[a][b] +=
+                dt * (-(2.0 * mu_eff * n[a] * gni) *
+                      Nj * n[b]);
 
-            /* penalty */
-            mat_ij[a][b] += dt * (Ni * Nj * beta_n * n[a]*n[b]);
+            /* normal penalty */
+            mat_ij[a][b] +=
+                dt * (Ni * Nj * beta_n * n[a] * n[b]);
 
-            /* tangential Robin */
-            mat_ij[a][b] += dt * (Ni * Nj * beta_t * Pt_ab);
+            /* tangential all-y+ wall law, frozen beta_wall */
+            mat_ij[a][b] +=
+                dt * (Ni * Nj * beta_wall * Pt_ab);
         }
 
-        /* d/dp of consistency term: d(-p)/dp = -Nj */
-        mat_ij[a][3] += dt * (Ni * Nj * n[a]);
+        /* d/dp of normal consistency term */
+        mat_ij[a][3] +=
+            dt * (Ni * Nj * n[a]);
     }
 
     for (int b = 0; b < 3; ++b) {
-        /* d/d u_b of pressure-test term Ni un */
-        mat_ij[3][b] += dt * (Ni * Nj * n[b]);
+        mat_ij[3][b] +=
+            dt * (Ni * Nj * n[b]);
     }
 }
 
-/*
- * Skeleton for replacing the old surface-node-only loop.
- * Key change: assemble over owner volume nodes i,j=0..7, not only surface nodes 0..3,
- * because the adjoint consistency term contains grad N_i and grad N_j on the face.
- *
- * You must adapt pressure access below: replace vals->p[gid] with your actual storage.
- */
+
 void set_wall_face_vecmat_symmetric_nitsche(
     MONOLIS* monolis,
-    const BBFE_DATA* surf,
     const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_vol,
+    const BBFE_DATA* surf,
     const BBFE_BASIS* basis_surf,
     const VALUES* vals,
     double rho,
-    double mu_eff,
+    double mu_molecular,
     const double Uw[3],
     double gamma_n)
 {
@@ -3664,28 +3743,103 @@ void set_wall_face_vecmat_symmetric_nitsche(
     dl_FaceEntry* volF = dl_build_vol_faces_sorted(fe, faces_map, &nVolF);
     dl_SurfFaceEntry* sF = dl_build_surf_faces_sorted(surf, &nSurfF);
 
+    if (volF == NULL || sF == NULL) {
+        fprintf(stderr, "[wall] failed to build face lists\n");
+        free(volF);
+        free(sF);
+        return;
+    }
+
     int* owner = (int*)malloc(sizeof(int) * nSurfF);
     int* lface = (int*)malloc(sizeof(int) * nSurfF);
 
     if (owner == NULL || lface == NULL) {
         fprintf(stderr, "malloc failed in set_wall_face_vecmat_symmetric_nitsche\n");
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
         exit(EXIT_FAILURE);
     }
 
-    for (int e = 0; e < nSurfF; ++e) { owner[e] = -1; lface[e] = -1; }
+    for (int e = 0; e < nSurfF; ++e) {
+        owner[e] = -1;
+        lface[e] = -1;
+    }
 
-    int matched = dl_build_owner_map_mergejoin(volF, nVolF, sF, nSurfF, owner, lface);
+    int matched = dl_build_owner_map_mergejoin(
+        volF,
+        nVolF,
+        sF,
+        nSurfF,
+        owner,
+        lface);
+
     if (matched != nSurfF) {
         fprintf(stderr, "[wall] surface-owner mapping failed\n");
-        free(volF); free(sF); free(owner); free(lface);
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
         return;
     }
 
     const int ns = surf->local_num_nodes;      /* normally 4 */
     const int np = basis_surf->num_integ_points;
 
+    if (ns != 4) {
+        fprintf(stderr, "[wall] set_wall_face_vecmat_symmetric_nitsche assumes QUAD4 surface, ns=%d\n", ns);
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
+        return;
+    }
+
     for (int es = 0; es < surf->total_num_elems; ++es) {
         const int ke = owner[es];
+
+        if (ke < 0) {
+            fprintf(stderr,
+                "[wall][BUG] owner not found: es=%d owner=%d\n",
+                es, ke);
+            exit(EXIT_FAILURE);
+        }
+
+        /* surface face と owner volume が本当に同じ4節点を共有しているか確認 */
+        {
+            int common = 0;
+
+            for (int a = 0; a < ns; ++a) {
+                const int sgid = surf->conn[es][a];
+
+                for (int b = 0; b < 8; ++b) {
+                    if (fe->conn[ke][b] == sgid) {
+                        ++common;
+                        break;
+                    }
+                }
+            }
+
+            if (common != ns) {
+                fprintf(stderr,
+                    "[wall][BUG] surface-owner mismatch: es=%d ke=%d common=%d/%d\n",
+                    es, ke, common, ns);
+
+                fprintf(stderr, "  surf nodes:");
+                for (int a = 0; a < ns; ++a) {
+                    fprintf(stderr, " %d", surf->conn[es][a]);
+                }
+
+                fprintf(stderr, "\n  vol nodes:");
+                for (int b = 0; b < 8; ++b) {
+                    fprintf(stderr, " %d", fe->conn[ke][b]);
+                }
+                fprintf(stderr, "\n");
+
+                exit(EXIT_FAILURE);
+            }
+        }
 
         double xsurf[4][3];
         for (int a = 0; a < ns; ++a) {
@@ -3703,76 +3857,230 @@ void set_wall_face_vecmat_symmetric_nitsche(
             xvol[a][2] = fe->x[gid][2];
         }
 
-        /* map each surface local node to owner-volume local node */
+        /*
+          owner HEX8 の代表長さ。
+          体積 VMS 側と同じ h_e = cbrt(volume) の考え方に合わせる。
+        */
+        double vol_e = 0.0;
+        for (int pp = 0; pp < basis_vol->num_integ_points; ++pp) {
+            vol_e += basis_vol->integ_weight[pp] * fe->geo[ke][pp].Jacobian;
+        }
+
+        double h_e_vms = cbrt(fabs(vol_e));
+        if (h_e_vms <= 1.0e-12) h_e_vms = 1.0e-12;
+
+        /*
+          map each surface local node to owner-volume local node.
+          通常は owner mapping が成功していれば必ず見つかるが、
+          防御的に face 全体を skip できる形にしておく。
+        */
         int s2v[4];
+        int ok_s2v = 1;
+
         for (int a = 0; a < ns; ++a) {
             s2v[a] = -1;
+
             int sgid = surf->conn[es][a];
+
             for (int b = 0; b < 8; ++b) {
-                if (fe->conn[ke][b] == sgid) { s2v[a] = b; break; }
+                if (fe->conn[ke][b] == sgid) {
+                    s2v[a] = b;
+                    break;
+                }
             }
+
             if (s2v[a] < 0) {
                 fprintf(stderr, "[wall] cannot map surface node to volume node\n");
-                continue;
+                ok_s2v = 0;
+                break;
             }
         }
+
+        if (!ok_s2v) continue;
 
         double xc[3] = {0.0, 0.0, 0.0};
         for (int a = 0; a < 8; ++a) {
-            xc[0] += xvol[a][0]; xc[1] += xvol[a][1]; xc[2] += xvol[a][2];
+            xc[0] += xvol[a][0];
+            xc[1] += xvol[a][1];
+            xc[2] += xvol[a][2];
         }
-        xc[0] /= 8.0; xc[1] /= 8.0; xc[2] /= 8.0;
+        xc[0] /= 8.0;
+        xc[1] /= 8.0;
+        xc[2] /= 8.0;
 
         double xf[3] = {0.0, 0.0, 0.0};
         for (int a = 0; a < ns; ++a) {
-            xf[0] += xsurf[a][0]; xf[1] += xsurf[a][1]; xf[2] += xsurf[a][2];
+            xf[0] += xsurf[a][0];
+            xf[1] += xsurf[a][1];
+            xf[2] += xsurf[a][2];
         }
-        xf[0] /= (double)ns; xf[1] /= (double)ns; xf[2] /= (double)ns;
+        xf[0] /= (double)ns;
+        xf[1] /= (double)ns;
+        xf[2] /= (double)ns;
 
-        double svec[3] = { xf[0]-xc[0], xf[1]-xc[1], xf[2]-xc[2] };
+        double svec[3] = {
+            xf[0] - xc[0],
+            xf[1] - xc[1],
+            xf[2] - xc[2]
+        };
 
         for (int p = 0; p < np; ++p) {
             double nrm[3];
-            dl_quad4_normal(xsurf, basis_surf->dN_dxi[p], basis_surf->dN_det[p], nrm);
+            dl_quad4_normal(
+                xsurf,
+                basis_surf->dN_dxi[p],
+                basis_surf->dN_det[p],
+                nrm);
 
             const double Jface = sqrt(dot3(nrm, nrm));
             if (Jface <= 1.0e-300) continue;
 
-            double n[3] = { nrm[0]/Jface, nrm[1]/Jface, nrm[2]/Jface };
-            if (dot3(n, svec) < 0.0) { n[0]*=-1.0; n[1]*=-1.0; n[2]*=-1.0; }
+            double n[3] = {
+                nrm[0] / Jface,
+                nrm[1] / Jface,
+                nrm[2] / Jface
+            };
 
-            /* Reference coordinate of this surface quadrature point inside owner HEX8. */
+            if (dot3(n, svec) < 0.0) {
+                n[0] *= -1.0;
+                n[1] *= -1.0;
+                n[2] *= -1.0;
+            }
+
+            /*
+              Reference coordinate of this surface quadrature point
+              inside owner HEX8.
+            */
             double xi3[3] = {0.0, 0.0, 0.0};
+
             for (int a = 0; a < ns; ++a) {
                 int lv = s2v[a];
                 double Na = basis_surf->N[p][a];
+
                 xi3[0] += Na * (double)SGN[lv][0];
                 xi3[1] += Na * (double)SGN[lv][1];
                 xi3[2] += Na * (double)SGN[lv][2];
             }
 
-            double Nv[8], dN_dxi[8][3], dN_dx[8][3];
-            hex8_shape_grad_ref(SGN, xi3, Nv, dN_dxi);
-            if (!hex8_grad_phys(xvol, dN_dxi, dN_dx)) continue;
+            double Nv[8];
+            double dN_dxi[8][3];
+            double dN_dx[8][3];
 
-            double u_q[3] = {0.0, 0.0, 0.0};
-            double p_q = 0.0;
+            double J_inv_face[3][3];
+            double Jacobian_face = 0.0;
+
+            hex8_shape_grad_ref(SGN, xi3, Nv, dN_dxi);
+
+            {
+                const double tol_xi = 1.0e-10;
+
+                int on_face = 0;
+                for (int d = 0; d < 3; ++d) {
+                    if (fabs(fabs(xi3[d]) - 1.0) < tol_xi) {
+                        on_face = 1;
+                    }
+                }
+
+                if (!on_face) {
+                    fprintf(stderr,
+                        "[wall][WARN] xi3 is not on HEX face: es=%d ke=%d xi=(%.15e %.15e %.15e)\n",
+                        es, ke, xi3[0], xi3[1], xi3[2]);
+                }
+            }
+
+            /* face に乗っていない volume node の Nv が 0 になっているか確認 */
+            {
+                int on_surface_node[8] = {0,0,0,0,0,0,0,0};
+
+                for (int a = 0; a < ns; ++a) {
+                    if (s2v[a] >= 0 && s2v[a] < 8) {
+                        on_surface_node[s2v[a]] = 1;
+                    }
+                }
+
+                for (int i = 0; i < 8; ++i) {
+                    if (!on_surface_node[i] && fabs(Nv[i]) > 1.0e-10) {
+                        fprintf(stderr,
+                            "[wall][WARN] off-face Nv not zero: es=%d ke=%d i=%d Nv=%.15e xi=(%.15e %.15e %.15e)\n",
+                            es, ke, i, Nv[i], xi3[0], xi3[1], xi3[2]);
+                    }
+                }
+            }
+
+
+
+            if (!hex8_grad_phys_metric(
+                    xvol,
+                    dN_dxi,
+                    dN_dx,
+                    J_inv_face,
+                    &Jacobian_face)) {
+                continue;
+            }
+
+            double u_q[3]     = {0.0, 0.0, 0.0};
+            double u_old_q[3] = {0.0, 0.0, 0.0};
+            double p_q        = 0.0;
+
             double grad_u_q[3][3] = {{0.0}};
+            double grad_p_q[3]    = {0.0, 0.0, 0.0};
 
             for (int a = 0; a < 8; ++a) {
                 int gid = fe->conn[ke][a];
+
                 for (int c = 0; c < 3; ++c) {
-                    u_q[c] += Nv[a] * vals->v[gid][c];
+                    u_q[c]     += Nv[a] * vals->v[gid][c];
+                    u_old_q[c] += Nv[a] * vals->v_old[gid][c];
+
                     for (int d = 0; d < 3; ++d) {
                         grad_u_q[c][d] += dN_dx[a][d] * vals->v[gid][c];
                     }
                 }
 
-                /* ADAPT THIS LINE to your pressure storage. */
                 p_q += Nv[a] * vals->p[gid];
+
+                for (int d = 0; d < 3; ++d) {
+                    grad_p_q[d] += dN_dx[a][d] * vals->p[gid];
+                }
             }
 
-            double h_n = fabs((xf[0]-xc[0])*n[0] + (xf[1]-xc[1])*n[1] + (xf[2]-xc[2])*n[2]);
+            /*
+              壁面求積点で VMS 有効粘性を計算する。
+              tau_face, tau_c_face はここでは直接使わないが、
+              BBFE_vms_mu_eff_tau の仕様上受け取る。
+            */
+            double* grad_u_ptr[3] = {
+                grad_u_q[0],
+                grad_u_q[1],
+                grad_u_q[2]
+            };
+
+            double mu_eff_face = mu_molecular;
+            double tau_face    = 0.0;
+            double tau_c_face  = 0.0;
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_face,
+                &tau_face,
+                &tau_c_face,
+                J_inv_face,
+                Jacobian_face,
+                h_e_vms,
+                u_q,
+                u_old_q,
+                grad_u_ptr,
+                grad_p_q,
+                rho,
+                mu_molecular,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+
+            double h_n =
+                fabs((xf[0] - xc[0]) * n[0]
+                   + (xf[1] - xc[1]) * n[1]
+                   + (xf[2] - xc[2]) * n[2]);
+
             if (h_n <= 1.0e-12) h_n = 1.0e-12;
 
             const double y_wall = h_n;
@@ -3781,35 +4089,74 @@ void set_wall_face_vecmat_symmetric_nitsche(
             for (int i = 0; i < 8; ++i) {
                 int gi = fe->conn[ke][i];
 
-                /* Residual: compute once per i. */
-                double vec_i[4], dummy_mat[4][4];
+                /*
+                  Residual: compute once per i.
+                  vec_i には Nitsche 残差 R_i が入る。
+                  既存コードと同じく RHS が -R の想定で -= する。
+                */
+                double vec_i[4];
+                double dummy_mat[4][4];
                 double zero_grad[3] = {0.0, 0.0, 0.0};
+
                 wall_sym_nitsche_local_vecmat(
-                    vec_i, dummy_mat,
-                    Nv[i], 0.0,
-                    dN_dx[i], zero_grad,
-                    n, u_q, p_q, grad_u_q, Uw,
-                    rho, mu_eff, h_n, y_wall, vals->dt, gamma_n);
+                    vec_i,
+                    dummy_mat,
+                    Nv[i],
+                    0.0,
+                    dN_dx[i],
+                    zero_grad,
+                    n,
+                    u_q,
+                    p_q,
+                    grad_u_q,
+                    Uw,
+                    rho,
+                    mu_eff_face,
+                    mu_molecular,
+                    h_n,
+                    y_wall,
+                    vals->dt,
+                    gamma_n);
 
                 for (int a = 0; a < 4; ++a) {
-                    /* If monolis RHS stores -R, use -=. If it stores R, use +=. */
-                    monolis->mat.R.B[4*gi + a] -= w * vec_i[a];
+                    monolis->mat.R.B[4 * gi + a] -= w * vec_i[a];
                 }
 
                 for (int j = 0; j < 8; ++j) {
                     int gj = fe->conn[ke][j];
-                    double dummy_vec[4], mat_ij[4][4];
+
+                    double dummy_vec[4];
+                    double mat_ij[4][4];
 
                     wall_sym_nitsche_local_vecmat(
-                        dummy_vec, mat_ij,
-                        Nv[i], Nv[j],
-                        dN_dx[i], dN_dx[j],
-                        n, u_q, p_q, grad_u_q, Uw,
-                        rho, mu_eff, h_n, y_wall, vals->dt, gamma_n);
+                        dummy_vec,
+                        mat_ij,
+                        Nv[i],
+                        Nv[j],
+                        dN_dx[i],
+                        dN_dx[j],
+                        n,
+                        u_q,
+                        p_q,
+                        grad_u_q,
+                        Uw,
+                        rho,
+                        mu_eff_face,
+                        mu_molecular,
+                        h_n,
+                        y_wall,
+                        vals->dt,
+                        gamma_n);
 
                     for (int a = 0; a < 4; ++a) {
                         for (int b = 0; b < 4; ++b) {
-                            monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, a, b, w*mat_ij[a][b]);
+                            monolis_add_scalar_to_sparse_matrix_R(
+                                monolis,
+                                gi,
+                                gj,
+                                a,
+                                b,
+                                w * mat_ij[a][b]);
                         }
                     }
                 }
@@ -3817,7 +4164,10 @@ void set_wall_face_vecmat_symmetric_nitsche(
         }
     }
 
-    free(volF); free(sF); free(owner); free(lface);
+    free(volF);
+    free(sF);
+    free(owner);
+    free(lface);
 }
 
 
@@ -3830,22 +4180,43 @@ void solver_fom_VMS(
 {
     const int ndof = sys.fe.total_num_nodes * 4;
 
-    if (monolis_mpi_get_global_my_rank() == 0) {
+    const int myrank    = monolis_mpi_get_global_my_rank();
+    const int comm_size = monolis_mpi_get_global_comm_size();
+
+    sys.vals.C_vms = 1.0e-2;
+    sys.vals.vms_cap_coeff = 1.0e-1;
+    //sys.vals.C_vms = 0.0;
+    //sys.vals.vms_cap_coeff = 0.0;
+
+    /*
+      main 関数側の収束判定に合わせる。
+      serial 実行では mono_com.n_internal_vertex が未設定の場合があるため、
+      1 MPI のときは total_num_nodes を内部節点数として扱う。
+    */
+    int num_internal_vtx;
+    if (comm_size == 1) {
+        num_internal_vtx = sys.fe.total_num_nodes;
+    }
+    else {
+        num_internal_vtx = sys.mono_com.n_internal_vertex;
+    }
+
+    if (myrank == 0) {
         printf("\n%s ----------------- Time step %d ----------------\n",
                CODENAME,
                step);
     }
 
-    double* rvec     = BB_std_calloc_1d_double(NULL, ndof);
+    /*
+      it = 0 の Newton 残差を保存し、
+      更新後残差との比 |r| / |r_old| で収束判定する。
+    */
     double* rvec_old = BB_std_calloc_1d_double(NULL, ndof);
 
-    const double rel_tol_v = 1.0e-6;
-    const double abs_tol_v = 1.0e-12;
-    const double rel_tol_p = 1.0e-6;
-    const double abs_tol_p = 1.0e-12;
-    const double tiny      = 1.0e-30;
+    const double tiny        = 1.0e-30;
+    const double eps_NR      = 1.0e-6;
+    const int    max_iter_NR = 20;
 
-    const int max_iter_NR = 20;
     int converged = 0;
 
     /*
@@ -3860,22 +4231,18 @@ void solver_fom_VMS(
     */
     const double gamma_n = 20.0;
 
-    /*
-      現在の set_wall_face_vecmat_symmetric_nitsche は
-      壁面全体でスカラーの mu_eff を受け取る設計。
-      まずは分子粘性を渡す。
-      VMS 粘性込みにしたい場合は、後述の注意を参照。
-    */
-    const double mu_wall = sys.vals.viscosity;
-
     for (int it = 0; it < max_iter_NR; ++it) {
-        if (monolis_mpi_get_global_my_rank() == 0) {
+        if (myrank == 0) {
             printf("\n%s ----------------- Time step %d : NR step %d ----------------\n",
                    CODENAME,
                    step,
                    it);
         }
 
+        /*
+          Newton-Raphson 用の接線行列・残差ベクトルを作成。
+          B = -F として扱う。
+        */
         monolis_clear_mat_value_R(&(sys.monolis));
 
         for (int i = 0; i < ndof; ++i) {
@@ -3914,14 +4281,16 @@ void solver_fom_VMS(
           壁面境界：Nitsche + all-y+ 壁関数
           Dirichlet BC を入れる前に追加する。
         */
+       
         set_wall_face_vecmat_symmetric_nitsche(
             &(sys.monolis),
-            surf_wall,
             &(sys.fe),
+            &(sys.basis),
+            surf_wall,
             basis_wall,
             &(sys.vals),
             sys.vals.density,
-            mu_wall,
+            sys.vals.viscosity,
             Uw,
             gamma_n);
 
@@ -3936,8 +4305,8 @@ void solver_fom_VMS(
             sys.monolis.mat.R.B);
 
         /*
-          初回 NR の残差ベクトルを保存。
-          B = -F として扱う。
+          初回 Newton 反復時の残差を保存。
+          main 関数側の store_initial_NR_residual と同じ役割。
         */
         if (it == 0) {
             for (int i = 0; i < ndof; ++i) {
@@ -3945,13 +4314,16 @@ void solver_fom_VMS(
             }
         }
 
+        /*
+          線形ソルバで Newton 修正量を解く。
+        */
         ROM_monowrap_solve(
             &(sys.monolis),
             &(sys.mono_com),
             sys.monolis.mat.R.X,
             MONOLIS_ITER_BICGSAFE,
             MONOLIS_PREC_DIAG,
-            20000,
+            sys.vals.mat_max_iter,
             sys.vals.mat_epsilon);
 
         BBFE_fluid_sups_renew_velocity(
@@ -3973,6 +4345,9 @@ void solver_fom_VMS(
 
         /*
           更新後の残差を再評価する。
+          収束判定用なので、接線行列は不要。
+          ただし set_wall_face_vecmat_symmetric_nitsche は行列も足す設計なので、
+          clear 後に呼び出して、ここでは B だけを評価に使う。
         */
         monolis_clear_mat_value_R(&(sys.monolis));
 
@@ -3993,19 +4368,15 @@ void solver_fom_VMS(
             &(sys.basis),
             &(sys.vals));
 
-        /*
-          更新後の壁面 Nitsche 残差も再評価する。
-          この関数は行列も足すが、この時点では解かないので
-          行列側は実質使われない。
-        */
         set_wall_face_vecmat_symmetric_nitsche(
             &(sys.monolis),
-            surf_wall,
             &(sys.fe),
+            &(sys.basis),
+            surf_wall,
             basis_wall,
             &(sys.vals),
             sys.vals.density,
-            mu_wall,
+            sys.vals.viscosity,
             Uw,
             gamma_n);
 
@@ -4016,165 +4387,49 @@ void solver_fom_VMS(
             &(sys.bc_NR),
             sys.monolis.mat.R.B);
 
-        for (int i = 0; i < ndof; ++i) {
-            rvec[i] = sys.monolis.mat.R.B[i];
-        }
-
-        double norm_v = calc_internal_norm_2d(
-            sys.vals.v,
-            sys.mono_com.n_internal_vertex,
-            3);
-
-        double norm_delta_v = calc_internal_norm_2d(
-            sys.vals.delta_v,
-            sys.mono_com.n_internal_vertex,
-            3);
-
+        /*
+          main 関数側の evaluate_NR_residual と同じ考え方で、
+          内部自由度だけの二乗和を取り、MPI では総和する。
+        */
         double norm_r_old = calc_internal_norm_1d(
             rvec_old,
-            sys.mono_com.n_internal_vertex * 4,
+            num_internal_vtx * 4,
             1);
 
         double norm_r = calc_internal_norm_1d(
-            rvec,
-            sys.mono_com.n_internal_vertex * 4,
+            sys.monolis.mat.R.B,
+            num_internal_vtx * 4,
             1);
 
-        /*
-          圧力の L2 ノルム。
-          内部自由度のみ。
-        */
-        double norm_p       = 0.0;
-        double norm_delta_p = 0.0;
+        if (comm_size != 1) {
+            monolis_allreduce_R(
+                1,
+                &norm_r_old,
+                MONOLIS_MPI_SUM,
+                sys.mono_com.comm);
 
-        for (int ii = 0; ii < sys.mono_com.n_internal_vertex; ++ii) {
-            const double pv  = sys.vals.p[ii];
-            const double dpv = sys.vals.delta_p[ii];
-
-            norm_p       += pv  * pv;
-            norm_delta_p += dpv * dpv;
+            monolis_allreduce_R(
+                1,
+                &norm_r,
+                MONOLIS_MPI_SUM,
+                sys.mono_com.comm);
         }
 
-        /*
-          L∞ ノルム。
-        */
-        double linf_delta_v_local = 0.0;
-        double linf_delta_p_local = 0.0;
-
-        for (int i_node = 0; i_node < sys.mono_com.n_internal_vertex; ++i_node) {
-            for (int d = 0; d < 3; ++d) {
-                const double av = fabs(sys.vals.delta_v[i_node][d]);
-                if (av > linf_delta_v_local) {
-                    linf_delta_v_local = av;
-                }
-            }
-
-            const double ap = fabs(sys.vals.delta_p[i_node]);
-            if (ap > linf_delta_p_local) {
-                linf_delta_p_local = ap;
-            }
-        }
-
-        /*
-          MPI 集約。
-          L2 は SUM、L∞ は MAX。
-        */
-        monolis_allreduce_R(
-            1,
-            &norm_v,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &norm_delta_v,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &norm_p,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &norm_delta_p,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &norm_r,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &norm_r_old,
-            MONOLIS_MPI_SUM,
-            sys.mono_com.comm);
-
-        double linf_delta_v = linf_delta_v_local;
-        double linf_delta_p = linf_delta_p_local;
-
-        monolis_allreduce_R(
-            1,
-            &linf_delta_v,
-            MONOLIS_MPI_MAX,
-            sys.mono_com.comm);
-
-        monolis_allreduce_R(
-            1,
-            &linf_delta_p,
-            MONOLIS_MPI_MAX,
-            sys.mono_com.comm);
-
-        const double nrm_v     = sqrt(norm_v);
-        const double nrm_dv    = sqrt(norm_delta_v);
-        const double nrm_p     = sqrt(norm_p);
-        const double nrm_dp    = sqrt(norm_delta_p);
-        const double nrm_r     = sqrt(norm_r);
         const double nrm_r_old = sqrt(norm_r_old);
+        const double nrm_r     = sqrt(norm_r);
+        const double rel_r     = nrm_r / fmax(nrm_r_old, tiny);
 
-        const double denom_v = fmax(nrm_v, tiny);
-        const double denom_p = fmax(nrm_p, tiny);
-        const double denom_r = fmax(nrm_r_old, tiny);
-
-        const double rel_dv = nrm_dv / denom_v;
-        const double rel_dp = nrm_dp / denom_p;
-        const double rel_r  = nrm_r  / denom_r;
-
-        const int conv_v =
-            (nrm_dv <= abs_tol_v) ||
-            (rel_dv <= rel_tol_v) ||
-            (linf_delta_v <= abs_tol_v);
-
-        const int conv_p =
-            (nrm_dp <= abs_tol_p) ||
-            (rel_dp <= rel_tol_p) ||
-            (linf_delta_p <= abs_tol_p);
-
-        if (monolis_mpi_get_global_my_rank() == 0) {
-            printf("[NR %2d] ||dv||2=%.3e  ||v||2=%.3e  rel=%.3e  Linf(dv)=%.3e\n",
-                   it,
-                   nrm_dv,
-                   nrm_v,
-                   rel_dv,
-                   linf_delta_v);
-
-            printf("[NR %2d] ||dp||2=%.3e  ||p||2=%.3e  rel=%.3e  Linf(dp)=%.3e   |r_old|=%.3e  |r|=%.3e  |r|/|r_old|=%.3e\n",
-                   it,
-                   nrm_dp,
-                   nrm_p,
-                   rel_dp,
-                   linf_delta_p,
-                   nrm_r_old,
+        if (myrank == 0) {
+            printf(" residual total    : nrm = %e, old = %e, rel = %e\n",
                    nrm_r,
+                   nrm_r_old,
                    rel_r);
         }
 
-        if (conv_v && conv_p) {
+        /*
+          main 関数側と同じく、初回残差に対する相対残差で収束判定する。
+        */
+        if (rel_r < eps_NR) {
             double max_du = 0.0;
 
             for (int ii = 0; ii < sys.fe.total_num_nodes; ++ii) {
@@ -4188,7 +4443,12 @@ void solver_fom_VMS(
                 }
             }
 
-            if (monolis_mpi_get_global_my_rank() == 0) {
+            if (myrank == 0) {
+                printf("[step %d] NR converged at it = %d: |r|/|r_old| = %.6e\n",
+                       step,
+                       it,
+                       rel_r);
+
                 printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n",
                        step,
                        max_du);
@@ -4206,13 +4466,12 @@ void solver_fom_VMS(
     }
 
     if (!converged) {
-        if (monolis_mpi_get_global_my_rank() == 0) {
+        if (myrank == 0) {
             printf("[step %d] WARNING: NR did not converge within %d iterations.\n",
                    step,
                    max_iter_NR);
         }
     }
 
-    BB_std_free_1d_double(rvec, ndof);
     BB_std_free_1d_double(rvec_old, ndof);
 }

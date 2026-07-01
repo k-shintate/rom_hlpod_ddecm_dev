@@ -7,7 +7,7 @@ e=5
 ep=5
 
 #並列計算領域数 (=並列数)
-num_parallel=(1)
+num_parallel=(8)
 
 for np in "${num_parallel[@]}"
 do

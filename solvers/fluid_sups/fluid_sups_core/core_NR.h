@@ -320,3 +320,20 @@ void set_element_vec_NR_nonlinear_VMS(
     BBFE_DATA* fe,
     BBFE_BASIS* basis,
     VALUES* vals);
+
+void BBFE_vms_mu_eff_tau(
+    double*      mu_eff,
+    double*      tau,
+    double*      tau_c,
+    const double J_inv[3][3],
+    const double Jacobian,
+    const double h_e,
+    const double u[3],
+    const double u_old[3],
+    double**     grad_u,
+    const double grad_p[3],
+    const double rho,
+    const double mu,
+    const double dt,
+    const double C_vms,
+    const double cap_coeff);

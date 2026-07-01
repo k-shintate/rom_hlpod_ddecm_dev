@@ -3,7 +3,7 @@ FC = mpif90
 
 CFLAGS   := -g -O3
 LDFLAGS  :=
-INCLUDES := -I/usr/local/include -I./../../../test_thermal/submodule/monolis/include
+INCLUDES := -I/usr/local/include -I/usr/include/mkl -I./../../../test_thermal/submodule/monolis/include
 LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lscalapack -llapack -lblas -lmkl_rt
 
 

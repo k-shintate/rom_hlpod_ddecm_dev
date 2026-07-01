@@ -391,3 +391,11 @@ void set_wall_face_vecmat_symmetric_nitsche(
     double mu_eff,
     const double Uw[3],
     double gamma_n);
+
+
+void solver_fom_VMS(
+    FE_SYSTEM        sys,
+    const BBFE_DATA* surf_wall,
+    const BBFE_BASIS* basis_wall,
+    double           t,
+    const int        step);

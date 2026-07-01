@@ -191,82 +191,6 @@ void BBFE_elemmat_fluid_mat_rom_linear(
     mat[3][3] += 0.0;
 }
 
-
-void BBFE_elemmat_fluid_mat_rom_linear_withoutmass(
-    double         mat[4][4],
-    const double   J_inv[3][3],
-    const double   N_i,
-    const double   N_j,
-    const double   grad_N_i[3],
-    const double   grad_N_j[3],
-    const double   v[3],
-    double**       grad_u,
-    const double   grad_p[3],
-    const double   density,
-    const double   viscosity,
-    const double   tau,
-    const double   tau_c,
-    const double   dt,
-    const double   du_time[3])
-{
-    for (int r = 0; r < 4; ++r) {
-        for (int c = 0; c < 4; ++c) {
-            mat[r][c] = 0.0;
-        }
-    }
-
-    /* mass */
-    const double M = density * N_i * N_j;
-
-    /* viscous */
-    const double gNi_dot_gNj =
-        grad_N_i[0]*grad_N_j[0] +
-        grad_N_i[1]*grad_N_j[1] +
-        grad_N_i[2]*grad_N_j[2];
-
-    const double D_11 = dt * viscosity * (gNi_dot_gNj + grad_N_i[0]*grad_N_j[0]);
-    const double D_12 = dt * viscosity * (grad_N_i[0]*grad_N_j[1]);
-    const double D_13 = dt * viscosity * (grad_N_i[0]*grad_N_j[2]);
-
-    const double D_21 = dt * viscosity * (grad_N_i[1]*grad_N_j[0]);
-    const double D_22 = dt * viscosity * (gNi_dot_gNj + grad_N_i[1]*grad_N_j[1]);
-    const double D_23 = dt * viscosity * (grad_N_i[1]*grad_N_j[2]);
-
-    const double D_31 = dt * viscosity * (grad_N_i[2]*grad_N_j[0]);
-    const double D_32 = dt * viscosity * (grad_N_i[2]*grad_N_j[1]);
-    const double D_33 = dt * viscosity * (gNi_dot_gNj + grad_N_i[2]*grad_N_j[2]);
-
-    /* pressure-velocity Galerkin */
-    const double G1 = -dt * grad_N_i[0] * N_j;
-    const double G2 = -dt * grad_N_i[1] * N_j;
-    const double G3 = -dt * grad_N_i[2] * N_j;
-
-    /* continuity Galerkin */
-    const double C1 =  dt * N_i * grad_N_j[0];
-    const double C2 =  dt * N_i * grad_N_j[1];
-    const double C3 =  dt * N_i * grad_N_j[2];
-
-    mat[0][0] +=  D_11;
-    mat[0][1] +=     D_12;
-    mat[0][2] +=     D_13;
-    mat[0][3] +=     G1;
-
-    mat[1][0] +=     D_21;
-    mat[1][1] +=  D_22;
-    mat[1][2] +=     D_23;
-    mat[1][3] +=     G2;
-
-    mat[2][0] +=     D_31;
-    mat[2][1] +=     D_32;
-    mat[2][2] +=  D_33;
-    mat[2][3] +=     G3;
-
-    mat[3][0] += C1;
-    mat[3][1] += C2;
-    mat[3][2] += C3;
-    mat[3][3] += 0.0;
-}
-
 void BBFE_elemmat_fluid_mat_rom_nonlinear(
     double         mat[4][4],
     const double   J_inv[3][3],
@@ -474,6 +398,82 @@ void BBFE_elemmat_fluid_mat_rom_nonlinear(
         
         }
     }
+}
+
+
+void BBFE_elemmat_fluid_mat_rom_linear_withoutmass(
+    double         mat[4][4],
+    const double   J_inv[3][3],
+    const double   N_i,
+    const double   N_j,
+    const double   grad_N_i[3],
+    const double   grad_N_j[3],
+    const double   v[3],
+    double**       grad_u,
+    const double   grad_p[3],
+    const double   density,
+    const double   viscosity,
+    const double   tau,
+    const double   tau_c,
+    const double   dt,
+    const double   du_time[3])
+{
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            mat[r][c] = 0.0;
+        }
+    }
+
+    /* mass */
+    const double M = density * N_i * N_j;
+
+    /* viscous */
+    const double gNi_dot_gNj =
+        grad_N_i[0]*grad_N_j[0] +
+        grad_N_i[1]*grad_N_j[1] +
+        grad_N_i[2]*grad_N_j[2];
+
+    const double D_11 = dt * viscosity * (gNi_dot_gNj + grad_N_i[0]*grad_N_j[0]);
+    const double D_12 = dt * viscosity * (grad_N_i[0]*grad_N_j[1]);
+    const double D_13 = dt * viscosity * (grad_N_i[0]*grad_N_j[2]);
+
+    const double D_21 = dt * viscosity * (grad_N_i[1]*grad_N_j[0]);
+    const double D_22 = dt * viscosity * (gNi_dot_gNj + grad_N_i[1]*grad_N_j[1]);
+    const double D_23 = dt * viscosity * (grad_N_i[1]*grad_N_j[2]);
+
+    const double D_31 = dt * viscosity * (grad_N_i[2]*grad_N_j[0]);
+    const double D_32 = dt * viscosity * (grad_N_i[2]*grad_N_j[1]);
+    const double D_33 = dt * viscosity * (gNi_dot_gNj + grad_N_i[2]*grad_N_j[2]);
+
+    /* pressure-velocity Galerkin */
+    const double G1 = -dt * grad_N_i[0] * N_j;
+    const double G2 = -dt * grad_N_i[1] * N_j;
+    const double G3 = -dt * grad_N_i[2] * N_j;
+
+    /* continuity Galerkin */
+    const double C1 =  dt * N_i * grad_N_j[0];
+    const double C2 =  dt * N_i * grad_N_j[1];
+    const double C3 =  dt * N_i * grad_N_j[2];
+
+    mat[0][0] +=  D_11;
+    mat[0][1] +=     D_12;
+    mat[0][2] +=     D_13;
+    mat[0][3] +=     G1;
+
+    mat[1][0] +=     D_21;
+    mat[1][1] +=  D_22;
+    mat[1][2] +=     D_23;
+    mat[1][3] +=     G2;
+
+    mat[2][0] +=     D_31;
+    mat[2][1] +=     D_32;
+    mat[2][2] +=  D_33;
+    mat[2][3] +=     G3;
+
+    mat[3][0] += C1;
+    mat[3][1] += C2;
+    mat[3][2] += C3;
+    mat[3][3] += 0.0;
 }
 
 void BBFE_elemmat_fluid_vec_rom_linear(
@@ -1472,7 +1472,6 @@ void set_element_mat_NR_nonlinear(
                         fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
                         v_ip[p], grad_v_ip[p], grad_p_ip[p],
                         vals->density, vals->viscosity, tau, tau_c, vals->dt, du_time);
-
 
                     for (int a = 0; a < 4; ++a) {
                         for (int b = 0; b < 4; ++b) {
@@ -5356,7 +5355,7 @@ static double BBFE_vms_nu_quasistatic_residual(
 }
 
 
-static void BBFE_vms_mu_eff_tau(
+void BBFE_vms_mu_eff_tau(
     double*      mu_eff,
     double*      tau,
     double*      tau_c,
@@ -5403,6 +5402,379 @@ static void BBFE_vms_mu_eff_tau(
         BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
             J_inv, Jacobian, rho, *mu_eff, u, dt);
 }
+
+static void BBFE_vms_mu_eff_derivative_qs(
+    double       dmu_duj[3],
+    double*      dmu_dpj,
+    const double J_inv[3][3],
+    const double Jacobian,
+    const double h_e,
+    const double u[3],
+    const double u_old[3],
+    double**     grad_u,
+    const double grad_p[3],
+    const double rho,
+    const double mu_mol,
+    const double dt,
+    const double C_vms,
+    const double cap_coeff,
+    const double N_j,
+    const double grad_N_j[3])
+{
+    const double eps = 1.0e-30;
+
+    for (int k = 0; k < 3; ++k) {
+        dmu_duj[k] = 0.0;
+    }
+    *dmu_dpj = 0.0;
+
+    if (rho <= eps || dt <= eps || h_e <= eps || C_vms <= 0.0) {
+        return;
+    }
+
+    double rM[3];
+    double rC;
+
+    BBFE_vms_strong_residual_qs(
+        rM,
+        &rC,
+        u,
+        u_old,
+        grad_u,
+        grad_p,
+        rho,
+        dt);
+
+    const double r_norm = sqrt(
+        rM[0]*rM[0] +
+        rM[1]*rM[1] +
+        rM[2]*rM[2] + eps);
+
+    const double u_norm = sqrt(
+        u[0]*u[0] +
+        u[1]*u[1] +
+        u[2]*u[2] + eps);
+
+    /*
+      tau0 は分子粘性 mu_mol で作る。
+      これは BBFE_vms_mu_eff_tau() と合わせる。
+    */
+    const double tau0 =
+        BBFE_elemmat_fluid_sups_coef_metric_tensor(
+            J_inv,
+            Jacobian,
+            rho,
+            mu_mol,
+            u,
+            dt);
+
+    /*
+      tau0 の速度微分。
+      圧力には直接依存しない。
+    */
+    double dtau0_duj[3];
+    double dummy_dtauc[3];
+
+    BBFE_elemmat_fluid_sups_coef_metric_tensor_derivative(
+        dtau0_duj,
+        dummy_dtauc,
+        J_inv,
+        Jacobian,
+        rho,
+        mu_mol,
+        u,
+        dt,
+        N_j);
+
+    const double nu_raw = C_vms * h_e * tau0 * r_norm;
+    const double nu_cap = cap_coeff * h_e * u_norm;
+
+    const int use_cap = (nu_raw > nu_cap);
+
+    const double inv_dt = 1.0 / fmax(dt, eps);
+
+    const double u_dot_gradNj =
+        u[0]*grad_N_j[0] +
+        u[1]*grad_N_j[1] +
+        u[2]*grad_N_j[2];
+
+    /*
+      velocity columns
+    */
+    for (int k = 0; k < 3; ++k) {
+        double dnu = 0.0;
+
+        if (!use_cap) {
+            double drM[3];
+
+            for (int a = 0; a < 3; ++a) {
+                drM[a] =
+                    ((a == k) ? N_j * inv_dt : 0.0)
+                  + N_j * grad_u[a][k]
+                  + ((a == k) ? u_dot_gradNj : 0.0);
+            }
+
+            const double dr_norm =
+                (rM[0]*drM[0] +
+                 rM[1]*drM[1] +
+                 rM[2]*drM[2]) / r_norm;
+
+            dnu =
+                C_vms * h_e *
+                (dtau0_duj[k] * r_norm + tau0 * dr_norm);
+        }
+        else {
+            /*
+              cap branch:
+              nu_vms = cap_coeff * h_e * |u|
+            */
+            dnu = cap_coeff * h_e * N_j * u[k] / u_norm;
+        }
+
+        dmu_duj[k] = rho * dnu;
+    }
+
+    /*
+      pressure column
+    */
+    if (!use_cap) {
+        double drM_dp[3] = {
+            grad_N_j[0] / rho,
+            grad_N_j[1] / rho,
+            grad_N_j[2] / rho
+        };
+
+        const double dr_norm_dp =
+            (rM[0]*drM_dp[0] +
+             rM[1]*drM_dp[1] +
+             rM[2]*drM_dp[2]) / r_norm;
+
+        const double dnu_dp =
+            C_vms * h_e * tau0 * dr_norm_dp;
+
+        *dmu_dpj = rho * dnu_dp;
+    }
+    else {
+        *dmu_dpj = 0.0;
+    }
+}
+
+
+static void BBFE_sups_tau_mu_derivative(
+    double*      dtau_dmu,
+    double*      dtauc_dmu,
+    const double J_inv[3][3],
+    const double rho,
+    const double mu_eff,
+    const double tau)
+{
+    const double eps = 1.0e-30;
+
+    *dtau_dmu  = 0.0;
+    *dtauc_dmu = 0.0;
+
+    if (rho <= eps || tau <= eps) {
+        return;
+    }
+
+    double G[3][3];
+    BBFE_metric_tensor_G(G, J_inv);
+
+    const double GG =
+        BBFE_metric_tensor_G_colon_G(G);
+
+    const double trG =
+        BBFE_metric_tensor_trace(G);
+
+    const double nu = mu_eff / rho;
+
+    /*
+      tau = denom^{-1/2}
+      denom includes 36 nu^2 G:G
+    */
+    *dtau_dmu =
+        -36.0 * tau * tau * tau * nu * GG / rho;
+
+    /*
+      tau_c = 1 / (tau * trG) を仮定。
+      もし BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC()
+      の定義が違うなら、ここは合わせて変更する。
+    */
+    if (fabs(trG) > eps) {
+        *dtauc_dmu =
+            -(*dtau_dmu) / (tau * tau * trG);
+    }
+}
+
+static void BBFE_elemmat_fluid_mat_vms_mu_chain(
+    double         mat[4][4],
+    const double   J_inv[3][3],
+    const double   Jacobian,
+    const double   h_e,
+    const double   N_i,
+    const double   N_j,
+    const double   grad_N_i[3],
+    const double   grad_N_j[3],
+    const double   u[3],
+    const double   u_old[3],
+    double**       grad_u,
+    const double   grad_p[3],
+    const double   rho,
+    const double   mu_mol,
+    const double   mu_eff,
+    const double   tau,
+    const double   tau_c,
+    const double   dt,
+    const double   C_vms,
+    const double   cap_coeff,
+    const double   du_time[3])
+{
+    for (int a = 0; a < 4; ++a) {
+        for (int b = 0; b < 4; ++b) {
+            mat[a][b] = 0.0;
+        }
+    }
+
+    double dmu_duj[3];
+    double dmu_dpj;
+
+    BBFE_vms_mu_eff_derivative_qs(
+        dmu_duj,
+        &dmu_dpj,
+        J_inv,
+        Jacobian,
+        h_e,
+        u,
+        u_old,
+        grad_u,
+        grad_p,
+        rho,
+        mu_mol,
+        dt,
+        C_vms,
+        cap_coeff,
+        N_j,
+        grad_N_j);
+
+    double dmu_col[4] = {
+        dmu_duj[0],
+        dmu_duj[1],
+        dmu_duj[2],
+        dmu_dpj
+    };
+
+    double dtau_dmu;
+    double dtauc_dmu;
+
+    BBFE_sups_tau_mu_derivative(
+        &dtau_dmu,
+        &dtauc_dmu,
+        J_inv,
+        rho,
+        mu_eff,
+        tau);
+
+    double adv[3];
+    for (int d = 0; d < 3; ++d) {
+        adv[d] =
+            u[0] * grad_u[d][0] +
+            u[1] * grad_u[d][1] +
+            u[2] * grad_u[d][2];
+    }
+
+    const double div_u =
+        grad_u[0][0] + grad_u[1][1] + grad_u[2][2];
+
+    const double vdotGradNi =
+        u[0]*grad_N_i[0] +
+        u[1]*grad_N_i[1] +
+        u[2]*grad_N_i[2];
+
+    const double gradN_dot_gradp =
+        grad_N_i[0]*grad_p[0] +
+        grad_N_i[1]*grad_p[1] +
+        grad_N_i[2]*grad_p[2];
+
+    const double gradN_dot_adv =
+        grad_N_i[0]*adv[0] +
+        grad_N_i[1]*adv[1] +
+        grad_N_i[2]*adv[2];
+
+    const double gradN_dot_dutime =
+        grad_N_i[0]*du_time[0] +
+        grad_N_i[1]*du_time[1] +
+        grad_N_i[2]*du_time[2];
+
+    /*
+      dR_visc / dmu_eff
+
+      R_visc_i[d] =
+        dt * mu_eff *
+        {
+          grad_N_i · grad_u[d]
+          + grad_N_i[d] * div(u)
+        }
+    */
+    double visc_kernel[3];
+
+    for (int d = 0; d < 3; ++d) {
+        visc_kernel[d] =
+            grad_N_i[0]*grad_u[d][0] +
+            grad_N_i[1]*grad_u[d][1] +
+            grad_N_i[2]*grad_u[d][2]
+          + grad_N_i[d] * div_u;
+    }
+
+    /*
+      tau chain kernels.
+      既存の BBFE_elemmat_fluid_mat_rom_nonlinear() の
+      section (5), (6) と同じ residual kernel を使う。
+    */
+    double Rm_tau[3];
+
+    for (int d = 0; d < 3; ++d) {
+        Rm_tau[d] =
+            dt * rho * vdotGradNi * adv[d]
+          + dt       * vdotGradNi * grad_p[d]
+          + rho      * vdotGradNi * du_time[d];
+    }
+
+    const double Rc_tau =
+        dt * gradN_dot_adv
+      + dt * gradN_dot_gradp / rho
+      +      gradN_dot_dutime;
+
+    for (int c = 0; c < 4; ++c) {
+        const double dmu_c   = dmu_col[c];
+        const double dtau_c  = dtau_dmu  * dmu_c;
+        const double dtauc_c = dtauc_dmu * dmu_c;
+
+        /*
+          1) viscosity chain
+        */
+        for (int d = 0; d < 3; ++d) {
+            mat[d][c] += dt * dmu_c * visc_kernel[d];
+        }
+
+        /*
+          2) tau chain through mu_eff
+        */
+        for (int d = 0; d < 3; ++d) {
+            mat[d][c] += dtau_c * Rm_tau[d];
+        }
+
+        mat[3][c] += dtau_c * Rc_tau;
+
+        /*
+          3) tau_c chain through mu_eff
+        */
+        for (int d = 0; d < 3; ++d) {
+            mat[d][c] +=
+                dt * rho * dtauc_c * div_u * grad_N_i[d];
+        }
+    }
+}
+
 
 void set_element_mat_NR_linear_VMS(
     MONOLIS*     monolis,
@@ -5891,10 +6263,36 @@ void set_element_mat_NR_nonlinear_VMS(
                         vals->dt,
                         du_time);
 
+                    double A_vms_chain[4][4];
+
+                    BBFE_elemmat_fluid_mat_vms_mu_chain(
+                        A_vms_chain,
+                        J_inv,
+                        fe->geo[e][p].Jacobian,
+                        h_e,
+                        basis->N[p][i],
+                        basis->N[p][j],
+                        fe->geo[e][p].grad_N[i],
+                        fe->geo[e][p].grad_N[j],
+                        v_ip[p],
+                        v_ip_old[p],
+                        grad_v_ip[p],
+                        grad_p_ip[p],
+                        vals->density,
+                        vals->viscosity,
+                        mu_eff,
+                        tau,
+                        tau_c,
+                        vals->dt,
+                        vals->C_vms,
+                        vals->vms_cap_coeff,
+                        du_time);
+
                     for (int a = 0; a < 4; ++a) {
                         for (int b = 0; b < 4; ++b) {
-                            val_ip[a][b][p] = A[a][b];
+                            val_ip[a][b][p] = A[a][b] + A_vms_chain[a][b];
                             A[a][b] = 0.0;
+                            A_vms_chain[a][b] = 0.0;
                         }
                     }
                 }

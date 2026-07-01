@@ -13,10 +13,10 @@ ER = 2.0;              // expansion ratio H/h. Use 1.9423 if matching Biswas et 
 H  = ER*h;             // downstream channel height
 Lu = 5.0*h;            // upstream length before the step
 Lr = 8.0*h;            // refined downstream block, includes expected reattachment region for many laminar/turbulent cases
-Ld = 30.0*h;           // total downstream length
+Ld = 10.0*h;           // total downstream length
 
 // Quasi-2D extrusion width. Set to e.g. 4*h and nz>1 for a spanwise-resolved 3D BFS.
-extrude_width = 0.08*h;
+extrude_width = 0.01*h;
 nz = 1;
 
 // -----------------------
