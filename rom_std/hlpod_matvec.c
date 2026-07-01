@@ -364,7 +364,7 @@ void ROM_std_hlpod_set_reduced_mat_para(
             index1++;
         }
 
-        //printf("[diag] block (%d,%d) Frobenius norm = %e\n", rank,  k, k, sqrt(frob_sq));
+        printf("[diag] block (%d,%d) Frobenius norm = %e\n", rank,  k, k, sqrt(frob_sq));
 	
 /*
         if(max_num_bases > iE - iS){
@@ -427,8 +427,8 @@ void ROM_std_hlpod_set_reduced_mat_para(
                         index1++;
                     }
 
-                    //printf("rank = %d [offdiag] block (%d,%d) Frobenius norm = %e\n", rank,
-                    //    k, hlpod_meta->item[i], sqrt(frob_sq));
+                    printf("rank = %d [offdiag] block (%d,%d) Frobenius norm = %e\n", rank,
+                        k, hlpod_meta->item[i], sqrt(frob_sq));
                 }
             }
         }
@@ -436,6 +436,10 @@ void ROM_std_hlpod_set_reduced_mat_para(
 
     BB_std_free_2d_double(hlpod_mat->VTKV, total_num_bases, n_neib_vec);
     BB_std_free_2d_double(mat, M, M);
+
+
+    double t = monolis_get_time_global_sync();
+    //exit(1);
 }
 
 
@@ -558,9 +562,9 @@ void ROM_std_hlpod_reduced_rhs_to_monollis(
     for(int k = 0; k < num_2nd_subdomains; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
             monolis->mat.R.B[index + i] = hlpod_mat->VTf[index + i];
-            if(monolis_mpi_get_global_my_rank()==0){
-                printf("VTf[%d] = %e\n", index + i, hlpod_mat->VTf[index + i]);
-            }
+            //if(monolis_mpi_get_global_my_rank()==0){
+                printf("rank = %d VTf[%d] = %e\n", monolis_mpi_get_global_my_rank(), index + i, hlpod_mat->VTf[index + i]);
+            //}
         }
         index += hlpod_mat->num_modes_internal[k];
     }

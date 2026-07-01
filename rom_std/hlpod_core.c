@@ -789,7 +789,7 @@ void ROM_std_hlpod_set_monolis_comm(
         }
     }
 }
-
+/*
 void ROM_std_hlpod_read_metagraph(
         MONOLIS*     monolis_rom0,
         MONOLIS_COM* mono_com_rom_solv,
@@ -824,6 +824,9 @@ void ROM_std_hlpod_read_metagraph(
     }
     else{
         if(rom->hlpod_vals.bool_global_mode==false){
+
+		double t = monolis_get_time_global_sync();
+		printf("now3");
             ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
                     monolis_rom0,
                     mono_com_rom_solv,
@@ -831,7 +834,8 @@ void ROM_std_hlpod_read_metagraph(
                     &(rom->hlpod_meta),
                     metagraph,
                     directory);
-
+t = monolis_get_time_global_sync();
+                printf("now4");
             ROM_std_hlpod_get_meta_neib(
                     mono_com_rom_solv,
                     &(rom->hlpod_meta),
@@ -842,30 +846,286 @@ void ROM_std_hlpod_read_metagraph(
         else{
         }
     }
+double t = monolis_get_time_global_sync();
+                printf("now5");
+}
+*/
+/*
+void ROM_std_hlpod_read_metagraph(
+        MONOLIS*     monolis_rom0,
+        MONOLIS_COM* mono_com_rom_solv,
+        ROM*             rom,
+        const char*  metagraph,
+        const char*      directory)
+{
+int myrank = monolis_mpi_get_global_my_rank();
 
+if(monolis_mpi_get_global_comm_size() == 1){
+    if(rom->hlpod_vals.num_1st_subdomains == 0){
+        printf("\nError : num_1st_subdomains is not set\n");
+        exit(1);
+    }
+    else if(rom->hlpod_vals.num_1st_subdomains == 1){
+        monolis_com_initialize_by_self(mono_com_rom_solv);
+
+        ROM_std_hlpod_set_nonzero_pattern(
+                monolis_rom0,
+                &(rom->hlpod_mat),
+                rom->hlpod_vals.num_modes_pre);
+    }
+    else{
+        monolis_com_initialize_by_self(mono_com_rom_solv);
+
+        ROM_std_hlpod_set_nonzero_pattern_bcsr(
+                monolis_rom0,
+                &(rom->hlpod_mat),
+                &(rom->hlpod_meta),
+                rom->hlpod_vals.num_modes_pre,
+                metagraph,
+                directory);
+    }
+}
+else{
+    if(rom->hlpod_vals.bool_global_mode == false){
+
+        printf("[DEBUG][rank %d] now3 before set_nonzero_pattern_bcsr_para\n",
+               myrank);
+        fflush(stdout);
+
+        double t = monolis_get_time_global_sync();
+
+        ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
+                monolis_rom0,
+                mono_com_rom_solv,
+                &(rom->hlpod_mat),
+                &(rom->hlpod_meta),
+                metagraph,
+                directory);
+
+        printf("[DEBUG][rank %d] now4 after set_nonzero_pattern_bcsr_para\n",
+               myrank);
+        fflush(stdout);
+
+        t = monolis_get_time_global_sync();
+
+        printf("[DEBUG][rank %d] now4.1 after sync after bcsr_para\n",
+               myrank);
+        fflush(stdout);
+
+        ROM_std_hlpod_get_meta_neib2(
+                mono_com_rom_solv,
+                &(rom->hlpod_meta),
+                metagraph,
+                directory);
+
+        printf("[DEBUG][rank %d] now4.5 after get_meta_neib\n",
+               myrank);
+        fflush(stdout);
+    }
+    else{
+        printf("[DEBUG][rank %d] bool_global_mode == true, skip local mode setup\n",
+               myrank);
+        fflush(stdout);
+    }
 }
 
+printf("[DEBUG][rank %d] before final global sync\n", myrank);
+fflush(stdout);
+
+double t = monolis_get_time_global_sync();
+
+printf("[DEBUG][rank %d] now5 after final global sync\n", myrank);
+fflush(stdout);
+}
+*/
+
+void ROM_std_hlpod_read_metagraph(
+        MONOLIS*     monolis_rom0,
+        MONOLIS_COM* mono_com_rom_solv,
+        ROM*         rom,
+        const char*  metagraph,
+        const char*  directory)
+{
+    int myrank = monolis_mpi_get_global_my_rank();
+    int comm_size = monolis_mpi_get_global_comm_size();
+
+    printf("[DEBUG][rank %d] read_metagraph START\n", myrank);
+    printf("[DEBUG][rank %d] bool_global_mode = %d\n",
+           myrank,
+           rom->hlpod_vals.bool_global_mode);
+    fflush(stdout);
+
+    if(comm_size == 1){
+
+        if(rom->hlpod_vals.num_1st_subdomains == 0){
+            printf("\nError : num_1st_subdomains is not set\n");
+            exit(1);
+        }
+        else if(rom->hlpod_vals.num_1st_subdomains == 1){
+
+            monolis_com_initialize_by_self(mono_com_rom_solv);
+
+            ROM_std_hlpod_set_nonzero_pattern(
+                    monolis_rom0,
+                    &(rom->hlpod_mat),
+                    rom->hlpod_vals.num_modes_pre);
+        }
+        else{
+
+            monolis_com_initialize_by_self(mono_com_rom_solv);
+
+            ROM_std_hlpod_set_nonzero_pattern_bcsr(
+                    monolis_rom0,
+                    &(rom->hlpod_mat),
+                    &(rom->hlpod_meta),
+                    rom->hlpod_vals.num_modes_pre,
+                    metagraph,
+                    directory);
+        }
+    }
+    else{
+
+        /*
+         * 全rankがここを通る同期
+         */
+        printf("[DEBUG][rank %d] sync0 before metagraph setup\n", myrank);
+        fflush(stdout);
+
+        double t = monolis_get_time_global_sync();
+
+        printf("[DEBUG][rank %d] sync0 passed\n", myrank);
+        fflush(stdout);
+
+        /*
+         * local mode の場合だけ非ゼロパターン構築
+         */
+        if(rom->hlpod_vals.bool_global_mode == false){
+
+            printf("[DEBUG][rank %d] now3 before set_nonzero_pattern_bcsr_para\n",
+                   myrank);
+            fflush(stdout);
+
+            ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
+                    monolis_rom0,
+                    mono_com_rom_solv,
+                    &(rom->hlpod_mat),
+                    &(rom->hlpod_meta),
+                    metagraph,
+                    directory);
+
+            printf("[DEBUG][rank %d] now4 after set_nonzero_pattern_bcsr_para\n",
+                   myrank);
+            fflush(stdout);
+        }
+        else{
+            printf("[DEBUG][rank %d] bool_global_mode == true, skip set_nonzero_pattern_bcsr_para\n",
+                   myrank);
+            fflush(stdout);
+        }
+
+        /*
+         * ここも全rankが必ず通る同期
+         */
+        printf("[DEBUG][rank %d] before sync after bcsr_para_or_skip\n",
+               myrank);
+        fflush(stdout);
+
+        t = monolis_get_time_global_sync();
+
+        printf("[DEBUG][rank %d] now4.1 after sync after bcsr_para_or_skip\n",
+               myrank);
+        fflush(stdout);
+
+        /*
+         * local mode の場合だけ neighbor meta を読む
+         */
+        if(rom->hlpod_vals.bool_global_mode == false){
+
+            ROM_std_hlpod_get_meta_neib2(
+                    mono_com_rom_solv,
+                    &(rom->hlpod_meta),
+                    metagraph,
+                    directory);
+
+            printf("[DEBUG][rank %d] now4.5 after get_meta_neib\n",
+                   myrank);
+            fflush(stdout);
+        }
+        else{
+            printf("[DEBUG][rank %d] bool_global_mode == true, skip get_meta_neib\n",
+                   myrank);
+            fflush(stdout);
+        }
+
+        /*
+         * 関数出口の全rank同期
+         */
+        printf("[DEBUG][rank %d] before final global sync\n", myrank);
+        fflush(stdout);
+
+        t = monolis_get_time_global_sync();
+
+        printf("[DEBUG][rank %d] now5 after final global sync\n", myrank);
+        fflush(stdout);
+    }
+
+    printf("[DEBUG][rank %d] read_metagraph END\n", myrank);
+    fflush(stdout);
+}
 
 void ROM_std_hlpod_pre_lpod_para(
         MONOLIS*     monolis_rom0,
         MONOLIS_COM* monolis_com,
         MONOLIS_COM* mono_com_rom,
         MONOLIS_COM* mono_com_rom_solv,
-        ROM*		 rom,
-        const char*	 directory)
+        ROM*         rom,
+        const char*  directory)
 {
-    
+    int rank = monolis_mpi_get_global_my_rank();
+
+    printf("[DEBUG][rank %d] pre_lpod_para START\n", rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] monolis_com->recv_n_neib = %d\n",
+           rank, monolis_com->recv_n_neib);
+    printf("[DEBUG][rank %d] monolis_com->n_internal_vertex = %d\n",
+           rank, monolis_com->n_internal_vertex);
+    printf("[DEBUG][rank %d] mono_com_rom->n_internal_vertex = %d\n",
+           rank, mono_com_rom->n_internal_vertex);
+    printf("[DEBUG][rank %d] mono_com_rom_solv->n_internal_vertex = %d\n",
+           rank, mono_com_rom_solv->n_internal_vertex);
+    printf("[DEBUG][rank %d] rom->hlpod_vals.num_modes = %d\n",
+           rank, rom->hlpod_vals.num_modes);
+    printf("[DEBUG][rank %d] rom->hlpod_vals.num_modes_pre = %d\n",
+           rank, rom->hlpod_vals.num_modes_pre);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] A before get_neib_vec_save_memory\n", rank);
+    fflush(stdout);
+
     ROM_std_hlpod_get_neib_vec_save_memory(
             monolis_com,
             &(rom->hlpod_vals),
             rom->hlpod_vals.num_modes);
-    
+
+    printf("[DEBUG][rank %d] B after get_neib_vec_save_memory\n", rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] C before get_neib_num_modes_para_subd\n", rank);
+    fflush(stdout);
+
     ROM_std_hlpod_get_neib_num_modes_para_subd(
             mono_com_rom,
             &(rom->hlpod_vals),
             &(rom->hlpod_mat),
             1 + monolis_com->recv_n_neib,
             rom->hlpod_vals.num_modes);
+
+    printf("[DEBUG][rank %d] D after get_neib_num_modes_para_subd\n", rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] E before get_neib_num_modes_mode_subd\n", rank);
+    fflush(stdout);
 
     ROM_std_hlpod_get_neib_num_modes_mode_subd(
             mono_com_rom,
@@ -875,29 +1135,57 @@ void ROM_std_hlpod_pre_lpod_para(
             1 + monolis_com->recv_n_neib,
             directory);
 
+    printf("[DEBUG][rank %d] F after get_neib_num_modes_mode_subd\n", rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] G before get_n_dof_list\n", rank);
+    fflush(stdout);
+
     ROM_std_hlpod_get_n_dof_list(
             mono_com_rom_solv,
             &(rom->hlpod_mat),
             &(rom->hlpod_meta),
             rom->hlpod_vals.num_modes_pre);
 
-    monolis_get_nonzero_pattern_by_nodal_graph_R(
-            monolis_rom0,
+    printf("[DEBUG][rank %d] H after get_n_dof_list\n", rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] meta before nonzero pattern:\n", rank);
+    printf("[DEBUG][rank %d]   num_meta_nodes = %d\n",
+           rank, rom->hlpod_meta.num_meta_nodes);
+    printf("[DEBUG][rank %d]   n_dof_list     = %p\n",
+           rank, (void*)rom->hlpod_meta.n_dof_list);
+    printf("[DEBUG][rank %d]   index          = %p\n",
+           rank, (void*)rom->hlpod_meta.index);
+    printf("[DEBUG][rank %d]   item           = %p\n",
+           rank, (void*)rom->hlpod_meta.item);
+    fflush(stdout);
+/*
+    ROM_debug_check_meta_graph(
+            rank,
             rom->hlpod_meta.num_meta_nodes,
-            rom->hlpod_vals.num_modes_pre,
+            rom->hlpod_meta.n_dof_list,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
+*/
+    printf("[DEBUG][rank %d] I before monolis_get_nonzero_pattern_by_nodal_graph_V_R\n",
+           rank);
+    fflush(stdout);
 
-/*
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
             monolis_rom0,
             rom->hlpod_meta.num_meta_nodes,
             rom->hlpod_meta.n_dof_list,
             rom->hlpod_meta.index,
             rom->hlpod_meta.item);
-*/
-}
 
+    printf("[DEBUG][rank %d] J after monolis_get_nonzero_pattern_by_nodal_graph_V_R\n",
+           rank);
+    fflush(stdout);
+
+    printf("[DEBUG][rank %d] pre_lpod_para END\n", rank);
+    fflush(stdout);
+}
 
 void ROM_std_hlpod_online_pre(
         MONOLIS*     monolis_rom0,

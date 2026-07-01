@@ -622,7 +622,7 @@ int main (
 
     monolis_initialize(&(sys.monolis));
     
-    int nedelec_order = 2;
+    int nedelec_order = 1;
     if(nedelec_order == 1){
         BBFE_mag_pre_C(
                 &(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
@@ -663,15 +663,15 @@ int main (
 	BBFE_elemmat_set_shapefunc_derivative(
 			&(sys.fe),
 			&(sys.basis));
-    
-    BBFE_mag_set_basis_2nd(
+    BBFE_mag_set_basis(
+    //BBFE_mag_set_basis_2nd(
         &(sys.fe),
         &(sys.basis),
         &(sys.ned),
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned_2nd.dat");
+	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
 	BBFE_sys_read_Dirichlet_bc(
 			&(sys.bc),
 			filename,
@@ -849,7 +849,7 @@ int main (
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
   
-        solver_fom_NR_Aphi_team7(
+        solver_fom_NR_Aphi_team21a(
             sys, t, count, 
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,

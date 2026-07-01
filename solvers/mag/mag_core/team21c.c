@@ -21,7 +21,7 @@ void get_sigmas_for_prop_team21c(
         //*sigma_phi    = Sigma_coil* 0.119;
 	    //*sigma_cpl    = 0.0;
         //*sigma_phi    = 0.0;
-        *sigma_mass_A = Sigma_coil;
+        *sigma_mass_A = Sigma_coil * 0.1256/3.2;
         *sigma_cpl    = Sigma_coil;
         *sigma_phi    = Sigma_coil;
     } else if(prop == 3){
@@ -32,9 +32,9 @@ void get_sigmas_for_prop_team21c(
         //*sigma_cpl    = 0.0;
         //*sigma_phi    = 0.0;
     } else if(prop == 4){
-        *sigma_mass_A = 0.0;
-        *sigma_cpl    = 0.0;
-        *sigma_phi    = 0.0;
+        *sigma_mass_A = Sigma_coil * 10e-4;
+        *sigma_cpl    = Sigma_coil * 10e-4;
+        *sigma_phi    = Sigma_coil * 10e-4;
     } else if(prop == 5){
         /* air */
         *sigma_mass_A = 0.0;
@@ -396,6 +396,8 @@ static double local_max_abs(const double* v, int n) {
     return m;
 }
 
+
+
 /* ============================================================
  * Jacobian Assembly (Newton)
  * ============================================================ */
@@ -428,11 +430,11 @@ void set_element_mat_NR_Aphi_team21c(
 
         /* ========= [1] A-A : Curl-Curl (tangent stiffness) ========= */
         for(int i=0; i<ned->local_num_edges; ++i){
-            int gi = ned->nedelec_conn[e][i];
+            int gi = ned->nedelec_conn_mat[e][i];
             int si = ned->edge_sign[e][i];
 
             for(int j=0; j<ned->local_num_edges; ++j){
-                int gj = ned->nedelec_conn[e][j];
+                int gj = ned->nedelec_conn_mat[e][j];
                 int sj = ned->edge_sign[e][j];
 
                 for(int p=0; p<np; ++p){
@@ -459,11 +461,11 @@ void set_element_mat_NR_Aphi_team21c(
         /* ========= [2] A-A : Mass (sigma_mass_A/dt) ========= */
         if(sigma_mass_A > 0.0){
             for(int i=0; i<ned->local_num_edges; ++i){
-                int gi = ned->nedelec_conn[e][i];
+                int gi = ned->nedelec_conn_mat[e][i];
                 int si = ned->edge_sign[e][i];
 
                 for(int j=0; j<ned->local_num_edges; ++j){
-                    int gj = ned->nedelec_conn[e][j];
+                    int gj = ned->nedelec_conn_mat[e][j];
                     int sj = ned->edge_sign[e][j];
 
                     for(int p=0; p<np; ++p){
@@ -477,12 +479,12 @@ void set_element_mat_NR_Aphi_team21c(
             }
         }
 
-        /* ========= [3] Phi-Phi : Laplace (sigma_phi * gradN·gradN) ========= */
-        if(sigma_phi > 0.0){
+        if(prop == 3){
+            /* ========= [3] Phi-Phi : Laplace (sigma_phi * gradN·gradN) ========= */
             for(int i=0; i<fe->local_num_nodes; ++i){
-                int gi = fe->conn[e][i];
+                int gi = ned->phi_conn[e][i];
                 for(int j=0; j<fe->local_num_nodes; ++j){
-                    int gj = fe->conn[e][j];
+                    int gj = ned->phi_conn[e][j];
                     for(int p=0; p<np; ++p){
                         val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
                             fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], sigma_phi);
@@ -491,14 +493,12 @@ void set_element_mat_NR_Aphi_team21c(
                     monolis_add_scalar_to_sparse_matrix_R(monolis, gi, gj, 0, 0, v * inv_dt);
                 }
             }
-        }
 
         /* ========= [4] A-Phi : Coupling C ========= */
-        if(sigma_cpl > 0.0){
             for(int n=0; n<fe->local_num_nodes; ++n){      /* col: node (phi) */
-                int gn = fe->conn[e][n];
+                int gn = ned->phi_conn[e][n];
                 for(int j=0; j<ned->local_num_edges; ++j){ /* row: edge (A) */
-                    int gj = ned->nedelec_conn[e][j];
+                    int gj = ned->nedelec_conn_mat[e][j];
                     int sj = ned->edge_sign[e][j];
 
                     for(int p=0; p<np; ++p){
@@ -509,16 +509,14 @@ void set_element_mat_NR_Aphi_team21c(
                     monolis_add_scalar_to_sparse_matrix_R(monolis, gj, gn, 0, 0, (double)sj * v * inv_dt);
                 }
             }
-        }
 
         /* ========= [5] Phi-A : Coupling C^T / dt ========= */
-        if(sigma_cpl > 0.0){
             for(int i=0; i<ned->local_num_edges; ++i){      /* col: edge (A) */
-                int gi = ned->nedelec_conn[e][i];
+                int gi = ned->nedelec_conn_mat[e][i];
                 int si = ned->edge_sign[e][i];
 
                 for(int n=0; n<fe->local_num_nodes; ++n){  /* row: node (phi) */
-                    int gn = fe->conn[e][n];
+                    int gn = ned->phi_conn[e][n];
 
                     for(int p=0; p<np; ++p){
                         val_ip_C[p] = BBFE_elemmat_mag_mat_mass(
@@ -528,12 +526,14 @@ void set_element_mat_NR_Aphi_team21c(
                     monolis_add_scalar_to_sparse_matrix_R(monolis, gn, gi, 0, 0, (double)si * v * inv_dt );
                 }
             }
+
         }
     }
 
     BB_std_free_1d_double(Jacobian_ip, np);
     BB_std_free_1d_double(val_ip_C, np);
 }
+
 
 void apply_dirichlet_bc_for_A_and_phi_team21c(
     MONOLIS* monolis,
@@ -2129,7 +2129,7 @@ double calc_copper_shield_loss_EM1_freq(
     int graph_ndof;
     int tmp;
 
-    snprintf(fname_n_internal_graph, BUFFER_SIZE, "parted.0/graph_elem.dat.n_internal.%d", monolis_mpi_get_global_my_rank());
+    snprintf(fname_n_internal_graph, BUFFER_SIZE, "parted.0/graph_nedelec_elem.dat.n_internal.%d", monolis_mpi_get_global_my_rank());
     fp = BBFE_sys_read_fopen(fp, fname_n_internal_graph, directory);
     fscanf(fp, "%s %d", char_n_internal, &(tmp));
     fscanf(fp, "%d", &(total_num_elems));

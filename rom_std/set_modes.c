@@ -649,7 +649,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
             label,
             directory);
 
-    	n_basis = 10;
+    	n_basis = 3;
 
         printf("n_basis = %d\n", n_basis);
 

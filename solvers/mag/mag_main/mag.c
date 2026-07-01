@@ -345,7 +345,8 @@ void output_set_elems_nedelec_unstructured(
     num = 0;
     for(int e = 0; e < fe->total_num_elems; e++){
         // ノードID
-        if(ned->elem_prop[e] == 4){
+        if(ned->elem_prop[e] == 3){
+		printf("find elem3\n");
             fprintf(fp, "%d ", e);
             fprintf(fp, "%d ", 10);
             for(int n = 0; n < fe->local_num_nodes; n++){
@@ -945,7 +946,7 @@ int main (
      *
      * You can also change DEFAULT_NEDELEC_ORDER below to 2 while developing.
      */
-    const int DEFAULT_NEDELEC_ORDER = 2;
+    const int DEFAULT_NEDELEC_ORDER = 1;
     int nedelec_order = DEFAULT_NEDELEC_ORDER;
 
     const char* env_order = getenv("NEDELEC_ORDER");

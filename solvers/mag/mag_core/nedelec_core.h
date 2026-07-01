@@ -292,3 +292,31 @@ void BBFE_mag_pre_2nd(
     const char*   directory,
     int           num_integ_points_each_axis,
     bool          manufactured_solution);
+
+void ROM_std_hlpod_set_nonzero_pattern_bcsr_ned(
+    MONOLIS*            monolis,
+    NEDELEC *ned,
+    const char*     label,
+    const char*         directory);
+
+void BBFE_mag_pre2(
+                BBFE_DATA*    fe,
+                BBFE_BASIS*   basis,
+        NEDELEC*      ned,
+                BBFE_BC*      bc,
+                MONOLIS*      monolis,
+                MONOLIS_COM*  monolis_com,
+                int           argc,
+                char*         argv[],
+                const char*   directory,
+                int           num_integ_points_each_axis,
+                bool          manufactured_solution);
+
+void copy_Aphi_to_V_phi_time3(
+    BBFE_DATA* fe,
+    NEDELEC* ned,
+    double * Aphi,
+    double * V,
+    double * phi,
+    const int total_num_elems);
+
