@@ -213,8 +213,8 @@ int main (
         //}
 */
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-        //solver_fom_NR(sys, t, count);
-        solver_fom_VMS(sys, &(sys.surf), &(sys.basis_surf), t, count);
+        solver_fom_NR(sys, t, count);
+        //solver_fom_VMS(sys, &(sys.surf), &(sys.basis_surf), t, count);
         count ++;
 
         if(step%sys.vals.output_interval == 0) {
