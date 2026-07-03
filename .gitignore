@@ -7,6 +7,7 @@
 !*.h
 !*.sh
 !*.py
+!*.stl
 !*Makefile
 !*Makefile_squid
 !*Makefile_offline_online
