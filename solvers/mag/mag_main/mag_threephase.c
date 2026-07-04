@@ -57,16 +57,16 @@ static const char* INPUT_FILENAME_METAGRAPH      = "metagraph.dat";
 
 
 void ROM_read_args(
-    int 		argc,
-    char* 		argv[],
+    int                 argc,
+    char*               argv[],
     ROM_PRM*    rom_prm)
 {
-	int num;
+        int num;
     num = BB_std_read_args_return_char_num(
                 argc, argv, OPTION_NUM_1STDD);
     if(num == -1) {
-		printf("\nargs error num_subdomains");
-		exit(1);
+                printf("\nargs error num_subdomains");
+                exit(1);
     }
     else {
         rom_prm->num_subdomains = atoi(argv[num+1]);
@@ -75,36 +75,36 @@ void ROM_read_args(
     num = BB_std_read_args_return_char_num(
                 argc, argv, OPTION_NUM_MODES);
     if(num == -1) {
-		printf("\nargs error num_modes");
-		exit(1);
+                printf("\nargs error num_modes");
+                exit(1);
     }
     else {
-		rom_prm->num_modes = atoi(argv[num+1]);
+                rom_prm->num_modes = atoi(argv[num+1]);
     }
 
     num = BB_std_read_args_return_char_num(
                 argc, argv, OPTION_PADAPTIVE);
     if(num == -1) {
-		printf("\nargs error rom_epsilon");
-		exit(1);
+                printf("\nargs error rom_epsilon");
+                exit(1);
     }
     else {
         rom_prm->rom_epsilon = atof(argv[num+1]);
     }
 
-	num = BB_std_read_args_return_char_num(
+        num = BB_std_read_args_return_char_num(
                 argc, argv, OPTION_SOLVER_TYPE);
     if(num == -1) {
-		printf("\nargs error solver_type");
-		exit(1);
+                printf("\nargs error solver_type");
+                exit(1);
     }
     else {
         rom_prm->solver_type = atof(argv[num+1]);
     }
 
-	printf("num_subdomains = %d\n", rom_prm->num_subdomains);
-	printf("num_modes = %d\n", rom_prm->num_modes);
-	printf("rom_epsilon = %lf\n", rom_prm->rom_epsilon);
+        printf("num_subdomains = %d\n", rom_prm->num_subdomains);
+        printf("num_modes = %d\n", rom_prm->num_modes);
+        printf("rom_epsilon = %lf\n", rom_prm->rom_epsilon);
     printf("solver_type = %d\n", rom_prm->solver_type);
 
 }
@@ -122,139 +122,139 @@ static int cmp_edgecand(const void *pa, const void *pb) {
 }
 
 void memory_allocation_nodal_values(
-		VALUES*         vals,
-		const int       total_num_nodes)
+                VALUES*         vals,
+                const int       total_num_nodes)
 {
-	vals->phi        = BB_std_calloc_1d_double(vals->phi,     total_num_nodes);
-	vals->error    = BB_std_calloc_1d_double(vals->error, total_num_nodes);
-	vals->theo_sol = BB_std_calloc_1d_double(vals->theo_sol, total_num_nodes);
+        vals->phi        = BB_std_calloc_1d_double(vals->phi,     total_num_nodes);
+        vals->error    = BB_std_calloc_1d_double(vals->error, total_num_nodes);
+        vals->theo_sol = BB_std_calloc_1d_double(vals->theo_sol, total_num_nodes);
 }
 
 
 void assign_default_values(
-		VALUES*     vals)
+                VALUES*     vals)
 {
-	vals->num_ip_each_axis = DVAL_NUM_IP_EACH_AXIS;
-	vals->mat_epsilon      = DVAL_MAT_EPSILON;
-	vals->mat_max_iter     = DVAL_MAT_MAX_ITER;
+        vals->num_ip_each_axis = DVAL_NUM_IP_EACH_AXIS;
+        vals->mat_epsilon      = DVAL_MAT_EPSILON;
+        vals->mat_max_iter     = DVAL_MAT_MAX_ITER;
 
-	vals->dt               = DVAL_DT;
-	vals->finish_time      = DVAL_FINISH_TIME;
-	vals->output_interval  = DVAL_OUTPUT_INTERVAL;
+        vals->dt               = DVAL_DT;
+        vals->finish_time      = DVAL_FINISH_TIME;
+        vals->output_interval  = DVAL_OUTPUT_INTERVAL;
 }
 
 
 void print_all_values(
-		VALUES*  vals)
+                VALUES*  vals)
 {
-	printf("\n%s ---------- Calculation condition ----------\n", CODENAME);
+        printf("\n%s ---------- Calculation condition ----------\n", CODENAME);
 
-	printf("%s %s: %d\n", CODENAME, ID_NUM_IP_EACH_AXIS, vals->num_ip_each_axis);
-	printf("%s %s: %e\n", CODENAME, ID_MAT_EPSILON,      vals->mat_epsilon);
-	printf("%s %s: %d\n", CODENAME, ID_MAT_MAX_ITER,     vals->mat_max_iter);
+        printf("%s %s: %d\n", CODENAME, ID_NUM_IP_EACH_AXIS, vals->num_ip_each_axis);
+        printf("%s %s: %e\n", CODENAME, ID_MAT_EPSILON,      vals->mat_epsilon);
+        printf("%s %s: %d\n", CODENAME, ID_MAT_MAX_ITER,     vals->mat_max_iter);
 
-	printf("%s %s: %e\n", CODENAME, ID_DT,               vals->dt);
-	printf("%s %s: %e\n", CODENAME, ID_FINISH_TIME,      vals->finish_time);
-	printf("%s %s: %d\n", CODENAME, ID_OUTPUT_INTERVAL,  vals->output_interval);
+        printf("%s %s: %e\n", CODENAME, ID_DT,               vals->dt);
+        printf("%s %s: %e\n", CODENAME, ID_FINISH_TIME,      vals->finish_time);
+        printf("%s %s: %d\n", CODENAME, ID_OUTPUT_INTERVAL,  vals->output_interval);
 
-	printf("%s -------------------------------------------\n\n", CODENAME);
+        printf("%s -------------------------------------------\n\n", CODENAME);
 }
 
 
 void read_calc_conditions(
-		VALUES*     vals,
-		const char* directory)
+                VALUES*     vals,
+                const char* directory)
 {
-	printf("\n");
+        printf("\n");
 
-	assign_default_values(vals);
+        assign_default_values(vals);
 
-	char filename[BUFFER_SIZE];
-	snprintf(filename, BUFFER_SIZE, "%s/%s", directory, INPUT_FILENAME_COND);
+        char filename[BUFFER_SIZE];
+        snprintf(filename, BUFFER_SIZE, "%s/%s", directory, INPUT_FILENAME_COND);
 
-	FILE* fp;
-	fp = fopen(filename, "r");
-	if( fp == NULL ) {
-		printf("%s Calc condition file \"%s\" is not found.\n", CODENAME, filename);
-		printf("%s Default values are used in this calculation.\n", CODENAME);
-	}
-	else {
-		printf("%s Reading conditon file \"%s\".\n", CODENAME, filename);
-		int num;
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->num_ip_each_axis), filename, ID_NUM_IP_EACH_AXIS, BUFFER_SIZE, CODENAME);
+        FILE* fp;
+        fp = fopen(filename, "r");
+        if( fp == NULL ) {
+                printf("%s Calc condition file \"%s\" is not found.\n", CODENAME, filename);
+                printf("%s Default values are used in this calculation.\n", CODENAME);
+        }
+        else {
+                printf("%s Reading conditon file \"%s\".\n", CODENAME, filename);
+                int num;
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->num_ip_each_axis), filename, ID_NUM_IP_EACH_AXIS, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->mat_epsilon), filename, ID_MAT_EPSILON, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->mat_epsilon), filename, ID_MAT_EPSILON, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->mat_max_iter), filename, ID_MAT_MAX_ITER, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->mat_max_iter), filename, ID_MAT_MAX_ITER, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->dt), filename, ID_DT, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->dt), filename, ID_DT, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->finish_time), filename, ID_FINISH_TIME, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->finish_time), filename, ID_FINISH_TIME, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->output_interval), filename, ID_OUTPUT_INTERVAL, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->output_interval), filename, ID_OUTPUT_INTERVAL, BUFFER_SIZE, CODENAME);
 
-		fclose(fp);
-	}
+                fclose(fp);
+        }
 
-	print_all_values(vals);
+        print_all_values(vals);
 
 
-	printf("\n");
+        printf("\n");
 }
 
 void output_result_file_vtk(
-		BBFE_DATA*       fe,
-		VALUES*        vals,
-		const char*    filename,
-		const char*    directory,
-		double         t)
+                BBFE_DATA*       fe,
+                VALUES*        vals,
+                const char*    filename,
+                const char*    directory,
+                double         t)
 {
-	FILE* fp;
-	fp = BBFE_sys_write_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = BBFE_sys_write_fopen(fp, filename, directory);
 
-	switch( fe->local_num_nodes ) {
-		case 4:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
-			break;
+        switch( fe->local_num_nodes ) {
+                case 4:
+                        BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+                        break;
 
-		case 8:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
-			break;
-	}
+                case 8:
+                        BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+                        break;
+        }
 
-	fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
-	BB_vtk_write_point_vals_scalar(fp, vals->phi, fe->total_num_nodes, "phi");
+        fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+        BB_vtk_write_point_vals_scalar(fp, vals->phi, fe->total_num_nodes, "phi");
 
-	fclose(fp);
+        fclose(fp);
 
 }
 
 void output_files(
-		FE_SYSTEM* sys,
-		int file_num,
-		double t)
+                FE_SYSTEM* sys,
+                int file_num,
+                double t)
 {
-	const char* filename;
-	char fname_vtk[BUFFER_SIZE];
-	char fname_tem[BUFFER_SIZE];
-	char fname_sou[BUFFER_SIZE];
-	snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_VTK, file_num);
-	snprintf(fname_tem, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_TEMP, file_num);
-	snprintf(fname_sou, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_SOURCE, file_num);
+        const char* filename;
+        char fname_vtk[BUFFER_SIZE];
+        char fname_tem[BUFFER_SIZE];
+        char fname_sou[BUFFER_SIZE];
+        snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_VTK, file_num);
+        snprintf(fname_tem, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_TEMP, file_num);
+        snprintf(fname_sou, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_SOURCE, file_num);
 
-	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
-	output_result_file_vtk(
-			&(sys->fe),
-			&(sys->vals),
-			filename,
-			sys->cond.directory,
-			t);
+        filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
+        output_result_file_vtk(
+                        &(sys->fe),
+                        &(sys->vals),
+                        filename,
+                        sys->cond.directory,
+                        t);
 
 }
 
@@ -299,7 +299,7 @@ static inline int invert3x3(const double A[3][3], double Ainv[3][3], double *det
     if (fabs(det) < 1e-30) return 0;
 
     const double invdet = 1.0/det;
-    
+
     Ainv[0][0] = co00*invdet;  Ainv[0][1] = co10*invdet;  Ainv[0][2] = co20*invdet;
     Ainv[1][0] = co01*invdet;  Ainv[1][1] = co11*invdet;  Ainv[1][2] = co21*invdet;
     Ainv[2][0] = co02*invdet;  Ainv[2][1] = co12*invdet;  Ainv[2][2] = co22*invdet;
@@ -379,7 +379,7 @@ void reconstruct_field_at_edge_points(
     int total_global_elems)
 {
     // 3方向の和で総エッジ数を取る（構造Hexの例）
-    
+
     int num_global_edges = fe->total_num_nodes;
 
     double N_edge_tab[12][12][3];
@@ -391,7 +391,7 @@ void reconstruct_field_at_edge_points(
     int *hits = (int*)calloc(num_global_edges,sizeof(int));
 
     for (int e=0; e<total_global_elems; ++e) {
-        
+
         for(int i = 0; i < 8; i++){
             xnod[i][0] = fe->x[fe->conn[e][i]][0];
             xnod[i][1] = fe->x[fe->conn[e][i]][1];
@@ -435,13 +435,13 @@ void reconstruct_field_at_edge_points(
 
 
 void output_result_file_vtk_nedelec_edge(
-		BBFE_DATA*      fe,
-		VALUES*         vals,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
         NEDELEC*        ned,
-		const char*     filename,
-		const char*     directory,
+                const char*     filename,
+                const char*     directory,
         int total_edges,
-		double          t)
+                double          t)
 {
 
     double** node_result = BB_std_calloc_2d_double(node_result, fe->total_num_nodes, 3);
@@ -449,21 +449,21 @@ void output_result_file_vtk_nedelec_edge(
 
     reconstruct_field_at_edge_points(fe, ned, vals->V, edge_result, fe->total_num_elems);
 
-	FILE* fp;
-	fp = BBFE_sys_write_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = BBFE_sys_write_fopen(fp, filename, directory);
 
-	BB_vtk_write_header(fp);
-	fprintf(fp, "DATASET UNSTRUCTURED_GRID\n");
+        BB_vtk_write_header(fp);
+        fprintf(fp, "DATASET UNSTRUCTURED_GRID\n");
 
     BB_vtk_write_points_3d(fp, total_edges, ned->nedelec_coords);
-	BB_vtk_write_cells(fp, fe->total_num_elems, 12, ned->nedelec_conn);
+        BB_vtk_write_cells(fp, fe->total_num_elems, 12, ned->nedelec_conn);
     BB_vtk_write_cell_types(fp, fe->total_num_elems, 4);
 
     fprintf(fp, "POINT_DATA %d\n", total_edges);
     BB_vtk_write_point_vals_scalar(fp, vals->V, total_edges, "coordinates");
     BB_vtk_write_point_vals_vector(fp, edge_result, total_edges, "V_edge");
 
-	fclose(fp);
+        fclose(fp);
 }
 
 void output_B_cell_vtk(
@@ -501,39 +501,39 @@ void output_B_cell_vtk(
 }
 
 void output_files_nedelec(
-		FE_SYSTEM* sys,
-		int file_num,
-		double t)
+                FE_SYSTEM* sys,
+                int file_num,
+                double t)
 {
-	const char* filename;
-	char fname_vtk[BUFFER_SIZE];
-	char fname_tem[BUFFER_SIZE];
-	char fname_sou[BUFFER_SIZE];
+        const char* filename;
+        char fname_vtk[BUFFER_SIZE];
+        char fname_tem[BUFFER_SIZE];
+        char fname_sou[BUFFER_SIZE];
     char fname_B[BUFFER_SIZE];
 
-	snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_NEDELEC_VTK, file_num);
-	snprintf(fname_tem, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_TEMP, file_num);
-	snprintf(fname_sou, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_SOURCE, file_num);
+        snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_NEDELEC_VTK, file_num);
+        snprintf(fname_tem, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_TEMP, file_num);
+        snprintf(fname_sou, BUFFER_SIZE, OUTPUT_FILENAME_ASCII_SOURCE, file_num);
     snprintf(fname_B  , BUFFER_SIZE, "B_cell_%06d.vtk",          file_num);
 
-	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
-	output_result_file_vtk_nedelec_edge(
-			&(sys->fe),
-			&(sys->vals),
+        filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
+        output_result_file_vtk_nedelec_edge(
+                        &(sys->fe),
+                        &(sys->vals),
             &(sys->ned),
-			filename,
-			sys->cond.directory,
+                        filename,
+                        sys->cond.directory,
             //sys->ned.num_edges,
             sys->fe.total_num_nodes,
-			t);
+                        t);
 
-	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_tem);
-	BBFE_write_ascii_nodal_vals_scalar(
-			&(sys->fe),
-			sys->vals.V,
-			filename,
-			sys->cond.directory);
-    
+        filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_tem);
+        BBFE_write_ascii_nodal_vals_scalar(
+                        &(sys->fe),
+                        sys->vals.V,
+                        filename,
+                        sys->cond.directory);
+
     filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_B);
     output_B_cell_vtk(
             &(sys->fe), &(sys->basis), &(sys->ned),
@@ -551,24 +551,24 @@ double hot_start_read_initialize_val(
     int total_num_nodes;
     int ndof;
     double t = 0.0;
-	FILE* fp;
-	char fname[BUFFER_SIZE];
-	char id[BUFFER_SIZE];
+        FILE* fp;
+        char fname[BUFFER_SIZE];
+        char id[BUFFER_SIZE];
 
-	fp = BBFE_sys_read_fopen(fp, "hot_start/start_time.dat", directory);
-	fscanf(fp, "%s", id);
+        fp = BBFE_sys_read_fopen(fp, "hot_start/start_time.dat", directory);
+        fscanf(fp, "%s", id);
     fscanf(fp, "%lf", &(t));
     fclose(fp);
 
-	fp = BBFE_sys_read_fopen(fp, input_fname, directory);
-	fscanf(fp, "%s", id);
+        fp = BBFE_sys_read_fopen(fp, input_fname, directory);
+        fscanf(fp, "%s", id);
     fscanf(fp, "%d %d", &(total_num_nodes), &(ndof));
     for(int i = 0; i < total_num_nodes; i++) {
         for(int j = 0; j < ndof; j++) {
             fscanf(fp, "%lf", &(int_val[i * ndof + j]));
         }
     }
-	fclose(fp);
+        fclose(fp);
 
     return t;
 }
@@ -581,20 +581,20 @@ void hot_start_write_initialize_val(
     const char*     output_fname,
     const char*     directory)
 {
-	FILE* fp;
-	char fname[BUFFER_SIZE];
-	char id[BUFFER_SIZE];
+        FILE* fp;
+        char fname[BUFFER_SIZE];
+        char id[BUFFER_SIZE];
 
-	fp = BBFE_sys_write_fopen(fp, output_fname, directory);
-	fprintf(fp, "initialization\n");
+        fp = BBFE_sys_write_fopen(fp, output_fname, directory);
+        fprintf(fp, "initialization\n");
     fprintf(fp, "%d %d\n", total_num_nodes, ndof);
     for(int i = 0; i < total_num_nodes; i++) {
         for(int j = 0; j < ndof; j++) {
             fprintf(fp, "%e ", int_val[i * ndof + j]);
         }
-        fprintf(fp, "\n");        
+        fprintf(fp, "\n");
     }
-	fclose(fp);
+        fclose(fp);
 
     if(monolis_mpi_get_global_my_rank()==0){
         fp = BBFE_sys_write_fopen(fp, "hot_start/start_time.dat", directory);
@@ -606,53 +606,53 @@ void hot_start_write_initialize_val(
 
 
 int main (
-		int argc,
-		char* argv[])
+                int argc,
+                char* argv[])
 {
-	printf("\n");
+        printf("\n");
 
-	FE_SYSTEM sys;
+        FE_SYSTEM sys;
 
-	monolis_global_initialize();
-	double t1 = monolis_get_time();
+        monolis_global_initialize();
+        double t1 = monolis_get_time();
 
-	sys.cond.directory = BBFE_convdiff_get_directory_name(argc, argv, CODENAME);
-	read_calc_conditions(&(sys.vals), sys.cond.directory);
+        sys.cond.directory = BBFE_convdiff_get_directory_name(argc, argv, CODENAME);
+        read_calc_conditions(&(sys.vals), sys.cond.directory);
 
     monolis_initialize(&(sys.monolis));
-    
-	BBFE_mag_pre(
-			&(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
-			argc, argv, sys.cond.directory,
-			sys.vals.num_ip_each_axis,
-			true);
+
+        BBFE_mag_pre(
+                        &(sys.fe), &(sys.basis), &(sys.ned), (&sys.bc), (&sys.monolis), (&sys.monolis_com),
+                        argc, argv, sys.cond.directory,
+                        sys.vals.num_ip_each_axis,
+                        true);
 
     const char* filename;
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
+        filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "elem_bool.dat");
     set_elem_prop(
-			&(sys.fe),
-            &(sys.ned), 
+                        &(sys.fe),
+            &(sys.ned),
             sys.cond.directory,
             filename);
 
-	memory_allocation_nodal_values(
-			&(sys.vals),
-			sys.fe.total_num_nodes);
+        memory_allocation_nodal_values(
+                        &(sys.vals),
+                        sys.fe.total_num_nodes);
 
     FILE* fp;
-	if(monolis_mpi_get_global_my_rank() == 0){
-	    fp = BBFE_sys_write_fopen(fp, "NR_prop.txt", sys.cond.directory);
-		fclose(fp);
-	}
+        if(monolis_mpi_get_global_my_rank() == 0){
+            fp = BBFE_sys_write_fopen(fp, "NR_prop.txt", sys.cond.directory);
+                fclose(fp);
+        }
 
-	BBFE_elemmat_set_Jacobi_mat(
-			&(sys.fe),
-			&(sys.basis));
+        BBFE_elemmat_set_Jacobi_mat(
+                        &(sys.fe),
+                        &(sys.basis));
 
-	BBFE_elemmat_set_shapefunc_derivative(
-			&(sys.fe),
-			&(sys.basis));
-    
+        BBFE_elemmat_set_shapefunc_derivative(
+                        &(sys.fe),
+                        &(sys.basis));
+
     BBFE_mag_set_basis(
         &(sys.fe),
         &(sys.basis),
@@ -660,14 +660,14 @@ int main (
         sys.fe.local_num_nodes,
         sys.vals.num_ip_each_axis);
 
-	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
-	BBFE_sys_read_Dirichlet_bc(
-			&(sys.bc),
-			filename,
-			sys.cond.directory,
-			sys.ned.total_num_dof,
-			BLOCK_SIZE);
-   
+        filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
+        BBFE_sys_read_Dirichlet_bc(
+                        &(sys.bc),
+                        filename,
+                        sys.cond.directory,
+                        sys.ned.total_num_dof,
+                        BLOCK_SIZE);
+
     filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, "D_bc_ned.dat");
     BBFE_fluid_sups_read_Dirichlet_bc_NR(
             &(sys.bc_NR),
@@ -680,11 +680,11 @@ int main (
     sys.vals.Aphi_time_curr = (double *)calloc(sys.ned.total_num_dof, sizeof(double));
 
     /*for ROM *****************************************/
-	
+
     /*for ROM input data*/
 
     ROM_read_args(argc, argv, &(sys.rom_prm_p));
-	ROM_read_args(argc, argv, &(sys.rom_prm_v));
+        ROM_read_args(argc, argv, &(sys.rom_prm_v));
 
     ROM_set_param(
             &(sys.rom_p),
@@ -692,14 +692,14 @@ int main (
             sys.rom_prm_p.num_modes,
             sys.rom_prm_p.rom_epsilon,
             sys.rom_prm_p.solver_type);
-    
+
     ROM_set_param(
             &(sys.rom_v),
             sys.rom_prm_v.num_subdomains,
             sys.rom_prm_v.num_modes,
             sys.rom_prm_v.rom_epsilon,
             sys.rom_prm_v.solver_type);
-    
+
     ROM_set_param(
             &(sys.rom_sups),
             sys.rom_prm_v.num_subdomains,
@@ -716,32 +716,32 @@ int main (
 
     printf("sys.monolis_com.n_internal_vertex = %d\n", sys.monolis_com.n_internal_vertex);
 
-	ROM_std_hlpod_pre(
+        ROM_std_hlpod_pre(
             &(sys.rom_v),
-			sys.ned.total_num_dof,
+                        sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
             parted_file_name,
-			sys.cond.directory);
+                        sys.cond.directory);
 
-	ROM_std_hlpod_pre(
+        ROM_std_hlpod_pre(
             &(sys.rom_p),
-			sys.ned.total_num_dof,
+                        sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
             parted_file_name,
-			sys.cond.directory);
+                        sys.cond.directory);
 
-	ROM_std_hlpod_pre(
+        ROM_std_hlpod_pre(
             &(sys.rom_sups),
-			sys.ned.total_num_dof,
+                        sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             1,
             metagraph_name,
             parted_file_name,
-			sys.cond.directory);
+                        sys.cond.directory);
 
             /******************/
 
@@ -755,7 +755,7 @@ int main (
         sys.vals.dt,
         sys.vals.snapshot_interval,
         1);
-    
+
     ROM_std_hlpod_offline_set_num_snapmat(
         &(sys.rom_v),
         sys.vals.finish_time,
@@ -772,11 +772,11 @@ int main (
         sys.vals.snapshot_interval,
         1);
 
-	/****************** solver ********************/
+        /****************** solver ********************/
     int step = 0;
     //double t = 1.5e-3;
     double t = 0.0;
-	int file_num = 0;
+        int file_num = 0;
     int count = 0;  //for ROM
     double t_hs = 0.0; //for hot start
     int step_hs = 0; //for hot start
@@ -789,9 +789,9 @@ int main (
     const char* fn1 = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fnode);
     output_B_node_vtk(&(sys.fe), &(sys.basis), &(sys.ned), sys.vals.Aphi_time, fn1, sys.cond.directory);
 */
-    
+
 /*
-    char fname[BUFFER_SIZE];         
+    char fname[BUFFER_SIZE];
     snprintf(fname, BUFFER_SIZE, "hot_start/%s.%d.dat", "velosity_pressure", monolis_mpi_get_global_my_rank());
     t_hs = hot_start_read_initialize_val(sys.vals.Aphi_time, fname, sys.cond.directory);
     step_hs = t_hs / sys.vals.dt + 2;
@@ -800,26 +800,26 @@ int main (
     t = t_hs;
     printf("sys.vals.finish_time - t = %lf\n", ((double)sys.vals.finish_time - t));
 */
-	ROM_std_hlpod_offline_memory_allocation_snapmat(
-			&(sys.rom_v),
-			sys.ned.total_num_dof,
+        ROM_std_hlpod_offline_memory_allocation_snapmat(
+                        &(sys.rom_v),
+                        sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             ((double)sys.vals.finish_time - t_hs),
             sys.vals.dt,
             sys.vals.snapshot_interval,
             1,
-			1);
+                        1);
 
-	ROM_std_hlpod_offline_memory_allocation_snapmat(
-			&(sys.rom_p),
-			sys.ned.total_num_dof,
+        ROM_std_hlpod_offline_memory_allocation_snapmat(
+                        &(sys.rom_p),
+                        sys.ned.total_num_dof,
             sys.monolis_com.n_internal_vertex,
             ((double)sys.vals.finish_time - t_hs),
             sys.vals.dt,
             sys.vals.snapshot_interval,
             1,
-			1);
-    
+                        1);
+
 //    monolis_copy_mat_nonzero_pattern_R(&(sys.monolis), &(sys.monolis_mass));
 
     //ja_init_states_zero();
@@ -829,29 +829,29 @@ int main (
         t += sys.vals.dt;
 
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-/*  
+/*
         solver_fom_NR_Aphi_team21c(
-            sys, t, count, 
+            sys, t, count,
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.ned.total_num_dof);
- */      
+ */
         solver_fom_NR_Aphi_team21c_collect_snapmat(
-            sys, t, count, 
+            sys, t, count,
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.ned.total_num_dof);
 
-/*        
+/*
         solver_fom_NR_Aphi(
-            sys, t, count, 
+            sys, t, count,
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.ned.total_num_dof);
-*/    
+*/
 /*
         solver_fom_NR_Aphi_collect_snapmat(
-            sys, t, count, 
+            sys, t, count,
             sys.vals.Aphi_time,
             sys.vals.Aphi_time_curr,
             sys.ned.total_num_dof);
@@ -859,7 +859,7 @@ int main (
         //log_accuracy_metrics_JA(
         //    &sys, sys.vals.Aphi_time,
         //    sys.vals.Aphi_time_curr, step, t, sys.vals.dt, CURRENT_AMP);
-      
+
         for(int i=0; i<sys.ned.total_num_dof; ++i){
             sys.vals.Aphi_time[i] = sys.vals.Aphi_time_curr[i];
         }
@@ -872,7 +872,7 @@ int main (
         }
 
         // 可視化・ログ
-        
+
         if (step % sys.vals.output_interval == 0) {
             //sys.vals.V   = BB_std_calloc_1d_double(sys.vals.V,   sys.ned.total_num_dof);
             //sys.vals.phi = BB_std_calloc_1d_double(sys.vals.phi, sys.ned.total_num_dof);
@@ -889,7 +889,7 @@ int main (
             //output_files_nedelec(&sys, step, t);
             //output_files(&sys, step, t);
         }
-        
+
 
         if(step%1 == 0){
                 char fname[BUFFER_SIZE];
@@ -901,19 +901,19 @@ int main (
 
     }
 
-    
+
     ROM_std_hlpod_set_pod_modes_Aphi(
-		&(sys.rom_v),
-		&(sys.rom_p),
-		&(sys.rom_sups),
+                &(sys.rom_v),
+                &(sys.rom_p),
+                &(sys.rom_sups),
         &(sys.ned),
-		sys.ned.total_num_dof,
-		sys.monolis_com.n_internal_vertex,
-		1,
-		1,
-		"pod_modes_v",
-		"pod_modes_p",
-		sys.cond.directory);
+                sys.ned.total_num_dof,
+                sys.monolis_com.n_internal_vertex,
+                1,
+                1,
+                "pod_modes_v",
+                "pod_modes_p",
+                sys.cond.directory);
 
 
     /*
@@ -921,57 +921,56 @@ int main (
     ROM_std_hlpod_set_pod_modes_diag_mass(
         &(sys.monolis_mass),
         &(sys.mono_com0),
-		&(sys.rom_v),
-		&(sys.rom_p),
-		&(sys.rom_sups),
-		sys.ned.total_num_dof,
-		sys.monolis_com.n_internal_vertex,
-		1,
-		1,
-		"pod_modes_v",
-		"pod_modes_p",
-		sys.cond.directory);
+                &(sys.rom_v),
+                &(sys.rom_p),
+                &(sys.rom_sups),
+                sys.ned.total_num_dof,
+                sys.monolis_com.n_internal_vertex,
+                1,
+                1,
+                "pod_modes_v",
+                "pod_modes_p",
+                sys.cond.directory);
 */
     /*for writing vtk*/
     ROM_std_hlpod_read_pod_modes_Aphi(
-		&(sys.rom_v),
-		&(sys.rom_p),
-		&(sys.rom_sups),
+                &(sys.rom_v),
+                &(sys.rom_p),
+                &(sys.rom_sups),
         &(sys.fe),
         &(sys.ned),
-		sys.ned.total_num_dof,
-		sys.monolis_com.n_internal_vertex,
-		1,
-		1,
-		"pod_modes_v",
-		"pod_modes_p",
-		sys.cond.directory);
+                sys.ned.total_num_dof,
+                sys.monolis_com.n_internal_vertex,
+                1,
+                1,
+                "pod_modes_v",
+                "pod_modes_p",
+                sys.cond.directory);
 /*
-	ROM_sys_hlpod_fe_write_pod_modes_vtk_diag(
-		&(sys.fe),
-		&(sys.rom_sups),
-		sys.ned.total_num_dof,
-		10,
-		10,
-		1,
-		1,
-		"pod_modes_vtk/pod_modes_v.vtk",
-		"pod_modes_vtk/pod_modes_p.vtk",
-		sys.cond.directory);
+        ROM_sys_hlpod_fe_write_pod_modes_vtk_diag(
+                &(sys.fe),
+                &(sys.rom_sups),
+                sys.ned.total_num_dof,
+                10,
+                10,
+                1,
+                1,
+                "pod_modes_vtk/pod_modes_v.vtk",
+                "pod_modes_vtk/pod_modes_p.vtk",
+                sys.cond.directory);
 */
 
-	BBFE_convdiff_finalize(&(sys.fe), &(sys.basis), &(sys.bc));
+        BBFE_convdiff_finalize(&(sys.fe), &(sys.basis), &(sys.bc));
 
-	monolis_finalize(&(sys.monolis));
-	monolis_finalize(&(sys.monolis));
+        monolis_finalize(&(sys.monolis));
+        monolis_finalize(&(sys.monolis));
 
-	monolis_global_finalize();
+        monolis_global_finalize();
 
-	double t2 = monolis_get_time();
-	printf("** Total time: %f\n", t2 - t1);
+        double t2 = monolis_get_time();
+        printf("** Total time: %f\n", t2 - t1);
 
-	printf("\n");
+        printf("\n");
 
-	return 0;
+        return 0;
 }
-

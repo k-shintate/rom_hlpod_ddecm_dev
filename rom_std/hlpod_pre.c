@@ -1,13 +1,12 @@
-
 #include "hlpod_pre.h"
-    
+
 static const int BUFFER_SIZE = 10000;
 //static const char* INPUT_FILENAME_NODE        = "node.dat"; //for mag
 static const char* INPUT_FILENAME_NODE        = "graph_nedelec_elem_test.dat"; //for mag
 
 void ROM_std_hlpod_get_meta_neib2(
-    MONOLIS_COM*  	monolis_com,
-    HLPOD_META*		hlpod_meta,
+    MONOLIS_COM*        monolis_com,
+    HLPOD_META*         hlpod_meta,
     const char*     metagraph,
     const char*     directory)
 {
@@ -16,7 +15,7 @@ void ROM_std_hlpod_get_meta_neib2(
     char fname[BUFFER_SIZE];
     char id[BUFFER_SIZE];
     FILE* fp = NULL;
-    
+
     const int n_internal_vertex = monolis_com->n_internal_vertex;
     const int myrank = monolis_mpi_get_global_my_rank();
 
@@ -358,8 +357,8 @@ void ROM_std_hlpod_get_meta_neib(
 }
 
 void ROM_std_hlpod_get_subdomain_id(
-    HLPOD_VALUES* 	hlpod_vals,
-    HLPOD_META*		hlpod_meta,
+    HLPOD_VALUES*       hlpod_vals,
+    HLPOD_META*         hlpod_meta,
     const int       num,
     const char*     metagraph,
     const char*     directory)
@@ -393,9 +392,9 @@ void ROM_std_hlpod_get_subdomain_id(
 
 void ROM_std_hlpod_read_node_id_pod_subd(
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int		total_num_nodes,
-    const int		num_2nd_subdomains,
+    HLPOD_META*         hlpod_meta,
+    const int           total_num_nodes,
+    const int           num_2nd_subdomains,
     const char*     label,
     const char*     directory)
 {
@@ -435,10 +434,10 @@ void ROM_std_hlpod_read_node_id_pod_subd(
 
 void ROM_std_hlpod_read_node_id_pod_subd_para(
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int		total_num_nodes,
-    const int 		N_internal_vertex,
-    const int		num_2nd_subdomains,
+    HLPOD_META*         hlpod_meta,
+    const int           total_num_nodes,
+    const int           N_internal_vertex,
+    const int           num_2nd_subdomains,
     const char*     label,
     const char*     directory)
 {
@@ -469,9 +468,9 @@ printf("myrank = %d, m = %d subdomain id = %d n_internal_vertex = %d N_internal_
 
 /*solve as dense matrix*/
 void ROM_std_hlpod_set_nonzero_pattern(
-    MONOLIS*     	monolis,
+    MONOLIS*            monolis,
     HLPOD_MAT*      hlpod_mat,
-    const int 		num_modes)
+    const int           num_modes)
 {
     const int k = num_modes;
     int* index;
@@ -480,16 +479,16 @@ void ROM_std_hlpod_set_nonzero_pattern(
 
     index = BB_std_calloc_1d_int(index, 1);
     item = BB_std_calloc_1d_int(item, 1);
-    
+
     index[0] = 0;
     item[0] = 1;
 
     monolis_get_nonzero_pattern_by_nodal_graph_R(
         monolis,
-        1,					//nnode:節点数
-        k,					//ndof:節点あたりの自由度
-        index,				//節点グラフを定義するindex配列
-        item);				//設定グラフを定義するitem配列
+        1,                                      //nnode:節点数
+        k,                                      //ndof:節点あたりの自由度
+        index,                          //節点グラフを定義するindex配列
+        item);                          //設定グラフを定義するitem配列
 
     connectivity = BB_std_calloc_1d_int(connectivity, 1);
     connectivity[0] = 0;
@@ -500,12 +499,12 @@ void ROM_std_hlpod_set_nonzero_pattern(
 }
 
 void ROM_std_hlpod_set_nonzero_pattern_bcsr(
-    MONOLIS*     	monolis,
+    MONOLIS*            monolis,
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int		num_modes,
+    HLPOD_META*         hlpod_meta,
+    const int           num_modes,
     const char*     label,
-    const char*		directory)
+    const char*         directory)
 {
     const char* fname;
     FILE* fp;
@@ -553,7 +552,7 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr(
         }
         sum += num_adj_nodes;
         hlpod_meta->index[i + 1] = sum;
-    }	
+    }
     fclose(fp);
 
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
@@ -567,12 +566,12 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr(
 
 
 void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
-    MONOLIS*     	monolis,
-    MONOLIS_COM*  	monolis_com,
-    HLPOD_MAT* 	    hlpod_mat,
-    HLPOD_META*		hlpod_meta,
+    MONOLIS*            monolis,
+    MONOLIS_COM*        monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*         hlpod_meta,
     const char*     metagraph,
-    const char*		directory)
+    const char*         directory)
 {
     char fname[BUFFER_SIZE];
     FILE* fp;
@@ -620,7 +619,7 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
         }
         sum += num_adj_nodes;
         hlpod_meta->index[i + 1] = sum;
-    }	
+    }
     fclose(fp);
 
     hlpod_meta->num_meta_nodes = num_nodes;
@@ -628,10 +627,10 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
 
 //for arbit_dof_monolis_solver
 void ROM_std_hlpod_get_n_dof_list(
-    MONOLIS_COM*  	monolis_com,
-    HLPOD_MAT* 	    hlpod_mat,
-    HLPOD_META*		hlpod_meta,
-    const int 		max_num_bases)
+    MONOLIS_COM*        monolis_com,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*         hlpod_meta,
+    const int           max_num_bases)
 {
     const int M = max_num_bases;
     const int M_all = M * hlpod_meta->num_meta_nodes;
@@ -666,10 +665,10 @@ void ROM_std_hlpod_get_n_dof_list(
                     length1 = IE - IS;
                     index1 = 0;
 
-                    for(int m = IS; m < IE; m++){					
+                    for(int m = IS; m < IE; m++){
                         length2 = IIE - IIS;
                         index2 = 0;
-                        for(int n = IIS; n < IIE; n++){		
+                        for(int n = IIS; n < IIE; n++){
                             index2++;
                         }
                         index1++;

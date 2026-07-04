@@ -38,7 +38,7 @@ echo "#PBS -M k.shintate.hpc@gmail.com" >> $fname
 echo "#PBS -m eb" >> $fname
 echo "#PBS -T intmpi" >> $fname
 echo "#------- Program execution -----------" >> $fname
-echo "module load BaseCPU/2023" >> $fname
+echo "module load BaseCPU/2025" >> $fname
 echo "cd \$PBS_O_WORKDIR" >> $fname
 echo "" >> $fname
 

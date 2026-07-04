@@ -5,9 +5,9 @@
 static const char* CODENAME = "ROM";
 
 void ROM_std_hlpod_online_memory_allocation_ansvec(
-        HLPOD_VALUES*	hlpod_vals,
-        const int		total_num_nodes,
-        const int	    dof)
+        HLPOD_VALUES*   hlpod_vals,
+        const int               total_num_nodes,
+        const int           dof)
 {
     hlpod_vals->sol_vec = BB_std_calloc_1d_double(hlpod_vals->sol_vec, total_num_nodes * dof);
 }
@@ -22,10 +22,10 @@ void ROM_std_hlpod_offline_set_num_snapmat(
         const int       num_case)
 {
     double quotient = finish_time / dt / snapshot_interval;
-    
+
     if (fmod(quotient, 1.0) == 0.0) {
-    	rom->hlpod_vals.num_snapshot = finish_time / dt / snapshot_interval * num_case;
-    	printf("%s: %d\n", CODENAME, rom->hlpod_vals.num_snapshot);
+        rom->hlpod_vals.num_snapshot = finish_time / dt / snapshot_interval * num_case;
+        printf("%s: %d\n", CODENAME, rom->hlpod_vals.num_snapshot);
     }
     else{
         printf("Error: num_snapshot = %d is not integer\n");
@@ -85,13 +85,13 @@ void ROM_std_hlpod_offline_set_num_snapmat(
 
 void ROM_std_hlpod_offline_memory_allocation_snapmat(
         ROM*            rom,
-        const int		total_num_nodes,
-        const int		n_internal_vertex,
+        const int               total_num_nodes,
+        const int               n_internal_vertex,
         const double    finish_time,
         const double    dt,
         const int       snapshot_interval,
         const int       num_case,
-        const int	    dof)
+        const int           dof)
 {
     int quotient = finish_time / dt / snapshot_interval;
 
@@ -101,7 +101,7 @@ void ROM_std_hlpod_offline_memory_allocation_snapmat(
     else{
         rom->hlpod_vals.num_snapshot = (finish_time / dt / snapshot_interval+1) * num_case;
     }
-    
+
     printf("%s: num_snapshot = %d\n", CODENAME, rom->hlpod_vals.num_snapshot);
 
     if (monolis_mpi_get_global_comm_size() == 1){
@@ -115,13 +115,13 @@ void ROM_std_hlpod_offline_memory_allocation_snapmat(
 
 
 void ROM_std_hlpod_set_pod_modes_diag(
-        ROM* 		rom_v,
-        ROM* 		rom_p,
-        ROM* 		rom_sups,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	ndof1,
-        const int 	ndof2,
+        ROM*            rom_v,
+        ROM*            rom_p,
+        ROM*            rom_sups,
+        const int       total_num_nodes,
+        const int       n_internal_vertex,
+        const int       ndof1,
+        const int       ndof2,
         const char* label1,
         const char* label2,
         const char* directory)
@@ -160,7 +160,7 @@ void ROM_std_hlpod_set_pod_modes_diag(
                     total_num_nodes,
                     rom_v->hlpod_vals.num_modes_pre,
                     ndof1);
-            
+
             ROM_std_hlpod_free_podmodes(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -199,7 +199,7 @@ void ROM_std_hlpod_set_pod_modes_diag(
                     rom_v->hlpod_vals.num_modes_pre,
                     rom_v->hlpod_vals.num_2nd_subdomains,
                     ndof1);
-            
+
             ROM_std_hlpod_free_local_podmodes(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -208,7 +208,7 @@ void ROM_std_hlpod_set_pod_modes_diag(
                     rom_p->hlpod_vals.num_2nd_subdomains,
                     ndof2);
         }
-    }		
+    }
     else{
         if(rom_sups->hlpod_vals.bool_global_mode==false){
 
@@ -225,7 +225,7 @@ void ROM_std_hlpod_set_pod_modes_diag(
                     ndof1,
                     label1,
                     directory);
-            
+
             ROM_std_hlpod_set_podmodes_local_para(
                     &(rom_p->hlpod_vals),
                     &(rom_p->hlpod_mat),
@@ -247,7 +247,7 @@ void ROM_std_hlpod_set_pod_modes_diag(
                     rom_v->hlpod_vals.num_modes_pre,
                     rom_v->hlpod_vals.num_2nd_subdomains,
                     ndof1);
-            
+
             ROM_std_hlpod_free_local_podmodes_para(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -301,13 +301,13 @@ void ROM_std_hlpod_set_pod_modes_diag(
 }
 
 void ROM_std_hlpod_read_pod_modes_diag(
-        ROM* 		rom_v,
-        ROM* 		rom_p,
-        ROM* 		rom_sups,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	ndof1,
-        const int 	ndof2,
+        ROM*            rom_v,
+        ROM*            rom_p,
+        ROM*            rom_sups,
+        const int       total_num_nodes,
+        const int       n_internal_vertex,
+        const int       ndof1,
+        const int       ndof2,
         const char* label1,
         const char* label2,
         const char* directory)
@@ -352,7 +352,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof1,
                     ndof2,
                     directory);
-            
+
             rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
 
             ROM_std_hlpod_free_podmodes(
@@ -360,7 +360,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     total_num_nodes,
                     rom_v->hlpod_vals.num_modes_pre,
                     ndof1);
-            
+
             ROM_std_hlpod_free_podmodes(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -407,7 +407,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof1,
                     ndof2,
                     directory);
-            
+
             rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
 
             ROM_std_hlpod_free_local_podmodes(
@@ -417,7 +417,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     rom_v->hlpod_vals.num_modes_pre,
                     rom_v->hlpod_vals.num_2nd_subdomains,
                     ndof1);
-            
+
             ROM_std_hlpod_free_local_podmodes(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -427,7 +427,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof2);
 
         }
-    }		
+    }
     else{
         if(rom_sups->hlpod_vals.bool_global_mode==false){
             ROM_std_hlpod_read_podmodes_local_para(
@@ -443,7 +443,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     rom_v->hlpod_vals.rom_epsilon,
                     label1,
                     directory);
-            
+
             ROM_std_hlpod_read_podmodes_local_para(
                     &(rom_p->hlpod_vals),
                     &(rom_p->hlpod_mat),
@@ -457,7 +457,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     rom_p->hlpod_vals.rom_epsilon,
                     label2,
                     directory);
-            
+
             ROM_std_hlpod_set_podmodes_local_para_diag(
                     &(rom_sups->hlpod_vals),
                     &(rom_sups->hlpod_mat),
@@ -474,7 +474,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof2,
                     rom_sups->hlpod_vals.num_2nd_subdomains,
                     directory);
-                    
+
             rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
 
             ROM_std_hlpod_free_local_podmodes_para(
@@ -484,7 +484,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     rom_v->hlpod_vals.num_modes_pre,
                     rom_v->hlpod_vals.num_2nd_subdomains,
                     ndof1);
-            
+
             ROM_std_hlpod_free_local_podmodes_para(
                     &(rom_p->hlpod_mat),
                     total_num_nodes,
@@ -492,7 +492,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     rom_p->hlpod_vals.num_modes_pre,
                     rom_p->hlpod_vals.num_2nd_subdomains,
                     ndof2);
-            
+
         }
         else{
             ROM_std_hlpod_read_podmodes_global_para(
@@ -514,7 +514,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof2,
                     label2,
                     directory);
-            
+
             ROM_std_hlpod_set_podmodes_global_para_diag(
                     &(rom_sups->hlpod_vals),
                     &(rom_sups->hlpod_mat),
@@ -527,7 +527,7 @@ void ROM_std_hlpod_read_pod_modes_diag(
                     ndof1,
                     ndof2,
                     directory);
-            
+
             rom_sups->hlpod_vals.num_modes_pre = rom_v->hlpod_vals.num_modes_pre + rom_v->hlpod_vals.num_modes_pre;
 
             ROM_std_hlpod_free_global_podmodes(
@@ -546,10 +546,10 @@ void ROM_std_hlpod_read_pod_modes_diag(
 }
 
 void ROM_std_hlpod_set_pod_modes(
-        ROM* 		rom,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	ndof,
+        ROM*            rom,
+        const int       total_num_nodes,
+        const int       n_internal_vertex,
+        const int       ndof,
         const char* label,
         const char* directory)
 {
@@ -584,7 +584,7 @@ void ROM_std_hlpod_set_pod_modes(
                     label,
                     directory);
         }
-    }		
+    }
     else{
         if(rom->hlpod_vals.bool_global_mode==false){
 
@@ -601,7 +601,7 @@ void ROM_std_hlpod_set_pod_modes(
                     ndof,
                     label,
                     directory);
-        
+
         }
         else{
 
@@ -624,10 +624,10 @@ void ROM_std_hlpod_set_pod_modes(
 
 
 void ROM_std_hlpod_read_pod_modes(
-        ROM* 		rom,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	dof,
+        ROM*            rom,
+        const int       total_num_nodes,
+        const int       n_internal_vertex,
+        const int       dof,
         const char* label,
         const char* directory)
 {
@@ -671,7 +671,7 @@ void ROM_std_hlpod_read_pod_modes(
                     directory);
 
         }
-    }		
+    }
     else{
         if(rom->hlpod_vals.bool_global_mode==false){
             ROM_std_hlpod_free_local_podmodes_para(
@@ -719,8 +719,8 @@ void ROM_std_hlpod_pre(
         const int    dof,
         const char*  metagraph,
         const char*  label_pod_subd,
-        const char*	 directory)
-{            
+        const char*      directory)
+{
     if(monolis_mpi_get_global_comm_size() == 1){
         if(rom->hlpod_vals.num_1st_subdomains==0){
             printf("\nError : num_1st_subdomains is not set\n");
@@ -765,10 +765,10 @@ void ROM_std_hlpod_set_monolis_comm(
         MONOLIS_COM* monolis_com,
         MONOLIS_COM* mono_com_rom,
         MONOLIS_COM* mono_com_rom_solv,
-        const char*	 metagraph_parted0,
+        const char*      metagraph_parted0,
         const char*  metagraph,
         const int    solver_type,
-        const char*	 directory)
+        const char*      directory)
 {
     if(monolis_mpi_get_global_comm_size() == 1){
         monolis_com_initialize_by_self(mono_com_rom_solv);
@@ -779,7 +779,7 @@ void ROM_std_hlpod_set_monolis_comm(
                     monolis_com,
                     mono_com_rom,
                     monolis_com->recv_n_neib);
-            
+
             monolis_com_initialize_by_parted_files(
                     mono_com_rom_solv,
                     monolis_mpi_get_global_comm(),
@@ -793,9 +793,9 @@ void ROM_std_hlpod_set_monolis_comm(
 void ROM_std_hlpod_read_metagraph(
         MONOLIS*     monolis_rom0,
         MONOLIS_COM* mono_com_rom_solv,
-        ROM*		 rom,
+        ROM*             rom,
         const char*  metagraph,
-        const char*	 directory)
+        const char*      directory)
 {
     if(monolis_mpi_get_global_comm_size() == 1){
         if(rom->hlpod_vals.num_1st_subdomains==0){
@@ -825,8 +825,8 @@ void ROM_std_hlpod_read_metagraph(
     else{
         if(rom->hlpod_vals.bool_global_mode==false){
 
-		double t = monolis_get_time_global_sync();
-		printf("now3");
+                double t = monolis_get_time_global_sync();
+                printf("now3");
             ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
                     monolis_rom0,
                     mono_com_rom_solv,
@@ -1192,28 +1192,28 @@ void ROM_std_hlpod_online_pre(
         MONOLIS_COM* mono_com,
         MONOLIS_COM* mono_com_rom,
         MONOLIS_COM* mono_com_rom_solv,
-        ROM* 		 rom_sups,
-        const int 	 total_num_nodes,
+        ROM*             rom_sups,
+        const int        total_num_nodes,
         const char*  metagraph,
         const char*  directory)
 {
     ROM_std_hlpod_read_metagraph(
-			monolis_rom0,
-			mono_com_rom_solv,
-			rom_sups,
-			metagraph,
-			directory);
+                        monolis_rom0,
+                        mono_com_rom_solv,
+                        rom_sups,
+                        metagraph,
+                        directory);
 
     if(monolis_mpi_get_global_comm_size() == 1){
-    
+
         if(rom_sups->hlpod_vals.num_1st_subdomains==0){
             printf("\nError : num_1st_subdomains is not set\n");
             exit(1);
         }
         else{
-            
+
         }
-    }		
+    }
     else{
         if(rom_sups->hlpod_vals.bool_global_mode==false){
 
@@ -1225,7 +1225,7 @@ void ROM_std_hlpod_online_pre(
                     rom_sups,
                     directory);
         }
-        else{				
+        else{
             ROM_std_hlpod_update_global_modes(
                     mono_com,
                     &(rom_sups->hlpod_mat),
@@ -1234,7 +1234,7 @@ void ROM_std_hlpod_online_pre(
                     rom_sups->hlpod_vals.num_modes_pre,
                     //4);
                     1);
-                
+
         }
     }
 }
@@ -1246,12 +1246,12 @@ void ROM_std_hlpod_calc_reduced_mat(
         MONOLIS_COM* monolis_com,
         MONOLIS_COM* mono_com0,
         MONOLIS_COM* mono_com_rom,
-        ROM*		 rom,
-        const int	 total_num_nodes,
-        const int	 dof)
+        ROM*             rom,
+        const int        total_num_nodes,
+        const int        dof)
 {
-    if(monolis_mpi_get_global_comm_size() == 1){     
-        
+    if(monolis_mpi_get_global_comm_size() == 1){
+
         if(rom->hlpod_vals.num_1st_subdomains==0){
             printf("\nError : num_1st_subdomains is not set\n");
         }
@@ -1266,10 +1266,10 @@ void ROM_std_hlpod_calc_reduced_mat(
 
            int connectivity[] = {0};
             monolis_add_matrix_to_sparse_matrix_R(
-                    monolis_rom,					    
-                    1,							    
-                    connectivity,				
-                    rom->hlpod_mat.VTKV);				
+                    monolis_rom,
+                    1,
+                    connectivity,
+                    rom->hlpod_mat.VTKV);
         }
         else{
             ROM_std_hlpod_calc_reduced_mat_seq_block(
@@ -1281,7 +1281,7 @@ void ROM_std_hlpod_calc_reduced_mat(
                     rom->hlpod_vals.num_modes_pre,
                     rom->hlpod_vals.num_2nd_subdomains,
                     dof);
-            
+
             ROM_std_hlpod_set_reduced_mat(
                     monolis_rom,
                     &(rom->hlpod_mat),
@@ -1327,12 +1327,12 @@ void ROM_std_hlpod_calc_reduced_mat2(
         MONOLIS_COM* monolis_com,
         MONOLIS_COM* mono_com0,
         MONOLIS_COM* mono_com_rom,
-        ROM*		 rom,
-        const int	 total_num_nodes,
-        const int	 dof)
+        ROM*             rom,
+        const int        total_num_nodes,
+        const int        dof)
 {
-    if(monolis_mpi_get_global_comm_size() == 1){     
-        
+    if(monolis_mpi_get_global_comm_size() == 1){
+
         if(rom->hlpod_vals.num_1st_subdomains==0){
             printf("\nError : num_1st_subdomains is not set\n");
         }
@@ -1347,10 +1347,10 @@ void ROM_std_hlpod_calc_reduced_mat2(
 
            int connectivity[] = {0};
             monolis_add_matrix_to_sparse_matrix_R(
-                    monolis_rom,					    
-                    1,							    
-                    connectivity,				
-                    rom->hlpod_mat.VTKV);				
+                    monolis_rom,
+                    1,
+                    connectivity,
+                    rom->hlpod_mat.VTKV);
         }
         else{
             ROM_std_hlpod_calc_reduced_mat_seq_block(
@@ -1362,7 +1362,7 @@ void ROM_std_hlpod_calc_reduced_mat2(
                     rom->hlpod_vals.num_modes_pre,
                     rom->hlpod_vals.num_2nd_subdomains,
                     dof);
-            
+
             ROM_std_hlpod_set_reduced_mat(
                     monolis_rom,
                     &(rom->hlpod_mat),
@@ -1407,13 +1407,13 @@ void ROM_std_hlpod_solve_ROM(
     MONOLIS*     monolis,
     MONOLIS*     monolis_rom,
     MONOLIS_COM* mono_com_rom,
-    ROM*		 rom,
-    const int	 total_num_nodes,
-    const int	 dof,
-    const int 	 mat_max_iter,
+    ROM*                 rom,
+    const int    total_num_nodes,
+    const int    dof,
+    const int    mat_max_iter,
     const double mat_epsilon,
-    const int 	 label_solver,
-    const int	 label_prec)
+    const int    label_solver,
+    const int    label_prec)
 {
     if(monolis_mpi_get_global_comm_size() == 1){
         double t1 = monolis_get_time();
@@ -1430,7 +1430,7 @@ void ROM_std_hlpod_solve_ROM(
                 rom->hlpod_vals.num_2nd_subdomains,
                 rom->hlpod_vals.num_modes_pre);
         double t2 = monolis_get_time();
-        
+
         rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
 
         t1 = monolis_get_time();
@@ -1445,18 +1445,18 @@ void ROM_std_hlpod_solve_ROM(
         t2 = monolis_get_time();
 
         rom->hlpod_vals.time_linear_solver = t2 - t1;
-        
+
         t1 = monolis_get_time();
         ROM_std_hlpod_calc_sol(
                 &(rom->hlpod_vals),
-                &(rom->hlpod_mat), 
+                &(rom->hlpod_mat),
                 total_num_nodes,
                 rom->hlpod_vals.num_modes_pre,
                 rom->hlpod_vals.num_2nd_subdomains,
                 dof);
         t2 = monolis_get_time();
 
-	rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
+        rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
     }
     else{
         double t1 = monolis_get_time_global_sync();
@@ -1473,7 +1473,7 @@ void ROM_std_hlpod_solve_ROM(
                 rom->hlpod_vals.num_2nd_subdomains,
                 rom->hlpod_vals.num_modes_pre);
         double t2 = monolis_get_time_global_sync();
- 
+
         rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
 
         t1 = monolis_get_time_global_sync();
@@ -1510,13 +1510,13 @@ void ROM_std_hlpod_solve_ROM_NR(
     MONOLIS*     monolis,
     MONOLIS*     monolis_rom,
     MONOLIS_COM* mono_com_rom,
-    ROM*		 rom,
-    const int	 total_num_nodes,
-    const int	 dof,
-    const int 	 mat_max_iter,
+    ROM*                 rom,
+    const int    total_num_nodes,
+    const int    dof,
+    const int    mat_max_iter,
     const double mat_epsilon,
-    const int 	 label_solver,
-    const int	 label_prec)
+    const int    label_solver,
+    const int    label_prec)
 {
     if(monolis_mpi_get_global_comm_size() == 1){
         double t1 = monolis_get_time();
@@ -1533,7 +1533,7 @@ void ROM_std_hlpod_solve_ROM_NR(
                 rom->hlpod_vals.num_2nd_subdomains,
                 rom->hlpod_vals.num_modes_pre);
         double t2 = monolis_get_time();
-        
+
         rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
 
         t1 = monolis_get_time();
@@ -1548,18 +1548,18 @@ void ROM_std_hlpod_solve_ROM_NR(
         t2 = monolis_get_time();
 
         rom->hlpod_vals.time_linear_solver = t2 - t1;
-        
+
         t1 = monolis_get_time();
         ROM_std_hlpod_calc_sol(
                 &(rom->hlpod_vals),
-                &(rom->hlpod_mat), 
+                &(rom->hlpod_mat),
                 total_num_nodes,
                 rom->hlpod_vals.num_modes_pre,
                 rom->hlpod_vals.num_2nd_subdomains,
                 dof);
         t2 = monolis_get_time();
 
-	rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
+        rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
     }
     else{
         double t1 = monolis_get_time_global_sync();
@@ -1569,7 +1569,7 @@ void ROM_std_hlpod_solve_ROM_NR(
                 rom->hlpod_vals.num_modes_pre,
                 rom->hlpod_vals.num_2nd_subdomains,
                 dof);
-        
+
         ROM_std_hlpod_calc_reduced_rhs_add(
                 monolis,
                 &(rom->hlpod_mat),
@@ -1583,7 +1583,7 @@ void ROM_std_hlpod_solve_ROM_NR(
                 rom->hlpod_vals.num_2nd_subdomains,
                 rom->hlpod_vals.num_modes_pre);
         double t2 = monolis_get_time_global_sync();
- 
+
         rom->hlpod_vals.time_calc_reduced_matvec += t2 - t1;
 
         t1 = monolis_get_time_global_sync();
@@ -1617,13 +1617,13 @@ void ROM_std_hlpod_solve_ROM_NR(
 
 
 void ROM_std_hlpod_read_pod_modes_diag_decoupled(
-        ROM* 		rom_v,
-        ROM* 		rom_p,
-        ROM* 		rom_sups,
-        const int 	total_num_nodes,
-        const int 	n_internal_vertex,
-        const int 	ndof1,
-        const int 	ndof2,
+        ROM*            rom_v,
+        ROM*            rom_p,
+        ROM*            rom_sups,
+        const int       total_num_nodes,
+        const int       n_internal_vertex,
+        const int       ndof1,
+        const int       ndof2,
         const char* label1,
         const char* label2,
         const char* directory)
@@ -1642,7 +1642,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             rom_v->hlpod_vals.rom_epsilon,
             label1,
             directory);
-    
+
     ROM_std_hlpod_read_podmodes_local_para(
             &(rom_p->hlpod_vals),
             &(rom_p->hlpod_mat),
@@ -1656,7 +1656,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             rom_p->hlpod_vals.rom_epsilon,
             label2,
             directory);
-    
+
     ROM_std_hlpod_set_podmodes_local_para_diag(
             &(rom_sups->hlpod_vals),
             &(rom_sups->hlpod_mat),
@@ -1673,7 +1673,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             ndof2,
             rom_sups->hlpod_vals.num_2nd_subdomains,
             directory);
-    
+
     ROM_std_hlpod_set_podmodes_local_para_diag_decoupled(
             &(rom_sups->hlpod_vals),
             &(rom_sups->hlpod_mat),
@@ -1690,7 +1690,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             ndof2,
             rom_sups->hlpod_vals.num_2nd_subdomains,
             directory);
-    
+
     /*
     ROM_std_hlpod_set_podmodes_local_para_diag_v(
             &(rom_sups_v->hlpod_vals),
@@ -1708,7 +1708,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             ndof2,
             rom_sups_v->hlpod_vals.num_2nd_subdomains,
             directory);
-        
+
     ROM_std_hlpod_set_podmodes_local_para_diag_p(
             &(rom_sups_p->hlpod_vals),
             &(rom_sups_p->hlpod_mat),
@@ -1736,7 +1736,7 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             rom_v->hlpod_vals.num_modes_pre,
             rom_v->hlpod_vals.num_2nd_subdomains,
             ndof1);
-    
+
     ROM_std_hlpod_free_local_podmodes_para(
             &(rom_p->hlpod_mat),
             total_num_nodes,
@@ -1744,5 +1744,5 @@ void ROM_std_hlpod_read_pod_modes_diag_decoupled(
             rom_p->hlpod_vals.num_modes_pre,
             rom_p->hlpod_vals.num_2nd_subdomains,
             ndof2);
-    
+
 }

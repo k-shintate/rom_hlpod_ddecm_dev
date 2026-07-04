@@ -16,15 +16,14 @@ N_node=$8
 N_cpu=$9
 
 # 実行ディレクトリ
-directory_offline="result_diff/${nm}-${np}-${nd}"
-directory_online="result_diff/online_${nm}-${np}-${nd}"
+directory="result_mag/${nm}-${np}-${nd}"
 
-cd solvers/diff
-make -f Makefile_HROM_squid clean
-make -f Makefile_HROM_squid
+cd solvers/fluid_sups
+make -f Makefile_squid clean
+make -f Makefile_squid
 cd ../..
 
-fname="execution_online_hrom.sh"
+fname="execution_hrom_offline_FOM_mag.sh"
 rm $fname
 touch $fname
 echo "#!/bin/bash" >> $fname
@@ -41,16 +40,26 @@ echo "module load BaseCPU/2025" >> $fname
 echo "cd \$PBS_O_WORKDIR" >> $fname
 echo "" >> $fname
 
-#echo "rm -r $directory_online" >> $fname
-#echo "mkdir -p result_diff/tmp" >> $fname
-#echo "cp -r result_diff/${nm}-${np}-${nd} result_diff/tmp" >> $fname
-#echo "mv result_diff/tmp/${nm}-${np}-${nd} $directory_online" >> $fname
+echo "cd solvers/fluid_sups" >> $fname
 
-echo "cd solvers/diff" >> $fname
-echo "cp -r hlpod_diff_online_HROM ./../../$directory_online" >> $fname
-echo "cd ../../$directory_online" >> $fname
-echo "mkdir hr_solver_prm" >> $fname
-echo "mpirun \${NQSV_MPIOPTS} -np ${np}  ./hlpod_diff_online_HROM ./ -nd ${nd} -nm ${nm} -pa ${pa} -st ${st}  > ../../result/result_online_${nd}-${nm}.txt" >> $fname
+echo "cp -r mag_threephase ./../../$directory" >> $fname
+echo "cp -r mag_threephase_online ./../../$directory" >> $fname
+
+echo "cd ./../../$directory" >> $fname
+
+echo "mkdir -p {pod_modes_vtk,pod_modes,fem_solver_prm,pod_solver_prm,hr_solver_prm,calctime,DDECM,hr_prm}" >> $fname
+
+echo "for ((i=0; i<${nd}; i++))" >> "$fname"
+echo "do" >> "$fname"
+echo '    mkdir -p "pod_modes_v/subdomain${i}"' >> "$fname"
+echo "done" >> "$fname"
+
+echo "for ((i=0; i<${nd}; i++))" >> "$fname"
+echo "do" >> "$fname"
+echo '    mkdir -p "pod_modes_p/subdomain${i}"' >> "$fname"
+echo "done" >> "$fname"
+
+echo "mpirun \${NQSV_MPIOPTS} -np ${np} ./mag_threephase ./ -nd ${nd} -nm ${nm} -pa ${pa} -st ${st}  > ../../result_mag/result_offline_FOM_${nd}-${nm}.txt" >> $fname
 
 echo "cd ../.." >> $fname
 echo "" >> $fname

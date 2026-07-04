@@ -33,8 +33,8 @@ do
         #. shell/mag/partitioner_hddm2.sh $e $ep $nm $nd $np $pa $st
         ##. shell/mag/mesh_convert.sh $e $ep $nm $nd $np $pa $st
 
-        #. shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
-        . shell/mag/execution_threephase_online.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag_squid/execution_threephase.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag_squid/execution_threephase_online.sh $e $ep $nm $nd $np $pa $st
         
         done
 	done

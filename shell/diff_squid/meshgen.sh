@@ -35,7 +35,7 @@ echo "#PBS -l cpunum_job=1" >> $fname            # CPU/node == max 72
 echo "#PBS -l memsz_job=248GB" >> $fname
 echo "#PBS -T intmpi" >> $fname
 echo "#------- Program execution -----------" >> $fname
-echo "module load BaseCPU/2023" >> $fname
+echo "module load BaseCPU/2025" >> $fname
 echo "cd \$PBS_O_WORKDIR" >> $fname
 echo "" >> $fname
 
