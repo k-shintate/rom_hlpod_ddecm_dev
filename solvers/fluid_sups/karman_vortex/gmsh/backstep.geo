@@ -16,7 +16,7 @@ SetFactory("Built-in");
 // -----------------------
 h  = 1.0;       // step height
 H  = 9.0*h;     // downstream channel height; upstream channel height is H-h = 8h
-Lu = 20.0*h;    // inlet location x/h = -20
+Lu = 110.0*h;    // inlet location x/h = -20
 Ld = 50.0*h;    // outlet location x/h = 50
 
 // Profile stations used by NASA TMR data
@@ -35,7 +35,7 @@ nz = 1;
 // These are numbers of points, not elements. Elements = points - 1.
 // Medium baseline: about O(1e5) hex elements for nz=1.
 // For grid convergence, scale these counts consistently.
-nx_up   = 201;    // x/h in [-20,0]
+nx_up   = 1101;    // x/h in [-20,0]
 nx_01   = 41;     // x/h in [0,1]
 nx_14   = 121;    // x/h in [1,4]
 nx_46   = 81;     // x/h in [4,6]

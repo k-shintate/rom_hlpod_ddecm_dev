@@ -10,7 +10,7 @@ mkdir -p mesh_tmp
 mkdir -p mesh_karman_vortex
 
 gmsh -3 -format msh2 -0 gmsh/backstep.geo -o ./mesh_karman_vortex/backstep.msh
-#gmsh ./mesh_karman_vortex/backstep.msh
+gmsh ./mesh_karman_vortex/backstep.msh
 
 python3 mesh_io/save_physical_groups.py ./mesh_karman_vortex/backstep.msh
 

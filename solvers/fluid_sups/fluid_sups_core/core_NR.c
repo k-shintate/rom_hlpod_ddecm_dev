@@ -1,5 +1,4 @@
 
-
 #include "core_FOM.h"
 #include "core_NR.h"
 #include <mkl.h>
@@ -395,7 +394,7 @@ void BBFE_elemmat_fluid_mat_rom_nonlinear(
 
         for (int d = 0; d < 3; ++d) {
             mat[d][k] += dt * density * dtauc_k * div_v * grad_N_i[d];
-        
+
         }
     }
 }
@@ -688,7 +687,7 @@ void set_element_mat_NR_linear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -698,7 +697,7 @@ void set_element_mat_NR_linear(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -813,7 +812,7 @@ void set_element_mat_NR_linear_withoutmass(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -823,7 +822,7 @@ void set_element_mat_NR_linear_withoutmass(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -937,7 +936,7 @@ void set_element_vec_NR_linear_nonlinear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -947,7 +946,7 @@ void set_element_vec_NR_linear_nonlinear(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -994,8 +993,8 @@ void set_element_vec_NR_linear_nonlinear(
                         vals->density, vals->viscosity,
                         tau, tau_c, vals->dt,
                         du_time);
-*/          
-            
+*/
+
                 for (int d = 0; d < 4; ++d) {
                     val_ip_vec[d][p] = vec[d];
                     vec[d] = 0.0;
@@ -1011,7 +1010,7 @@ void set_element_vec_NR_linear_nonlinear(
         }
     }
 
-    
+
     for (int e = 0; e < fe->total_num_elems; ++e) {
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
@@ -1019,7 +1018,7 @@ void set_element_vec_NR_linear_nonlinear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1030,7 +1029,7 @@ void set_element_vec_NR_linear_nonlinear(
 
         double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
         double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1051,7 +1050,7 @@ void set_element_vec_NR_linear_nonlinear(
                 const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                     J_inv, fe->geo[e][p].Jacobian,
                     vals->density, vals->viscosity, v_ip[p], vals->dt);
-              
+
                 BBFE_elemmat_fluid_vec_rom_nonlinear(
                         vec,
                         basis->N[p][i],
@@ -1079,7 +1078,7 @@ void set_element_vec_NR_linear_nonlinear(
             }
         }
     }
-    
+
 
     BB_std_free_3d_double(val_ip , 4 , 4, np);
     BB_std_free_1d_double(Jacobian_ip, np);
@@ -1135,7 +1134,7 @@ void set_element_vec_NR_linear_nonlinear2(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1145,7 +1144,7 @@ void set_element_vec_NR_linear_nonlinear2(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1192,8 +1191,8 @@ void set_element_vec_NR_linear_nonlinear2(
                         vals->density, vals->viscosity,
                         tau, tau_c, vals->dt,
                         du_time);
-*/          
-            
+*/
+
                 for (int d = 0; d < 4; ++d) {
                     val_ip_vec[d][p] = vec[d];
                     vec[d] = 0.0;
@@ -1209,7 +1208,7 @@ void set_element_vec_NR_linear_nonlinear2(
         }
     }
 
-    
+
     for (int e = 0; e < fe->total_num_elems; ++e) {
         BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
@@ -1217,7 +1216,7 @@ void set_element_vec_NR_linear_nonlinear2(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1227,7 +1226,7 @@ void set_element_vec_NR_linear_nonlinear2(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1248,7 +1247,7 @@ void set_element_vec_NR_linear_nonlinear2(
                 const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                     J_inv, fe->geo[e][p].Jacobian,
                     vals->density, vals->viscosity, v_ip[p], vals->dt);
-              
+
                 BBFE_elemmat_fluid_vec_rom_nonlinear(
                         vec,
                         basis->N[p][i],
@@ -1261,7 +1260,7 @@ void set_element_vec_NR_linear_nonlinear2(
                         vals->density, vals->viscosity,
                         tau, tau_c, vals->dt,
                         du_time);
-            
+
 
                 for (int d = 0; d < 4; ++d) {
                     val_ip_vec[d][p] = vec[d];
@@ -1277,7 +1276,7 @@ void set_element_vec_NR_linear_nonlinear2(
             }
         }
     }
-    
+
 
     BB_std_free_3d_double(val_ip , 4 , 4, np);
     BB_std_free_1d_double(Jacobian_ip, np);
@@ -1334,7 +1333,7 @@ void set_element_vec_NR_linear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1344,7 +1343,7 @@ void set_element_vec_NR_linear(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1378,7 +1377,7 @@ void set_element_vec_NR_linear(
                     vals->density, vals->viscosity,
                     tau, tau_c, vals->dt,
                     du_time);
-            
+
                 for (int d = 0; d < 4; ++d) {
                     val_ip_vec[d][p] = vec[d];
                     vec[d] = 0.0;
@@ -1433,7 +1432,7 @@ void set_element_mat_NR_nonlinear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1443,7 +1442,7 @@ void set_element_mat_NR_nonlinear(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1549,7 +1548,7 @@ void set_element_vec_NR_nonlinear(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1559,7 +1558,7 @@ void set_element_vec_NR_nonlinear(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1580,7 +1579,7 @@ void set_element_vec_NR_nonlinear(
                 const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                     J_inv, fe->geo[e][p].Jacobian,
                     vals->density, vals->viscosity, v_ip[p], vals->dt);
-                
+
                 BBFE_elemmat_fluid_vec_rom_nonlinear(
                     vec,
                     basis->N[p][i],
@@ -1675,7 +1674,7 @@ void HROM_ddecm_set_residuals_NR(
     for(int n=0; n < num_subdomains; n++) {
         for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
             int e = hlpod_ddhr->elem_id_local[m][n];
-                
+
             //for (int e = 0; e < fe->total_num_elems; ++e) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -1684,7 +1683,7 @@ void HROM_ddecm_set_residuals_NR(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1694,7 +1693,7 @@ void HROM_ddecm_set_residuals_NR(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1788,7 +1787,7 @@ void HROM_ddecm_set_residuals_NR(
                                         hlpod_ddhr->RH[index][n] += local_vec[k1];
 
                                         if(monolis_mpi_get_global_my_rank()==0){
-//                                        	printf("local_vec[k1] = %e\n", local_vec[k1]);
+//                                              printf("local_vec[k1] = %e\n", local_vec[k1]);
                                         }
 
                                     }
@@ -2110,17 +2109,17 @@ void HROM_ddecm_set_residuals_NR_blas(
 }
 
 void HROM_set_element_mat_NR(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS* 	basis,
-    	BBFE_BC*     	bc,
-		HLPOD_VALUES*    hlpod_vals,
-    	HLPOD_MAT*      hlpod_mat,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*     basis,
+        BBFE_BC*        bc,
+                HLPOD_VALUES*    hlpod_vals,
+        HLPOD_MAT*      hlpod_mat,
         HLPOD_DDHR*     hlpod_ddhr,
-        const int 		num_modes,
-		const int 		num_subdomains,
-		const double    dt)
+        const int               num_modes,
+                const int               num_subdomains,
+                const double    dt)
 {
     for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
         for(int j = 0; j < hlpod_vals->n_neib_vec; j++){
@@ -2156,7 +2155,7 @@ void HROM_set_element_mat_NR(
 
     int rank = monolis_mpi_get_global_my_rank();
 
-    
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems
@@ -2165,23 +2164,23 @@ void HROM_set_element_mat_NR(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems
             : hlpod_ddhr->ovl_id_selected_elems_D_bc;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight
             : hlpod_ddhr->ovl_elem_weight_D_bc;
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
- 
+
     //for (int e = 0; e < fe->total_num_elems; ++e) {
-        
+
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
             BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -2191,7 +2190,7 @@ void HROM_set_element_mat_NR(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -2262,7 +2261,7 @@ void HROM_set_element_mat_NR(
                             int JS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j];
                             int JE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j + 1];
 
-                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j]; 
+                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j];
 
                             if(subdomain_id_j < num_subdomains){
                                 for(int k1 = IS; k1 < IE; k1++){
@@ -2311,17 +2310,17 @@ void HROM_set_element_mat_NR(
 }
 
 void HROM_set_element_mat_NR2(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS* 	basis,
-    	BBFE_BC*     	bc,
-		HLPOD_VALUES*    hlpod_vals,
-    	HLPOD_MAT*      hlpod_mat,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*     basis,
+        BBFE_BC*        bc,
+                HLPOD_VALUES*    hlpod_vals,
+        HLPOD_MAT*      hlpod_mat,
         HLPOD_DDHR*     hlpod_ddhr,
-        const int 		num_modes,
-		const int 		num_subdomains,
-		const double    dt)
+        const int               num_modes,
+                const int               num_subdomains,
+                const double    dt)
 {
     for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
         for(int j = 0; j < hlpod_vals->n_neib_vec; j++){
@@ -2358,7 +2357,7 @@ void HROM_set_element_mat_NR2(
 
     int rank = monolis_mpi_get_global_my_rank();
 
-    
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems
@@ -2367,23 +2366,23 @@ void HROM_set_element_mat_NR2(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems
             : hlpod_ddhr->ovl_id_selected_elems_D_bc;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight
             : hlpod_ddhr->ovl_elem_weight_D_bc;
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
-    
+
     //for (int e = 0; e < fe->total_num_elems; ++e) {
-        
+
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
             BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -2391,10 +2390,10 @@ void HROM_set_element_mat_NR2(
                 BBFE_std_mapping_scalar_grad(grad_p_ip[p], nl, local_p, fe->geo[e][p].grad_N);
                 p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
             }
-            
+
             double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
             double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -2451,7 +2450,7 @@ void HROM_set_element_mat_NR2(
                         for (int b = 0; b < 4; ++b) {
                             const double integ_val = BBFE_std_integ_calc(
                                 np, val_ip[a][b], basis->integ_weight, Jacobian_ip);
-                            
+
                             for(int k1 = 0; k1 < hlpod_vals->n_neib_vec; k1++){
                                 for(int k2 = 0; k2 < hlpod_vals->n_neib_vec; k2++){
                                     double val = hlpod_mat->pod_basis_hr[index_i*4+a][k1] * integ_val * hlpod_mat->pod_basis_hr[index_j*4+b][k2];
@@ -2465,8 +2464,8 @@ void HROM_set_element_mat_NR2(
                     }
 
 
-                    
-                    
+
+
                 }
             }
         }
@@ -2492,18 +2491,18 @@ void HROM_set_element_mat_NR2(
 
 
 void HROM_set_element_vec_NR(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS*	 	basis,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*             basis,
         HR_VALUES*      hr_vals,
         HLPOD_VALUES*   hlpod_vals,
         HLPOD_DDHR*     hlpod_ddhr,
-    	HLPOD_MAT*      hlpod_mat,
-        const int		num_modes,
-		const int 		num_subdomains,
+        HLPOD_MAT*      hlpod_mat,
+        const int               num_modes,
+                const int               num_subdomains,
         const double    dt,
-		double       	t)
+                double          t)
 {
     const int nl = fe->local_num_nodes;
     const int np = basis->num_integ_points;
@@ -2530,8 +2529,8 @@ void HROM_set_element_vec_NR(
     double J_inv[3][3];
 
     int rank = monolis_mpi_get_global_my_rank();
-    
-    
+
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems
@@ -2540,15 +2539,15 @@ void HROM_set_element_vec_NR(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems
             : hlpod_ddhr->ovl_id_selected_elems_D_bc;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight
             : hlpod_ddhr->ovl_elem_weight_D_bc;
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
-            
-    
+
+
         //for(int e = 0; e < fe->total_num_elems; e++) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -2557,7 +2556,7 @@ void HROM_set_element_vec_NR(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -2567,7 +2566,7 @@ void HROM_set_element_vec_NR(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
 
                 int index = fe->conn[e][i];
@@ -2594,7 +2593,7 @@ void HROM_set_element_vec_NR(
                         const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                             J_inv, fe->geo[e][p].Jacobian,
                             vals->density, vals->viscosity, v_ip[p], vals->dt);
-                    
+
                         BBFE_elemmat_fluid_vec_rom_nonlinear(
                                 vec,
                                 basis->N[p][i],
@@ -2625,17 +2624,17 @@ void HROM_set_element_vec_NR(
                     for (int d = 0; d < 4; ++d) {
                         integ_val_vec[d] = BBFE_std_integ_calc(
                             np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
-                        
+
                             if (!isfinite(integ_val_vec[d])) {
                                 printf("rank = %d, bad integ_val_vec: e=%d i=%d d=%d val=%e\n", rank, e, i, d, integ_val_vec[d]);
-                            }      
-                        
+                            }
+
                         for(int k = IS; k < IE; k++){
                             double val = integ_val_vec[d] * hlpod_mat->pod_modes[index*4+d][k];
 
                             monolis->mat.R.B[k] -= weight[m] * val;
                             //monolis->mat.R.B[k] -= val;
-                        
+
                             double mode = hlpod_mat->pod_modes[index*4+d][k];
                             double val2 = integ_val_vec[d] * mode;
 
@@ -2658,9 +2657,9 @@ void HROM_set_element_vec_NR(
             }
         }
     }
-    
-    
-    
+
+
+
 
     BB_std_free_3d_double(val_ip , 4 , 4, np);
     BB_std_free_1d_double(Jacobian_ip, np);
@@ -2748,7 +2747,7 @@ void set_element_mat_NR_mass(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -2758,7 +2757,7 @@ void set_element_mat_NR_mass(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -2828,8 +2827,8 @@ void set_element_mat_NR_mass(
 
 
 void ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
-    MONOLIS*		monolis,
-    MONOLIS*		monolis_mass,
+    MONOLIS*            monolis,
+    MONOLIS*            monolis_mass,
     MONOLIS_COM*    monolis_com,
     HLPOD_MAT*      hlpod_mat,
     double*         mode_coeff,
@@ -2859,7 +2858,7 @@ void ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
     }
 
     monolis_matvec_product_R(monolis, monolis_com, mode_coeff, hlpod_mat->VTf_tmp);
-    
+
     index = 0;
     for(int k = 0; k < num_2nd_subdomains; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
@@ -2877,7 +2876,7 @@ void ROM_std_hlpod_reduced_rhs_to_monollis_linear2(
         }
         index += hlpod_mat->num_modes_internal[k];
     }
-    
+
 }
 
 
@@ -3000,7 +2999,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
     for(int n=0; n < num_subdomains; n++) {
         for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
             int e = hlpod_ddhr->elem_id_local[m][n];
-                
+
             //for (int e = 0; e < fe->total_num_elems; ++e) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -3009,7 +3008,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -3019,7 +3018,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -3113,7 +3112,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
                                         hlpod_ddhr->RH[index][n] += local_vec[k1];
 
                                         if(monolis_mpi_get_global_my_rank()==0){
-                                        	printf("local_vec[k1] = %e\n", local_vec[k1]);
+                                                printf("local_vec[k1] = %e\n", local_vec[k1]);
                                         }
 
                                     }
@@ -3133,7 +3132,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
     for(int n=0; n < num_subdomains; n++) {
         for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
             int e = hlpod_ddhr->elem_id_local[m][n];
-                
+
             //for (int e = 0; e < fe->total_num_elems; ++e) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -3142,7 +3141,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -3152,7 +3151,7 @@ void HROM_ddecm_set_residuals_NR_PSPG(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -3866,8 +3865,8 @@ void HROM_ddecm_set_residuals_NR_vec(
     double J_inv[3][3];
 
     //for (int e = 0; e < fe->total_num_elems; ++e) {
-	for(int n=0; n < num_subdomains; n++) {
-		for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
+        for(int n=0; n < num_subdomains; n++) {
+                for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
             int e = hlpod_ddhr->elem_id_local[m][n];
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -4029,8 +4028,8 @@ void HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
     }
 
     //for (int e = 0; e < fe->total_num_elems; ++e) {
-	for(int n=0; n < num_subdomains; n++) {
-		for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
+        for(int n=0; n < num_subdomains; n++) {
+                for(int m=0; m < hlpod_ddhr->num_elems[n]; m++) {
             int e = hlpod_ddhr->elem_id_local[m][n];
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -4114,11 +4113,11 @@ void HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
         }
     }
 
-	FILE* fp;
-	char fname[1024];
+        FILE* fp;
+        char fname[1024];
 
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
-	fp = BBFE_sys_write_fopen(fp, fname, directory);
+        snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
+        fp = BBFE_sys_write_fopen(fp, fname, directory);
 
     double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
     for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
@@ -4131,8 +4130,8 @@ void HROM_ddecm_set_residuals_NR_vec_write_NNLS_data(
     fclose(fp);
 
 
-	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
-	fp = BBFE_sys_write_fopen(fp, fname, directory);
+        snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", ns, monolis_mpi_get_global_my_rank());
+        fp = BBFE_sys_write_fopen(fp, fname, directory);
     for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
         for(int n = 0; n < num_subdomains; n++){
             fprintf(fp, "%.17g\n", hlpod_ddhr->RH[k][n]);
@@ -4176,15 +4175,15 @@ void HROM_ddecm_read_NNLS_data(
     double          t,
     const char*     directory)
 {
-	FILE* fp;
-	char fname[1024];
+        FILE* fp;
+        char fname[1024];
     double max_num_elem = ROM_BB_findMax(hlpod_ddhr->num_elems, num_subdomains);
 
     printf("num_snapshot = %d\n", num_snapshot);
 
     for(int s = 0; s < num_snapshot-1; s++) {
-    	snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", s, monolis_mpi_get_global_my_rank());
-    	fp = BBFE_sys_read_fopen(fp, fname, directory);
+        snprintf(fname, 1024, "DDECM/NNLS_input_data_mat.%d.%d.dat", s, monolis_mpi_get_global_my_rank());
+        fp = BBFE_sys_read_fopen(fp, fname, directory);
 
         for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
             for(int m = 0; m < max_num_elem; m++) {
@@ -4197,8 +4196,8 @@ void HROM_ddecm_read_NNLS_data(
     }
 
     for(int s = 0; s < num_snapshot-1; s++) {
-    	snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", s, monolis_mpi_get_global_my_rank());
-    	fp = BBFE_sys_read_fopen(fp, fname, directory);
+        snprintf(fname, 1024, "DDECM/NNLS_input_data_rhs.%d.%d.dat", s, monolis_mpi_get_global_my_rank());
+        fp = BBFE_sys_read_fopen(fp, fname, directory);
         for(int k = 0; k < hlpod_vals->n_neib_vec; k++) {
             for(int n = 0; n < num_subdomains; n++){
                 fscanf(fp, "%lf", &(hlpod_ddhr->RH[k + s*hlpod_vals->n_neib_vec][n]));
@@ -4495,17 +4494,17 @@ void HROM_ddecm_set_residuals_NR_blas2_decoupled(
 
 
 void HROM_set_element_mat_NR_decoupled_p(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS* 	basis,
-    	BBFE_BC*     	bc,
-		HLPOD_VALUES*    hlpod_vals,
-    	HLPOD_MAT*      hlpod_mat,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*     basis,
+        BBFE_BC*        bc,
+                HLPOD_VALUES*    hlpod_vals,
+        HLPOD_MAT*      hlpod_mat,
         HLPOD_DDHR*     hlpod_ddhr,
-        const int 		num_modes,
-		const int 		num_subdomains,
-		const double    dt)
+        const int               num_modes,
+                const int               num_subdomains,
+                const double    dt)
 {
     /*
     for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
@@ -4543,7 +4542,7 @@ void HROM_set_element_mat_NR_decoupled_p(
 
     int rank = monolis_mpi_get_global_my_rank();
 
-   
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems_p
@@ -4552,23 +4551,23 @@ void HROM_set_element_mat_NR_decoupled_p(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems_p
             : hlpod_ddhr->ovl_id_selected_elems_D_bc_p;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight_p
             : hlpod_ddhr->ovl_elem_weight_D_bc_p;
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
- 
+
  //   for (int e = 0; e < fe->total_num_elems; ++e) {
-        
+
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
             BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -4578,7 +4577,7 @@ void HROM_set_element_mat_NR_decoupled_p(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -4649,7 +4648,7 @@ void HROM_set_element_mat_NR_decoupled_p(
                             int JS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j];
                             int JE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j + 1];
 
-                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j]; 
+                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j];
 
                             if(subdomain_id_j < num_subdomains){
                                 for(int k1 = IS; k1 < IE; k1++){
@@ -4699,17 +4698,17 @@ void HROM_set_element_mat_NR_decoupled_p(
 
 
 void HROM_set_element_mat_NR_decoupled_v(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS* 	basis,
-    	BBFE_BC*     	bc,
-		HLPOD_VALUES*   hlpod_vals,
-    	HLPOD_MAT*      hlpod_mat,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*     basis,
+        BBFE_BC*        bc,
+                HLPOD_VALUES*   hlpod_vals,
+        HLPOD_MAT*      hlpod_mat,
         HLPOD_DDHR*     hlpod_ddhr,
-        const int 		num_modes,
-		const int 		num_subdomains,
-		const double    dt)
+        const int               num_modes,
+                const int               num_subdomains,
+                const double    dt)
 {
     for(int i = 0; i < hlpod_vals->n_neib_vec; i++){
         for(int j = 0; j < hlpod_vals->n_neib_vec; j++){
@@ -4745,7 +4744,7 @@ void HROM_set_element_mat_NR_decoupled_v(
 
     int rank = monolis_mpi_get_global_my_rank();
 
-    
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems_v
@@ -4754,23 +4753,23 @@ void HROM_set_element_mat_NR_decoupled_v(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems_v
             : hlpod_ddhr->ovl_id_selected_elems_D_bc_v;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight_v
             : hlpod_ddhr->ovl_elem_weight_D_bc_v;
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
- 
+
     //for (int e = 0; e < fe->total_num_elems; ++e) {
-        
+
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
             BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -4781,7 +4780,7 @@ void HROM_set_element_mat_NR_decoupled_v(
 
             double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
             double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
                 for (int p = 0; p < np; ++p)
                     for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -4852,7 +4851,7 @@ void HROM_set_element_mat_NR_decoupled_v(
                             int JS = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j];
                             int JE = hlpod_ddhr->num_neib_modes_1stdd_sum[subdomain_id_j + 1];
 
-                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j]; 
+                            int subdomain_id = hlpod_mat->subdomain_id_in_nodes_2nddd[index_j];
 
                             if(subdomain_id_j < num_subdomains){
                                 for(int k1 = IS; k1 < IE; k1++){
@@ -4902,18 +4901,18 @@ void HROM_set_element_mat_NR_decoupled_v(
 
 
 void HROM_set_element_vec_NR_v(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS*	 	basis,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*             basis,
         HR_VALUES*      hr_vals,
         HLPOD_VALUES*   hlpod_vals,
         HLPOD_DDHR*     hlpod_ddhr,
-    	HLPOD_MAT*      hlpod_mat,
-        const int		num_modes,
-		const int 		num_subdomains,
+        HLPOD_MAT*      hlpod_mat,
+        const int               num_modes,
+                const int               num_subdomains,
         const double    dt,
-		double       	t)
+                double          t)
 {
     const int nl = fe->local_num_nodes;
     const int np = basis->num_integ_points;
@@ -4940,8 +4939,8 @@ void HROM_set_element_vec_NR_v(
     double J_inv[3][3];
 
     int rank = monolis_mpi_get_global_my_rank();
-    
-    
+
+
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
             ? hlpod_ddhr->ovl_num_selected_elems_v
@@ -4950,18 +4949,18 @@ void HROM_set_element_vec_NR_v(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems_v
             : hlpod_ddhr->ovl_id_selected_elems_D_bc_v;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight_v
             : hlpod_ddhr->ovl_elem_weight_D_bc_v;
 
          printf("v num = %d, %d\n", num, rank);
-          
+
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
-        
-    
+
+
         //for(int e = 0; e < fe->total_num_elems; e++) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -4970,7 +4969,7 @@ void HROM_set_element_vec_NR_v(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -4980,7 +4979,7 @@ void HROM_set_element_vec_NR_v(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
 
                 int index = fe->conn[e][i];
@@ -5007,7 +5006,7 @@ void HROM_set_element_vec_NR_v(
                         const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                             J_inv, fe->geo[e][p].Jacobian,
                             vals->density, vals->viscosity, v_ip[p], vals->dt);
-                    
+
                         BBFE_elemmat_fluid_vec_rom_nonlinear(
                                 vec,
                                 basis->N[p][i],
@@ -5038,17 +5037,17 @@ void HROM_set_element_vec_NR_v(
                     for (int d = 0; d < 4; ++d) {
                         integ_val_vec[d] = BBFE_std_integ_calc(
                             np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
-                        
+
                             if (!isfinite(integ_val_vec[d])) {
                                 printf("rank = %d, bad integ_val_vec: e=%d i=%d d=%d val=%e\n", rank, e, i, d, integ_val_vec[d]);
-                            }      
-                        
+                            }
+
                         for(int k = IS; k < IE; k++){
                             double val = integ_val_vec[d] * hlpod_mat->pod_modes_decoupled_v[index*4+d][k];
 
                             monolis->mat.R.B[k] -= weight[m] * val;
                             //monolis->mat.R.B[k] -= val;
-                        
+
                             double mode = hlpod_mat->pod_modes_decoupled_v[index*4+d][k];
                             double val2 = integ_val_vec[d] * mode;
 
@@ -5091,18 +5090,18 @@ void HROM_set_element_vec_NR_v(
 
 
 void HROM_set_element_vec_NR_p(
-		MONOLIS*     	monolis,
-		BBFE_DATA*     	fe,
-		VALUES*         vals,
-		BBFE_BASIS*	 	basis,
+                MONOLIS*        monolis,
+                BBFE_DATA*      fe,
+                VALUES*         vals,
+                BBFE_BASIS*             basis,
         HR_VALUES*      hr_vals,
         HLPOD_VALUES*   hlpod_vals,
         HLPOD_DDHR*     hlpod_ddhr,
-    	HLPOD_MAT*      hlpod_mat,
-        const int		num_modes,
-		const int 		num_subdomains,
+        HLPOD_MAT*      hlpod_mat,
+        const int               num_modes,
+                const int               num_subdomains,
         const double    dt,
-		double       	t)
+                double          t)
 {
     const int nl = fe->local_num_nodes;
     const int np = basis->num_integ_points;
@@ -5129,7 +5128,7 @@ void HROM_set_element_vec_NR_p(
     double J_inv[3][3];
 
     int rank = monolis_mpi_get_global_my_rank();
-    
+
 
     for (int kind = 0; kind < 2; kind++) {
         int num = (kind == 0)
@@ -5139,17 +5138,17 @@ void HROM_set_element_vec_NR_p(
         int *ids = (kind == 0)
             ? hlpod_ddhr->ovl_id_selected_elems_p
             : hlpod_ddhr->ovl_id_selected_elems_D_bc_p;
-        
+
         double *weight = (kind == 0)
             ? hlpod_ddhr->ovl_elem_weight_p
             : hlpod_ddhr->ovl_elem_weight_D_bc_p;
 
         printf("p num = %d, %d\n", num, rank);
-            
+
 
         for (int m = 0; m < num; m++) {
             int e = ids[m];
-    
+
         //for(int e = 0; e < fe->total_num_elems; e++) {
 
             BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
@@ -5158,7 +5157,7 @@ void HROM_set_element_vec_NR_p(
             BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
             BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-            
+
             for (int p = 0; p < np; ++p) {
                 BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
                 BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -5168,7 +5167,7 @@ void HROM_set_element_vec_NR_p(
             }
                     double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                     double h_e = cbrt(vol);
-            
+
             for (int i = 0; i < nl; ++i) {
 
                 int index = fe->conn[e][i];
@@ -5195,7 +5194,7 @@ void HROM_set_element_vec_NR_p(
                         const double tau_c = BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC(
                             J_inv, fe->geo[e][p].Jacobian,
                             vals->density, vals->viscosity, v_ip[p], vals->dt);
-                    
+
                         BBFE_elemmat_fluid_vec_rom_nonlinear(
                                 vec,
                                 basis->N[p][i],
@@ -5226,17 +5225,17 @@ void HROM_set_element_vec_NR_p(
                     for (int d = 0; d < 4; ++d) {
                         integ_val_vec[d] = BBFE_std_integ_calc(
                             np, val_ip_vec[d], basis->integ_weight, Jacobian_ip);
-                        
+
                             if (!isfinite(integ_val_vec[d])) {
                                 printf("rank = %d, bad integ_val_vec: e=%d i=%d d=%d val=%e\n", rank, e, i, d, integ_val_vec[d]);
-                            }      
-                        
+                            }
+
                         for(int k = IS; k < IE; k++){
                             double val = integ_val_vec[d] * hlpod_mat->pod_modes_decoupled_p[index*4+d][k];
 
                             monolis->mat.R.B[k] -= weight[m] * val;
                             //monolis->mat.R.B[k] -= val;
-                        
+
                             double mode = hlpod_mat->pod_modes_decoupled_p[index*4+d][k];
                             double val2 = integ_val_vec[d] * mode;
 
@@ -5259,9 +5258,9 @@ void HROM_set_element_vec_NR_p(
             }
         }
     }
-    
-    
-    
+
+
+
 
     BB_std_free_3d_double(val_ip , 4 , 4, np);
     BB_std_free_1d_double(Jacobian_ip, np);

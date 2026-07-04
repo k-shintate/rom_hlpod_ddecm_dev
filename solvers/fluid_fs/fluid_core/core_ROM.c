@@ -43,6 +43,7 @@ void initialize_velocity_pressure(
 }
 
 void initialize_velocity_pressure_karman_vortex(
+
 	double**    v,
 	double*     p,
 	const int   total_num_nodes)

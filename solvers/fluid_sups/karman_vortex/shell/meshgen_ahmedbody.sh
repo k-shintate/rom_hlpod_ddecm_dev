@@ -22,7 +22,7 @@ cp  ./mesh_tmp/ahmed_body_triangle_connectivity.dat ./mesh_karman_vortex/
 mv  ./mesh_karman_vortex/ahmed_body_triangle_connectivity.dat ./mesh_karman_vortex/surf.dat  #surf.dat
 
 ### for bc  要素コネクティビティファイルを境界条件ファイルに変換
-python3 mesh_io/elem_to_bc.py ./mesh_tmp/Inlet_triangle_connectivity.dat ./mesh_tmp/Inlet_triangle_bc.dat 3 1.0 0 0                 #流入境界条件
+python3 mesh_io/elem_to_bc.py ./mesh_tmp/Inlet_triangle_connectivity.dat ./mesh_tmp/Inlet_triangle_bc.dat 3 60.0 0 0                 #流入境界条件
 #python3 mesh_io/elem_to_bc.py ./mesh_tmp/Cylinder_wall_triangle_connectivity.dat  ./mesh_tmp/Cylinder_wall_triangle_bc.dat 3 0 0 0  #nonslip wall
 #python3 mesh_io/elem_to_bc.py ./mesh_tmp/Top_wall_triangle_connectivity.dat  ./mesh_tmp/Top_wall_triangle_bc.dat 3 0 0 0        #slip wall #一時的にnonslip wall の処置
 #python3 mesh_io/elem_to_bc.py ./mesh_tmp/Upstream_lower_wall_triangle_connectivity.dat  ./mesh_tmp/Upstream_lower_wall_triangle_bc.dat 3 0 0 0          #slip wall

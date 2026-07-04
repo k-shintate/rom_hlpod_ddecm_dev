@@ -24,6 +24,9 @@ typedef struct
 	double** delta_v;
 	double*  delta_p;
 
+    double*  y_plus;
+    int*    y_plus_count;
+
     double C_vms;
     double vms_cap_coeff;
     

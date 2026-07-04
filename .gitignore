@@ -8,6 +8,7 @@
 !*.sh
 !*.py
 !*.stl
+!*Makefile_FOM_squid
 !*Makefile
 !*Makefile_squid
 !*Makefile_offline_online

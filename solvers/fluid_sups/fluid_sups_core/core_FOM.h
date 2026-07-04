@@ -14,6 +14,12 @@ void initialize_velocity_pressure_karman_vortex(
 	double* p,
 	const int total_num_nodes);
 
+void initialize_velocity_pressure_backstep(
+    BBFE_DATA*     fe,
+	double**    v,
+	double*     p,
+	const int   total_num_nodes);
+
 void initialize_velocity_pressure_cavity(
 	double** v,
     double** v_old,
@@ -386,7 +392,7 @@ void set_wall_face_vecmat_symmetric_nitsche(
     const BBFE_DATA* surf,
     const BBFE_DATA* fe,
     const BBFE_BASIS* basis_surf,
-    const VALUES* vals,
+    VALUES* vals,
     double rho,
     double mu_eff,
     const double Uw[3],

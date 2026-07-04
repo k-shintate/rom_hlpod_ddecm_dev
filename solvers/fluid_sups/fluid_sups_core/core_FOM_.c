@@ -1,4 +1,3 @@
-
 #include "core_FOM.h"
 #include "core_NR.h"
 #include <mkl.h>
@@ -42,43 +41,43 @@ double epsilon = 1.0e-5;
 
 // メッシュは各方向41節点40要素 or 51節点50要素 or 101節点100要素 の六面体一次要素限定
 void output_cavity_center_vx(
-		VALUES*        vals,
-		const char*    method,
-		const char*    directory)
+                VALUES*        vals,
+                const char*    method,
+                const char*    directory)
 {
-	double reynolds = vals->density / vals->viscosity;
-	char filename[BUFFER_SIZE];
-	snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_CAVITY, method, reynolds);
+        double reynolds = vals->density / vals->viscosity;
+        char filename[BUFFER_SIZE];
+        snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_CAVITY, method, reynolds);
 
-	FILE* fp;
-	fp = ROM_BB_write_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = ROM_BB_write_fopen(fp, filename, directory);
 
-	for(int i=0; i<51; i++){
-	 	double z = 0.02*i;
-	 	int n = i*51*51 + 25*51 + 25;
-	 	double vx = vals->v[n][0];
+        for(int i=0; i<51; i++){
+                double z = 0.02*i;
+                int n = i*51*51 + 25*51 + 25;
+                double vx = vals->v[n][0];
 
-		fprintf(fp, "%lf %lf\n", z, vx);
-	}
+                fprintf(fp, "%lf %lf\n", z, vx);
+        }
 
-	/*
-	for(int i=0; i<101; i++){
-		double z = 0.01*i;
-		int n = i*101*101 + 50*101 + 50;
-		double vx = vals->v[n][0];
+        /*
+        for(int i=0; i<101; i++){
+                double z = 0.01*i;
+                int n = i*101*101 + 50*101 + 50;
+                double vx = vals->v[n][0];
 
-		fprintf(fp, "%lf %lf\n", z, vx);
-	}
-	*/
+                fprintf(fp, "%lf %lf\n", z, vx);
+        }
+        */
 
-	fclose(fp);
+        fclose(fp);
 }
 
 
 void initialize_velocity_pressure_karman_vortex(
-	double** v,
-	double* p,
-	const int total_num_nodes)
+        double** v,
+        double* p,
+        const int total_num_nodes)
 {
     // Initialize velocity array
     for (int i = 0; i < total_num_nodes; i++) {
@@ -91,11 +90,31 @@ void initialize_velocity_pressure_karman_vortex(
     }
 }
 
+void initialize_velocity_pressure_backstep(
+    BBFE_DATA*     fe,
+	double**    v,
+	double*     p,
+	const int   total_num_nodes)
+{
+    for (int i = 0; i < total_num_nodes; i++) {
+        if(fe->x[i][0] > 0.5){
+            v[i][0] = 1.0;
+        }
+        else{
+            v[i][0] = 0.0;
+        }
+    }
+
+    for (int i = 0; i < total_num_nodes; i++) {
+        p[i] = 0.0;
+    }
+}
+
 void initialize_velocity_pressure_cavity(
-	double** v,
+        double** v,
     double** v_old,
-	double* p,
-	const int total_num_nodes)
+        double* p,
+        const int total_num_nodes)
 {
     // Initialize velocity array
     for (int i = 0; i < total_num_nodes; i++) {
@@ -110,74 +129,74 @@ void initialize_velocity_pressure_cavity(
 }
 
 void BBFE_fluid_sups_read_Dirichlet_bc_karman_vortex(
-		BBFE_BC*     bc,
-		const char*  filename,
-		const char*  directory,
-		const int    total_num_nodes,
-		const int    block_size)
+                BBFE_BC*     bc,
+                const char*  filename,
+                const char*  directory,
+                const int    total_num_nodes,
+                const int    block_size)
 {
-	bc->total_num_nodes = total_num_nodes;
-	bc->block_size      = block_size;
+        bc->total_num_nodes = total_num_nodes;
+        bc->block_size      = block_size;
 
-	srand((unsigned)time(NULL));
+        srand((unsigned)time(NULL));
 
-	BBFE_sys_memory_allocation_Dirichlet_bc(bc, total_num_nodes, bc->block_size);
-	int n = total_num_nodes * bc->block_size;
+        BBFE_sys_memory_allocation_Dirichlet_bc(bc, total_num_nodes, bc->block_size);
+        int n = total_num_nodes * bc->block_size;
 
-	for(int i=0; i<n; i++) {
-		bc->D_bc_exists[i]   = false;
-		bc->imposed_D_val[i] = 0.0;
-	}
+        for(int i=0; i<n; i++) {
+                bc->D_bc_exists[i]   = false;
+                bc->imposed_D_val[i] = 0.0;
+        }
 
-	FILE* fp;
-	fp = BBFE_sys_read_fopen_without_error(fp, filename, directory);
-	if( fp == NULL ) {
-		printf("%s WARNING: Dirichlet B.C. file, \"%s\", is not found.\n",
-				CODENAME, filename);
-		return;
-	}
+        FILE* fp;
+        fp = BBFE_sys_read_fopen_without_error(fp, filename, directory);
+        if( fp == NULL ) {
+                printf("%s WARNING: Dirichlet B.C. file, \"%s\", is not found.\n",
+                                CODENAME, filename);
+                return;
+        }
 
-	int tmp;
-	BB_std_scan_line(&fp, BUFFER_SIZE,
-			"%d %d", &(bc->num_D_bcs), &(tmp));
-	printf("%s Num. Dirichlet B.C.: %d, Num. block size: %d\n", CODENAME, bc->num_D_bcs, tmp);
+        int tmp;
+        BB_std_scan_line(&fp, BUFFER_SIZE,
+                        "%d %d", &(bc->num_D_bcs), &(tmp));
+        printf("%s Num. Dirichlet B.C.: %d, Num. block size: %d\n", CODENAME, bc->num_D_bcs, tmp);
 
-	for(int i=0; i<(bc->num_D_bcs); i++) {
-		int node_id;  int block_id;  double val;
-		BB_std_scan_line(&fp, BUFFER_SIZE,
-				"%d %d %lf", &node_id, &block_id, &val);
+        for(int i=0; i<(bc->num_D_bcs); i++) {
+                int node_id;  int block_id;  double val;
+                BB_std_scan_line(&fp, BUFFER_SIZE,
+                                "%d %d %lf", &node_id, &block_id, &val);
 
-		int index = (bc->block_size)*node_id + block_id;
-		bc->D_bc_exists[ index ]   = true;
-		
+                int index = (bc->block_size)*node_id + block_id;
+                bc->D_bc_exists[ index ]   = true;
+
 
         if (val == 1.0){
             int r = rand() % 9 + 1;  // 1〜9 の整数を生成
             bc->imposed_D_val[index] = val * (1 + (double)r * epsilon);
         }
-    	else{
+        else{
             bc->imposed_D_val[ index ] = val;
         }
 
-	}
+        }
 
-	fclose(fp);
+        fclose(fp);
 }
 
 
 void output_result_file_karman_vortex(
         BBFE_DATA*     fe,
-		VALUES*        vals,
+                VALUES*        vals,
         double         t,
-		const char*    directory)
+                const char*    directory)
 {
-	double reynolds = vals->density / vals->viscosity;
-	char filename[BUFFER_SIZE];
+        double reynolds = vals->density / vals->viscosity;
+        char filename[BUFFER_SIZE];
 
-	snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_P);
+        snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_P);
 
-	FILE* fp;
-	fp = BBFE_sys_write_add_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = BBFE_sys_write_add_fopen(fp, filename, directory);
 
     double val = 0.02;
 
@@ -188,7 +207,7 @@ void output_result_file_karman_vortex(
     double uppery = 0.5 + val;
 
     for (int i = 0; i < fe->total_num_nodes; i++) {
-        if (fe->x[i][0] > lowerx && fe->x[i][0] < upperx 
+        if (fe->x[i][0] > lowerx && fe->x[i][0] < upperx
             && fe->x[i][1] > lowery && fe->x[i][1] < uppery) {
             fprintf(fp, "%lf %d %lf %lf %lf %lf %lf\n",
                     t,
@@ -201,16 +220,16 @@ void output_result_file_karman_vortex(
         }
     }
 
-	fclose(fp);
+        fclose(fp);
 
-	snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_N);
-	fp = BBFE_sys_write_add_fopen(fp, filename, directory);
+        snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_N);
+        fp = BBFE_sys_write_add_fopen(fp, filename, directory);
 
     lowery = -0.5 - val;
     uppery = -0.5 + val;
 
     for (int i = 0; i < fe->total_num_nodes; i++) {
-        if (fe->x[i][0] > lowerx && fe->x[i][0] < upperx 
+        if (fe->x[i][0] > lowerx && fe->x[i][0] < upperx
             && fe->x[i][1] > lowery && fe->x[i][1] < uppery) {
             fprintf(fp, "%lf %d %lf %lf %lf %lf %lf\n",
                     t,
@@ -230,17 +249,17 @@ fclose(fp);
 
 void output_result_file_karman_vortex_pressure(
         BBFE_DATA*     fe,
-		VALUES*        vals,
+                VALUES*        vals,
         double         t,
-		const char*    directory)
+                const char*    directory)
 {
-	double reynolds = vals->density / vals->viscosity;
-	char filename[BUFFER_SIZE];
+        double reynolds = vals->density / vals->viscosity;
+        char filename[BUFFER_SIZE];
 
-	snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_CP, monolis_mpi_get_global_my_rank());
+        snprintf(filename, BUFFER_SIZE, OUTPUT_FILENAME_KARMAN_VORTEX_CP, monolis_mpi_get_global_my_rank());
 
-	FILE* fp;
-	fp = BBFE_sys_write_add_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = BBFE_sys_write_add_fopen(fp, filename, directory);
 
     double val = 0.000001;
 
@@ -262,7 +281,7 @@ void output_result_file_karman_vortex_pressure(
         }
     }
 
-	fclose(fp);
+        fclose(fp);
 }
 
 
@@ -293,7 +312,7 @@ void output_result_file_karman_vortex_pressure_inf(
         double Y = fe->x[i][1];
 
         if (X > lowerx && X < upperx &&
-			Y > lowery && Y < uppery) {
+                        Y > lowery && Y < uppery) {
             fprintf(fp, "%lf %d %lf %lf %lf\n",
                     t,
                     i,
@@ -307,191 +326,195 @@ void output_result_file_karman_vortex_pressure_inf(
 }
 
 void memory_allocation_nodal_values(
-		VALUES*         vals,
-		const int       total_num_nodes)
+                VALUES*         vals,
+                const int       total_num_nodes)
 {
-	vals->v = BB_std_calloc_2d_double(vals->v, total_num_nodes, 3);
+        vals->v = BB_std_calloc_2d_double(vals->v, total_num_nodes, 3);
     vals->v_old = BB_std_calloc_2d_double(vals->v_old, total_num_nodes, 3);
-	vals->p = BB_std_calloc_1d_double(vals->p, total_num_nodes);
+        vals->p = BB_std_calloc_1d_double(vals->p, total_num_nodes);
 
     vals->delta_v = BB_std_calloc_2d_double(vals->delta_v, total_num_nodes, 3);
-	vals->delta_p = BB_std_calloc_1d_double(vals->delta_p, total_num_nodes);
+        vals->delta_p = BB_std_calloc_1d_double(vals->delta_p, total_num_nodes);
+
+        vals->y_plus = BB_std_calloc_1d_double(vals->y_plus, total_num_nodes);
+        vals->y_plus_count = BB_std_calloc_1d_int(vals->y_plus_count, total_num_nodes);
 }
 
 
 void assign_default_values(
-		VALUES*     vals)
+                VALUES*     vals)
 {
-	vals->num_ip_each_axis = DVAL_NUM_IP_EACH_AXIS;
-	vals->mat_epsilon      = DVAL_MAT_EPSILON;
-	vals->mat_max_iter     = DVAL_MAT_MAX_ITER;
+        vals->num_ip_each_axis = DVAL_NUM_IP_EACH_AXIS;
+        vals->mat_epsilon      = DVAL_MAT_EPSILON;
+        vals->mat_max_iter     = DVAL_MAT_MAX_ITER;
 
-	vals->dt               = DVAL_DT;
-	vals->finish_time      = DVAL_FINISH_TIME;
-	vals->output_interval  = DVAL_OUTPUT_INTERVAL;
+        vals->dt               = DVAL_DT;
+        vals->finish_time      = DVAL_FINISH_TIME;
+        vals->output_interval  = DVAL_OUTPUT_INTERVAL;
 
-	vals->density          = DVAL_DENSITY;
-	vals->viscosity        = DVAL_VISCOSITY;
+        vals->density          = DVAL_DENSITY;
+        vals->viscosity        = DVAL_VISCOSITY;
 }
 
 
 void print_all_values(
-		VALUES*  vals)
+                VALUES*  vals)
 {
-	printf("\n%s ---------- Calculation condition ----------\n", CODENAME);
+        printf("\n%s ---------- Calculation condition ----------\n", CODENAME);
 
-	printf("%s %s: %d\n", CODENAME, ID_NUM_IP_EACH_AXIS, vals->num_ip_each_axis);
-	printf("%s %s: %e\n", CODENAME, ID_MAT_EPSILON,      vals->mat_epsilon);
-	printf("%s %s: %d\n", CODENAME, ID_MAT_MAX_ITER,     vals->mat_max_iter);
+        printf("%s %s: %d\n", CODENAME, ID_NUM_IP_EACH_AXIS, vals->num_ip_each_axis);
+        printf("%s %s: %e\n", CODENAME, ID_MAT_EPSILON,      vals->mat_epsilon);
+        printf("%s %s: %d\n", CODENAME, ID_MAT_MAX_ITER,     vals->mat_max_iter);
 
-	printf("%s %s: %e\n", CODENAME, ID_DT,               vals->dt);
-	printf("%s %s: %e\n", CODENAME, ID_FINISH_TIME,      vals->finish_time);
-	printf("%s %s: %d\n", CODENAME, ID_OUTPUT_INTERVAL,  vals->output_interval);
+        printf("%s %s: %e\n", CODENAME, ID_DT,               vals->dt);
+        printf("%s %s: %e\n", CODENAME, ID_FINISH_TIME,      vals->finish_time);
+        printf("%s %s: %d\n", CODENAME, ID_OUTPUT_INTERVAL,  vals->output_interval);
 
-	printf("%s %s: %e\n", CODENAME, ID_DENSITY,          vals->density);
-	printf("%s %s: %e\n", CODENAME, ID_VISCOSITY,        vals->viscosity);
-	printf("%s -------------------------------------------\n\n", CODENAME);
+        printf("%s %s: %e\n", CODENAME, ID_DENSITY,          vals->density);
+        printf("%s %s: %e\n", CODENAME, ID_VISCOSITY,        vals->viscosity);
+        printf("%s -------------------------------------------\n\n", CODENAME);
 }
 
 
 void read_calc_conditions(
-		VALUES*     vals,
-		const char* directory)
+                VALUES*     vals,
+                const char* directory)
 {
-	printf("\n");
+        printf("\n");
 
-	assign_default_values(vals);
+        assign_default_values(vals);
 
-	char filename[BUFFER_SIZE];
-	snprintf(filename, BUFFER_SIZE, "%s/%s", directory, INPUT_FILENAME_COND);
+        char filename[BUFFER_SIZE];
+        snprintf(filename, BUFFER_SIZE, "%s/%s", directory, INPUT_FILENAME_COND);
 
-	FILE* fp;
-	fp = fopen(filename, "r");
-	if( fp == NULL ) {
-		printf("%s Calc condition file \"%s\" is not found.\n", CODENAME, filename);
-		printf("%s Default values are used in this calculation.\n", CODENAME);
-	}
-	else {
-		printf("%s Reading conditon file \"%s\".\n", CODENAME, filename);
-		int num;
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->num_ip_each_axis), filename, ID_NUM_IP_EACH_AXIS, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->mat_epsilon), filename, ID_MAT_EPSILON, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->mat_max_iter), filename, ID_MAT_MAX_ITER, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->dt), filename, ID_DT, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->finish_time), filename, ID_FINISH_TIME, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_int_p(
-				&(vals->output_interval), filename, ID_OUTPUT_INTERVAL, BUFFER_SIZE, CODENAME);
+        FILE* fp;
+        fp = fopen(filename, "r");
+        if( fp == NULL ) {
+                printf("%s Calc condition file \"%s\" is not found.\n", CODENAME, filename);
+                printf("%s Default values are used in this calculation.\n", CODENAME);
+        }
+        else {
+                printf("%s Reading conditon file \"%s\".\n", CODENAME, filename);
+                int num;
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->num_ip_each_axis), filename, ID_NUM_IP_EACH_AXIS, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->mat_epsilon), filename, ID_MAT_EPSILON, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->mat_max_iter), filename, ID_MAT_MAX_ITER, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->dt), filename, ID_DT, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->finish_time), filename, ID_FINISH_TIME, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_int_p(
+                                &(vals->output_interval), filename, ID_OUTPUT_INTERVAL, BUFFER_SIZE, CODENAME);
 
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->density), filename, ID_DENSITY, BUFFER_SIZE, CODENAME);
-		num = BB_std_read_file_get_val_double_p(
-				&(vals->viscosity), filename, ID_VISCOSITY, BUFFER_SIZE, CODENAME);
-
-
-		fclose(fp);
-	}
-
-	print_all_values(vals);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->density), filename, ID_DENSITY, BUFFER_SIZE, CODENAME);
+                num = BB_std_read_file_get_val_double_p(
+                                &(vals->viscosity), filename, ID_VISCOSITY, BUFFER_SIZE, CODENAME);
 
 
-	printf("\n");
+                fclose(fp);
+        }
+
+        print_all_values(vals);
+
+
+        printf("\n");
 }
 
 
 void output_result_file_vtk(
-		BBFE_DATA*       fe,
-		VALUES*        vals,
-		const char*    filename,
-		const char*    directory,
-		double         t)
+                BBFE_DATA*       fe,
+                VALUES*        vals,
+                const char*    filename,
+                const char*    directory,
+                double         t)
 {
-	FILE* fp;
-	fp = ROM_BB_write_fopen(fp, filename, directory);
+        FILE* fp;
+        fp = ROM_BB_write_fopen(fp, filename, directory);
 
-	switch( fe->local_num_nodes ) {
-		case 4:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
-			break;
+        switch( fe->local_num_nodes ) {
+                case 4:
+                        BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+                        break;
 
-		case 8:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
-			break;
-	}
+                case 8:
+                        BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+                        break;
+        }
 
-	fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
-	BB_vtk_write_point_vals_vector(fp, vals->v, fe->total_num_nodes, "Velocity");
-	BB_vtk_write_point_vals_scalar(fp, vals->p, fe->total_num_nodes, "Pressure");
+        fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+        BB_vtk_write_point_vals_vector(fp, vals->v, fe->total_num_nodes, "Velocity");
+        BB_vtk_write_point_vals_scalar(fp, vals->p, fe->total_num_nodes, "Pressure");
+        BB_vtk_write_point_vals_scalar(fp, vals->y_plus, fe->total_num_nodes, "yPlus");
 
-	fclose(fp);
+        fclose(fp);
 
 }
 
 
 void output_files(
-		FE_SYSTEM* sys,
-		const int file_num,
-		double t)
+                FE_SYSTEM* sys,
+                const int file_num,
+                double t)
 {
-	int myrank = monolis_mpi_get_global_my_rank();
-	char fname_vtk[BUFFER_SIZE];
-    
-	const char* filename;
-	snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_VTK, file_num, myrank);
+        int myrank = monolis_mpi_get_global_my_rank();
+        char fname_vtk[BUFFER_SIZE];
 
-	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
+        const char* filename;
+        snprintf(fname_vtk, BUFFER_SIZE, OUTPUT_FILENAME_VTK, file_num, myrank);
 
-	output_result_file_vtk(
-			&(sys->fe), &(sys->vals), filename, sys->cond.directory, t);
+        filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_vtk);
+
+        output_result_file_vtk(
+                        &(sys->fe), &(sys->vals), filename, sys->cond.directory, t);
 
 }
 
 void BBFE_fluid_sups_read_Dirichlet_bc(
-		BBFE_BC*     bc,
-		const char*  filename,
-		const char*  directory,
-		const int    total_num_nodes,
-		const int    block_size)
+                BBFE_BC*     bc,
+                const char*  filename,
+                const char*  directory,
+                const int    total_num_nodes,
+                const int    block_size)
 {
-	bc->total_num_nodes = total_num_nodes;
-	bc->block_size      = block_size;
+        bc->total_num_nodes = total_num_nodes;
+        bc->block_size      = block_size;
 
-	BBFE_sys_memory_allocation_Dirichlet_bc(bc, total_num_nodes, bc->block_size);
-	int n = total_num_nodes * bc->block_size;
+        BBFE_sys_memory_allocation_Dirichlet_bc(bc, total_num_nodes, bc->block_size);
+        int n = total_num_nodes * bc->block_size;
 
-	for(int i=0; i<n; i++) {
-		bc->D_bc_exists[i]   = false;
-		bc->imposed_D_val[i] = 0.0;
-	}
+        for(int i=0; i<n; i++) {
+                bc->D_bc_exists[i]   = false;
+                bc->imposed_D_val[i] = 0.0;
+        }
 
-	FILE* fp;
-	fp = ROM_BB_read_fopen_without_error(fp, filename, directory);
-	if( fp == NULL ) {
-		printf("%s WARNING: Dirichlet B.C. file, \"%s\", is not found.\n",
-				CODENAME, filename);
-		return;
-	}
+        FILE* fp;
+        fp = ROM_BB_read_fopen_without_error(fp, filename, directory);
+        if( fp == NULL ) {
+                printf("%s WARNING: Dirichlet B.C. file, \"%s\", is not found.\n",
+                                CODENAME, filename);
+                return;
+        }
 
-	int tmp;
-	BB_std_scan_line(&fp, BUFFER_SIZE,
-			"%d %d", &(bc->num_D_bcs), &(tmp));
-	printf("%s Num. Dirichlet B.C.: %d, Num. block size: %d\n", CODENAME, bc->num_D_bcs, tmp);
+        int tmp;
+        BB_std_scan_line(&fp, BUFFER_SIZE,
+                        "%d %d", &(bc->num_D_bcs), &(tmp));
+        printf("%s Num. Dirichlet B.C.: %d, Num. block size: %d\n", CODENAME, bc->num_D_bcs, tmp);
 
-	for(int i=0; i<(bc->num_D_bcs); i++) {
-		int node_id;  int block_id;  double val;
-		BB_std_scan_line(&fp, BUFFER_SIZE,
-				"%d %d %lf", &node_id, &block_id, &val);
+        for(int i=0; i<(bc->num_D_bcs); i++) {
+                int node_id;  int block_id;  double val;
+                BB_std_scan_line(&fp, BUFFER_SIZE,
+                                "%d %d %lf", &node_id, &block_id, &val);
 
-		int index = (bc->block_size)*node_id + block_id;
-		bc->D_bc_exists[ index ]   = true;
-		bc->imposed_D_val[ index ] = val;
-	}
+                int index = (bc->block_size)*node_id + block_id;
+                bc->D_bc_exists[ index ]   = true;
+                bc->imposed_D_val[ index ] = val;
+        }
 
-	fclose(fp);
+        fclose(fp);
 }
 
 
@@ -557,143 +580,143 @@ void BBFE_fluid_sups_read_Dirichlet_bc_perturbation(
 
 
 void set_element_mat(
-		MONOLIS*     monolis,
-		BBFE_DATA*   fe,
-		BBFE_BASIS*  basis,
-		VALUES*      vals)
+                MONOLIS*     monolis,
+                BBFE_DATA*   fe,
+                BBFE_BASIS*  basis,
+                VALUES*      vals)
 {
-	int nl = fe->local_num_nodes;
-	int np = basis->num_integ_points;
+        int nl = fe->local_num_nodes;
+        int np = basis->num_integ_points;
 
-	double*** val_ip;  double* Jacobian_ip;
-	val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
-	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+        double*** val_ip;  double* Jacobian_ip;
+        val_ip      = BB_std_calloc_3d_double(val_ip     , 4 , 4, np);
+        Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
 
-	double** local_v;
-	local_v = BB_std_calloc_2d_double(local_v, nl, 3);
+        double** local_v;
+        local_v = BB_std_calloc_2d_double(local_v, nl, 3);
 
-	double** v_ip; 
-	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+        double** v_ip;
+        v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
 
-	double A[4][4];
+        double A[4][4];
 
-	for(int e=0; e<(fe->total_num_elems); e++) {
-		BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+        for(int e=0; e<(fe->total_num_elems); e++) {
+                BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-		double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
-		double h_e = cbrt(vol);
+                double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
+                double h_e = cbrt(vol);
 
-		BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+                BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
 
-		for(int p=0; p<np; p++) {
-			BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
-		}
+                for(int p=0; p<np; p++) {
+                        BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                }
 
-		for(int i=0; i<nl; i++) {
-			for(int j=0; j<nl; j++) {
+                for(int i=0; i<nl; i++) {
+                        for(int j=0; j<nl; j++) {
 
-				for(int p=0; p<np; p++) {
+                                for(int p=0; p<np; p++) {
 
-					double tau = BBFE_elemmat_fluid_sups_coef(
-							vals->density, vals->viscosity, v_ip[p], h_e, vals->dt);
+                                        double tau = BBFE_elemmat_fluid_sups_coef(
+                                                        vals->density, vals->viscosity, v_ip[p], h_e, vals->dt);
 
-					BBFE_elemmat_fluid_sups_mat(
-							A, basis->N[p][i], basis->N[p][j], 
-							fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j], 
-							v_ip[p], vals->density, vals->viscosity, tau, vals->dt);
+                                        BBFE_elemmat_fluid_sups_mat(
+                                                        A, basis->N[p][i], basis->N[p][j],
+                                                        fe->geo[e][p].grad_N[i], fe->geo[e][p].grad_N[j],
+                                                        v_ip[p], vals->density, vals->viscosity, tau, vals->dt);
 
-					for(int a=0; a<4; a++){
-						for(int b=0; b<4; b++) {
-							val_ip[a][b][p] = A[a][b];
-							A[a][b] = 0.0;
-						}
-					}
-				}
+                                        for(int a=0; a<4; a++){
+                                                for(int b=0; b<4; b++) {
+                                                        val_ip[a][b][p] = A[a][b];
+                                                        A[a][b] = 0.0;
+                                                }
+                                        }
+                                }
 
-				for(int a=0; a<4; a++){
-					for(int b=0; b<4; b++) {
-						double integ_val = BBFE_std_integ_calc(
-								np, val_ip[a][b], basis->integ_weight, Jacobian_ip);
+                                for(int a=0; a<4; a++){
+                                        for(int b=0; b<4; b++) {
+                                                double integ_val = BBFE_std_integ_calc(
+                                                                np, val_ip[a][b], basis->integ_weight, Jacobian_ip);
 
-						monolis_add_scalar_to_sparse_matrix_R(
-								monolis, fe->conn[e][i], fe->conn[e][j], a, b, integ_val);
-					}
-				}
-			}
-		}
-	}
+                                                monolis_add_scalar_to_sparse_matrix_R(
+                                                                monolis, fe->conn[e][i], fe->conn[e][j], a, b, integ_val);
+                                        }
+                                }
+                        }
+                }
+        }
 
-	BB_std_free_3d_double(val_ip     , 4 , 4, np);
-	BB_std_free_1d_double(Jacobian_ip, np);
+        BB_std_free_3d_double(val_ip     , 4 , 4, np);
+        BB_std_free_1d_double(Jacobian_ip, np);
 
-	BB_std_free_2d_double(local_v, nl, 3);
-	BB_std_free_2d_double(v_ip, np, 3);
+        BB_std_free_2d_double(local_v, nl, 3);
+        BB_std_free_2d_double(v_ip, np, 3);
 }
 
 
 void set_element_vec(
-		MONOLIS*     monolis,
-		BBFE_DATA*   fe,
-		BBFE_BASIS*  basis,
-		VALUES*      vals)
+                MONOLIS*     monolis,
+                BBFE_DATA*   fe,
+                BBFE_BASIS*  basis,
+                VALUES*      vals)
 {
-	int nl = fe->local_num_nodes;
-	int np = basis->num_integ_points;
+        int nl = fe->local_num_nodes;
+        int np = basis->num_integ_points;
 
-	double** val_ip;
-	double*  Jacobian_ip;
-	val_ip      = BB_std_calloc_2d_double(val_ip, 4, np);
-	Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
+        double** val_ip;
+        double*  Jacobian_ip;
+        val_ip      = BB_std_calloc_2d_double(val_ip, 4, np);
+        Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
 
-	double** local_v;
-	local_v = BB_std_calloc_2d_double(local_v, nl, 3);
+        double** local_v;
+        local_v = BB_std_calloc_2d_double(local_v, nl, 3);
 
-	double** v_ip; 
-	v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
+        double** v_ip;
+        v_ip = BB_std_calloc_2d_double(v_ip, np, 3);
 
-	for(int e=0; e<(fe->total_num_elems); e++) {
-		BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
+        for(int e=0; e<(fe->total_num_elems); e++) {
+                BBFE_elemmat_set_Jacobian_array(Jacobian_ip, np, e, fe);
 
-		double vol = BBFE_std_integ_calc_volume(
-				np, basis->integ_weight, Jacobian_ip);
-		double h_e = cbrt(vol);
+                double vol = BBFE_std_integ_calc_volume(
+                                np, basis->integ_weight, Jacobian_ip);
+                double h_e = cbrt(vol);
 
-		BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
+                BBFE_elemmat_set_local_array_vector(local_v, fe, vals->v, e, 3);
 
-		for(int p=0; p<np; p++) {
-			BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
-		}
+                for(int p=0; p<np; p++) {
+                        BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
+                }
 
-		for(int i=0; i<nl; i++) {
-			double integ_val[4];
+                for(int i=0; i<nl; i++) {
+                        double integ_val[4];
 
-			for(int p=0; p<np; p++) {
-				double tau = BBFE_elemmat_fluid_sups_coef(
-						vals->density, vals->viscosity, v_ip[p], h_e, vals->dt);
+                        for(int p=0; p<np; p++) {
+                                double tau = BBFE_elemmat_fluid_sups_coef(
+                                                vals->density, vals->viscosity, v_ip[p], h_e, vals->dt);
 
-				double vec[4];
-				BBFE_elemmat_fluid_sups_vec(
-						vec, basis->N[p][i], fe->geo[e][p].grad_N[i],
-						v_ip[p], vals->density, tau, vals->dt);
+                                double vec[4];
+                                BBFE_elemmat_fluid_sups_vec(
+                                                vec, basis->N[p][i], fe->geo[e][p].grad_N[i],
+                                                v_ip[p], vals->density, tau, vals->dt);
 
-				for(int d=0; d<4; d++) {
-					val_ip[d][p] = vec[d];
-				}
-			}
+                                for(int d=0; d<4; d++) {
+                                        val_ip[d][p] = vec[d];
+                                }
+                        }
 
-			for(int d=0; d<4; d++) {
-				integ_val[d] = BBFE_std_integ_calc(
-						np, val_ip[d], basis->integ_weight, Jacobian_ip);
+                        for(int d=0; d<4; d++) {
+                                integ_val[d] = BBFE_std_integ_calc(
+                                                np, val_ip[d], basis->integ_weight, Jacobian_ip);
 
-				monolis->mat.R.B[ 4*fe->conn[e][i] + d ] += integ_val[d];
-			}
-		}
-	}
+                                monolis->mat.R.B[ 4*fe->conn[e][i] + d ] += integ_val[d];
+                        }
+                }
+        }
 
-	BB_std_free_2d_double(val_ip, 4, np);
-	BB_std_free_1d_double(Jacobian_ip, np);
-	BB_std_free_2d_double(local_v, nl, 3);
-	BB_std_free_2d_double(v_ip, np, 3);
+        BB_std_free_2d_double(val_ip, 4, np);
+        BB_std_free_1d_double(Jacobian_ip, np);
+        BB_std_free_2d_double(local_v, nl, 3);
+        BB_std_free_2d_double(v_ip, np, 3);
 }
 
 //右辺ベクトルのアップデートと解ベクトルの求解
@@ -702,44 +725,44 @@ void solver_fom(
     double      t,
     const int   step)
 {
-		monolis_clear_mat_value_R(&(sys.monolis));
+                monolis_clear_mat_value_R(&(sys.monolis));
 
-		set_element_mat(
-				&(sys.monolis),
-				&(sys.fe),
-				&(sys.basis),
-				&(sys.vals));
-		set_element_vec(
-				&(sys.monolis),
-				&(sys.fe),
-				&(sys.basis),
-				&(sys.vals));
+                set_element_mat(
+                                &(sys.monolis),
+                                &(sys.fe),
+                                &(sys.basis),
+                                &(sys.vals));
+                set_element_vec(
+                                &(sys.monolis),
+                                &(sys.fe),
+                                &(sys.basis),
+                                &(sys.vals));
 
-		BBFE_sys_monowrap_set_Dirichlet_bc(
-				&(sys.monolis),
-				sys.fe.total_num_nodes,
-				4,
-				&(sys.bc),
-				sys.monolis.mat.R.B);
+                BBFE_sys_monowrap_set_Dirichlet_bc(
+                                &(sys.monolis),
+                                sys.fe.total_num_nodes,
+                                4,
+                                &(sys.bc),
+                                sys.monolis.mat.R.B);
 
-		BBFE_sys_monowrap_solve(
-				&(sys.monolis),
-				&(sys.mono_com),
-				sys.monolis.mat.R.X,
-				MONOLIS_ITER_BICGSTAB_N128,
-				MONOLIS_PREC_DIAG,
-				sys.fe.total_num_nodes,
-				sys.vals.mat_epsilon);
+                BBFE_sys_monowrap_solve(
+                                &(sys.monolis),
+                                &(sys.mono_com),
+                                sys.monolis.mat.R.X,
+                                MONOLIS_ITER_BICGSTAB_N128,
+                                MONOLIS_PREC_DIAG,
+                                sys.fe.total_num_nodes,
+                                sys.vals.mat_epsilon);
 
-		BBFE_fluid_sups_renew_velocity(
-				sys.vals.v, 
-				sys.monolis.mat.R.X,
-				sys.fe.total_num_nodes);
-		
-		BBFE_fluid_sups_renew_pressure(
-				sys.vals.p, 
-				sys.monolis.mat.R.X,
-				sys.fe.total_num_nodes);
+                BBFE_fluid_sups_renew_velocity(
+                                sys.vals.v,
+                                sys.monolis.mat.R.X,
+                                sys.fe.total_num_nodes);
+
+                BBFE_fluid_sups_renew_pressure(
+                                sys.vals.p,
+                                sys.monolis.mat.R.X,
+                                sys.fe.total_num_nodes);
 }
 
 
@@ -750,106 +773,106 @@ void solver_fom_collect_snapmat(
     double t,
     const int step)
 {
-		monolis_clear_mat_value_R(&(sys.monolis));
+                monolis_clear_mat_value_R(&(sys.monolis));
 
-		printf("%s --- prediction step ---\n", CODENAME);
+                printf("%s --- prediction step ---\n", CODENAME);
 
-		set_element_mat(
-				&(sys.monolis),
-				&(sys.fe),
-				&(sys.basis),
-				&(sys.vals));
-		set_element_vec(
-				&(sys.monolis),
-				&(sys.fe),
-				&(sys.basis),
-				&(sys.vals));
+                set_element_mat(
+                                &(sys.monolis),
+                                &(sys.fe),
+                                &(sys.basis),
+                                &(sys.vals));
+                set_element_vec(
+                                &(sys.monolis),
+                                &(sys.fe),
+                                &(sys.basis),
+                                &(sys.vals));
 
-		BBFE_sys_monowrap_set_Dirichlet_bc(
-				&(sys.monolis),
-				sys.fe.total_num_nodes,
-				4,
-				&(sys.bc),
-				sys.monolis.mat.R.B);
+                BBFE_sys_monowrap_set_Dirichlet_bc(
+                                &(sys.monolis),
+                                sys.fe.total_num_nodes,
+                                4,
+                                &(sys.bc),
+                                sys.monolis.mat.R.B);
 
-		monolis_show_timelog (&(sys.monolis), true);
-		monolis_show_iterlog (&(sys.monolis), true);
-		BBFE_sys_monowrap_solve(
-				&(sys.monolis),
-				&(sys.mono_com),
-				sys.monolis.mat.R.X,
-				MONOLIS_ITER_BICGSTAB_N128,
-				MONOLIS_PREC_DIAG,
-				sys.fe.total_num_nodes,
-				sys.vals.mat_epsilon);
+                monolis_show_timelog (&(sys.monolis), true);
+                monolis_show_iterlog (&(sys.monolis), true);
+                BBFE_sys_monowrap_solve(
+                                &(sys.monolis),
+                                &(sys.mono_com),
+                                sys.monolis.mat.R.X,
+                                MONOLIS_ITER_BICGSTAB_N128,
+                                MONOLIS_PREC_DIAG,
+                                sys.fe.total_num_nodes,
+                                sys.vals.mat_epsilon);
 
-		BBFE_fluid_sups_renew_velocity(
-				sys.vals.v, 
-				sys.monolis.mat.R.X,
-				sys.fe.total_num_nodes);
+                BBFE_fluid_sups_renew_velocity(
+                                sys.vals.v,
+                                sys.monolis.mat.R.X,
+                                sys.fe.total_num_nodes);
 
-		BBFE_fluid_sups_renew_pressure(
-				sys.vals.p, 
-				sys.monolis.mat.R.X,
-				sys.fe.total_num_nodes);
+                BBFE_fluid_sups_renew_pressure(
+                                sys.vals.p,
+                                sys.monolis.mat.R.X,
+                                sys.fe.total_num_nodes);
 
-		double* vec;
-		vec = BB_std_calloc_1d_double(vec, 3*sys.fe.total_num_nodes);
+                double* vec;
+                vec = BB_std_calloc_1d_double(vec, 3*sys.fe.total_num_nodes);
 
-		ROM_BB_vec_copy_2d_to_1d(
-			sys.vals.v,
-			vec,
-			sys.fe.total_num_nodes);
+                ROM_BB_vec_copy_2d_to_1d(
+                        sys.vals.v,
+                        vec,
+                        sys.fe.total_num_nodes);
 
-		if(step%sys.vals.snapshot_interval == 0) {
-			printf("set modes p: %d\n", (int)(step/sys.vals.snapshot_interval));
+                if(step%sys.vals.snapshot_interval == 0) {
+                        printf("set modes p: %d\n", (int)(step/sys.vals.snapshot_interval));
 
-			if(monolis_mpi_get_global_comm_size() == 1){
-				ROM_std_hlpod_set_snapmat_nobc(
-						sys.vals.p,
-						&(sys.rom_p.hlpod_mat),
-						sys.fe.total_num_nodes,
+                        if(monolis_mpi_get_global_comm_size() == 1){
+                                ROM_std_hlpod_set_snapmat_nobc(
+                                                sys.vals.p,
+                                                &(sys.rom_p.hlpod_mat),
+                                                sys.fe.total_num_nodes,
                         1,
-						(int)(step/sys.vals.snapshot_interval));
-			}
-			else{
-				ROM_std_hlpod_set_snapmat_nobc(
-						sys.vals.p,
-						&(sys.rom_p.hlpod_mat),
-						sys.mono_com.n_internal_vertex,
+                                                (int)(step/sys.vals.snapshot_interval));
+                        }
+                        else{
+                                ROM_std_hlpod_set_snapmat_nobc(
+                                                sys.vals.p,
+                                                &(sys.rom_p.hlpod_mat),
+                                                sys.mono_com.n_internal_vertex,
                         1,
-						(int)(step/sys.vals.snapshot_interval));
-			}
+                                                (int)(step/sys.vals.snapshot_interval));
+                        }
 
-		}
+                }
 
-		if(step%sys.vals.snapshot_interval == 0) {
-			printf("set modes v: %d\n", (int)(step/sys.vals.snapshot_interval));
+                if(step%sys.vals.snapshot_interval == 0) {
+                        printf("set modes v: %d\n", (int)(step/sys.vals.snapshot_interval));
 
-			if(monolis_mpi_get_global_comm_size() == 1){
-				ROM_sys_hlpod_fe_set_snap_mat_para(
-						vec,
-						&(sys.rom_v.hlpod_mat),
-						&(sys.bc),
-						&(sys.rom_sups.rom_bc),	//要変更
-						sys.fe.total_num_nodes,
-						3,
-						((int)step/sys.vals.snapshot_interval));
-			}
-			else{
-				ROM_sys_hlpod_fe_set_snap_mat_para(
-						vec,
-						&(sys.rom_v.hlpod_mat),
-						&(sys.bc),
-						&(sys.rom_sups.rom_bc),
+                        if(monolis_mpi_get_global_comm_size() == 1){
+                                ROM_sys_hlpod_fe_set_snap_mat_para(
+                                                vec,
+                                                &(sys.rom_v.hlpod_mat),
+                                                &(sys.bc),
+                                                &(sys.rom_sups.rom_bc), //要変更
+                                                sys.fe.total_num_nodes,
+                                                3,
+                                                ((int)step/sys.vals.snapshot_interval));
+                        }
+                        else{
+                                ROM_sys_hlpod_fe_set_snap_mat_para(
+                                                vec,
+                                                &(sys.rom_v.hlpod_mat),
+                                                &(sys.bc),
+                                                &(sys.rom_sups.rom_bc),
                         sys.mono_com.n_internal_vertex,
-						3,
-						((int)step/sys.vals.snapshot_interval));
-			}
+                                                3,
+                                                ((int)step/sys.vals.snapshot_interval));
+                        }
 
-		}
+                }
 
-		BB_std_free_1d_double(vec, 3*sys.fe.total_num_nodes);
+                BB_std_free_1d_double(vec, 3*sys.fe.total_num_nodes);
 
 }
 
@@ -1198,7 +1221,7 @@ void BBFE_elemmat_fluid_sups_mat_NR(
     const double D_32 = dt * viscosity * grad_N_i[2] * grad_N_j[1];
     const double D_33 = dt * viscosity * ( BB_calc_vec3d_dot(grad_N_i, grad_N_j) + grad_N_i[2]*grad_N_j[2] );
 
-    //LSIC (grad-div penalization) 
+    //LSIC (grad-div penalization)
     const double Kls = dt * density * tau_c;
     const double LS_00 = Kls * grad_N_i[0]*grad_N_j[0];
     const double LS_01 = Kls * grad_N_i[0]*grad_N_j[1];
@@ -1414,7 +1437,7 @@ void set_element_mat_NR(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1424,7 +1447,7 @@ void set_element_mat_NR(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1530,7 +1553,7 @@ void set_element_vec_NR(
         BBFE_elemmat_set_local_array_vector(local_v_old, fe, vals->v_old, e, 3);
 
         BBFE_elemmat_set_local_array_scalar(local_p, fe, vals->p, e);
-        
+
         for (int p = 0; p < np; ++p) {
             BBFE_std_mapping_vector3d(v_ip[p], nl, local_v, basis->N[p]);
             BBFE_std_mapping_vector3d(v_ip_old[p], nl, local_v_old, basis->N[p]);
@@ -1540,7 +1563,7 @@ void set_element_vec_NR(
         }
                 double vol = BBFE_std_integ_calc_volume(np, basis->integ_weight, Jacobian_ip);
                 double h_e = cbrt(vol);
-        
+
         for (int i = 0; i < nl; ++i) {
             for (int p = 0; p < np; ++p)
                 for (int d = 0; d < 4; ++d) val_ip_vec[d][p] = 0.0;
@@ -1607,48 +1630,48 @@ void set_element_vec_NR(
 }
 
 double BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
-		BBFE_DATA*   fe,
-		const int    e,
-		const int    p,
-		const double density,
-		const double viscosity,
-		const double v_ip[3],
-		const double grad_v[3],
-		const double dt)
+                BBFE_DATA*   fe,
+                const int    e,
+                const int    p,
+                const double density,
+                const double viscosity,
+                const double v_ip[3],
+                const double grad_v[3],
+                const double dt)
 {
-	double nu = viscosity/density;
+        double nu = viscosity/density;
 
-	double tau1_inv = 0.0;
-	for(int i =0; i<fe->local_num_nodes; i++){
-		double v_dot_grad = BB_calc_vec3d_dot(v_ip, fe->geo[e][p].grad_N[i]);
-		tau1_inv += fabs(v_dot_grad);
-	}
+        double tau1_inv = 0.0;
+        for(int i =0; i<fe->local_num_nodes; i++){
+                double v_dot_grad = BB_calc_vec3d_dot(v_ip, fe->geo[e][p].grad_N[i]);
+                tau1_inv += fabs(v_dot_grad);
+        }
 
-	double tau2_inv = 2.0 / dt;
+        double tau2_inv = 2.0 / dt;
 
-	double r[3];
-	double len_grad_v = BB_calc_vec3d_length(grad_v);
-	if(len_grad_v > 1.0e-12){
-		r[0] = grad_v[0] / len_grad_v;
-		r[1] = grad_v[1] / len_grad_v;
-		r[2] = grad_v[2] / len_grad_v;
-	}
-	else{
-		r[0] = 0.0; r[1] = 0.0; r[2] = 0.0;
-	}
+        double r[3];
+        double len_grad_v = BB_calc_vec3d_length(grad_v);
+        if(len_grad_v > 1.0e-12){
+                r[0] = grad_v[0] / len_grad_v;
+                r[1] = grad_v[1] / len_grad_v;
+                r[2] = grad_v[2] / len_grad_v;
+        }
+        else{
+                r[0] = 0.0; r[1] = 0.0; r[2] = 0.0;
+        }
 
-	double tmp = 0.0;
-	for(int i =0; i<fe->local_num_nodes; i++){
-		double r_dot_grad = BB_calc_vec3d_dot(r, fe->geo[e][p].grad_N[i]);
-		tmp += fabs(r_dot_grad);
-	}
-	double tau3_inv = nu * tmp * tmp;
+        double tmp = 0.0;
+        for(int i =0; i<fe->local_num_nodes; i++){
+                double r_dot_grad = BB_calc_vec3d_dot(r, fe->geo[e][p].grad_N[i]);
+                tmp += fabs(r_dot_grad);
+        }
+        double tau3_inv = nu * tmp * tmp;
 
-	double denom = tau1_inv * tau1_inv + tau2_inv * tau2_inv + tau3_inv * tau3_inv;
+        double denom = tau1_inv * tau1_inv + tau2_inv * tau2_inv + tau3_inv * tau3_inv;
 
-	double val = sqrt(1.0/denom);
+        double val = sqrt(1.0/denom);
 
-	return (val);
+        return (val);
 }
 
 
@@ -1680,11 +1703,11 @@ void set_element_mat_NR_Tezuer(
     double*  p_ip          = BB_std_calloc_1d_double(p_ip  , np);
     double** grad_p_ip     = BB_std_calloc_2d_double(grad_p_ip, np, 3);
 
-	double** grad_v;
-	grad_v = BB_std_calloc_2d_double(grad_v, np, 3);
+        double** grad_v;
+        grad_v = BB_std_calloc_2d_double(grad_v, np, 3);
 
-	double* tau_ip;
-	tau_ip = BB_std_calloc_1d_double(tau_ip, np);
+        double* tau_ip;
+        tau_ip = BB_std_calloc_1d_double(tau_ip, np);
 
 
     double A[4][4];
@@ -1709,13 +1732,13 @@ void set_element_mat_NR_Tezuer(
             p_ip[p] = BBFE_std_mapping_scalar(nl, local_p, basis->N[p]);
 
 // 要素 e の積分点 p における速度勾配の計算
-			for(int i=0; i<nl; i++){
-				local_lv[i] = BB_calc_vec3d_length(local_v[i]);
-			}
-			BBFE_std_mapping_scalar_grad(grad_v[p], nl, local_lv, fe->geo[e][p].grad_N);
+                        for(int i=0; i<nl; i++){
+                                local_lv[i] = BB_calc_vec3d_length(local_v[i]);
+                        }
+                        BBFE_std_mapping_scalar_grad(grad_v[p], nl, local_lv, fe->geo[e][p].grad_N);
 
-			tau_ip[p] = BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
-					fe, e, p, vals->density, vals->viscosity, v_ip[p], grad_v[p], vals->dt);
+                        tau_ip[p] = BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
+                                        fe, e, p, vals->density, vals->viscosity, v_ip[p], grad_v[p], vals->dt);
 
 
         }
@@ -1725,8 +1748,8 @@ void set_element_mat_NR_Tezuer(
 const double tau_e = BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
                         fe, e, p,
                         vals->density, vals->viscosity, v_ip[p],
-			grad_v_ip[p],
-			vals->dt);
+                        grad_v_ip[p],
+                        vals->dt);
 */
 
 const double tau_c_e = BBFE_elem_tau_LSIC_matrix_norm(
@@ -1759,10 +1782,10 @@ const double tau_e = BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
                         grad_v_ip[p],
                         vals->dt);
 */
-//		  const double tau = tau_e;
+//                const double tau = tau_e;
 const double tau_c = tau_c_e;
 
-		    /*
+                    /*
                     const double tau = BBFE_elemmat_fluid_sups_coef_metric_tensor(
                         J_inv, fe->geo[e][p].Jacobian,
                         vals->density, vals->viscosity, v_ip[p], vals->dt);
@@ -1833,15 +1856,15 @@ const double tau_c = tau_c_e;
                     J_inv, fe->geo[e][p].Jacobian,
                     vals->density, vals->viscosity, v_ip[p], vals->dt);
 */
-		/*
+                /*
 const double tau_e = BBFE_elemmat_fluid_sups_coef_Tezduyar2003(
                         fe, e, p,
                         vals->density, vals->viscosity, v_ip[p],
                         grad_v_ip[p],
                         vals->dt);
 */
-		//const double tau = tau_e;
-		const double tau_c = tau_c_e;
+                //const double tau = tau_e;
+                const double tau_c = tau_c_e;
 
                 BBFE_elemmat_fluid_sups_vec_NR(
                     vec,
@@ -2135,7 +2158,7 @@ void read_connectivity_graph_surf(
 
     fe->total_num_elems = graph_ndof;
     printf("%s Num. elements: %d\n", CODENAME, fe->total_num_elems);
-    fe->local_num_nodes = 4; // 1st-order rectangle
+    //fe->local_num_nodes = 4; // 1st-order rectangle
     BBFE_sys_memory_allocation_elem(fe, num_integ_points, 3);
     if (fe->total_num_elems < 0)
     {
@@ -2226,7 +2249,7 @@ void pre_surface(
                 BBFE_DATA*    surf,
                 BBFE_BASIS*   basis,
                 const char*   directory,
-		const char*   fname,
+                const char*   fname,
                 int           num_integ_points_each_axis)
 {
         int n_axis = num_integ_points_each_axis;
@@ -2772,7 +2795,7 @@ double calc_internal_norm_1d(
 {
     double norm = 0.0;
 
-    for (int i = 0; i < num1; i++) {    
+    for (int i = 0; i < num1; i++) {
         norm += in[i] * in[i];
     }
 
@@ -2784,9 +2807,9 @@ void solver_fom_NR_collect_snapmat(
     double      t,
     const int   step)
 {
-	if(monolis_mpi_get_global_my_rank()==0){
-    		printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
-	}
+        if(monolis_mpi_get_global_my_rank()==0){
+                printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
+        }
 
 
     double* rvec = (double*)calloc((size_t)sys.fe.total_num_nodes*4, sizeof(double));
@@ -2801,9 +2824,9 @@ const double tiny      = 1.0e-30;
 int max_iter_NR = 1;
 
     for(int it = 0; it < max_iter_NR; it++){
-	    	if(monolis_mpi_get_global_my_rank()==0){
-                	printf("\n%s ----------------- Time step %d : NR step %d ----------------\n", CODENAME, step, it);
-		}
+                if(monolis_mpi_get_global_my_rank()==0){
+                        printf("\n%s ----------------- Time step %d : NR step %d ----------------\n", CODENAME, step, it);
+                }
                 monolis_clear_mat_value_R(&(sys.monolis));
 
 
@@ -2817,14 +2840,14 @@ int max_iter_NR = 1;
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
-                
+
                 set_element_vec_NR_linear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
 
-		        set_element_mat_NR_nonlinear(
+                        set_element_mat_NR_nonlinear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
@@ -2882,7 +2905,7 @@ monolis_clear_mat_value_R(&(sys.monolis));
             //dx[i] = 0.0;
         }
 
-	
+
 set_element_mat_NR_Tezuer(
                                 &(sys.monolis),
                                 &(sys.fe),
@@ -2996,7 +3019,7 @@ if (conv_v && conv_p) {
         }
     }
     if(monolis_mpi_get_global_my_rank()==0){
-    	printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
+        printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
     }
     ROM_BB_vec_copy_2d(
         sys.vals.v,
@@ -3082,9 +3105,9 @@ void solver_fom_NR2(
     double      t,
     const int   step)
 {
-	if(monolis_mpi_get_global_my_rank()==0){
-    		printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
-	}
+        if(monolis_mpi_get_global_my_rank()==0){
+                printf("\n%s ----------------- Time step %d ----------------\n", CODENAME, step);
+        }
 
 
     double* rvec = (double*)calloc((size_t)sys.fe.total_num_nodes*4, sizeof(double));
@@ -3099,9 +3122,9 @@ const double tiny      = 1.0e-30;
 int max_iter_NR = 20;
 
     for(int it = 0; it < max_iter_NR; it++){
-	    	if(monolis_mpi_get_global_my_rank()==0){
-                	printf("\n%s ----------------- Time step %d : NR step %d ----------------\n", CODENAME, step, it);
-		}
+                if(monolis_mpi_get_global_my_rank()==0){
+                        printf("\n%s ----------------- Time step %d : NR step %d ----------------\n", CODENAME, step, it);
+                }
                 monolis_clear_mat_value_R(&(sys.monolis));
 
 
@@ -3115,14 +3138,14 @@ int max_iter_NR = 20;
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
-                
+
                 set_element_vec_NR_linear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
 
-		        set_element_mat_NR_nonlinear(
+                        set_element_mat_NR_nonlinear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
@@ -3180,20 +3203,20 @@ monolis_clear_mat_value_R(&(sys.monolis));
             //dx[i] = 0.0;
         }
 
-	
+
                 set_element_mat_NR_linear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
-                
+
                 set_element_vec_NR_linear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
                                 &(sys.vals));
 
-		        set_element_mat_NR_nonlinear(
+                        set_element_mat_NR_nonlinear(
                                 &(sys.monolis),
                                 &(sys.fe),
                                 &(sys.basis),
@@ -3312,7 +3335,7 @@ if (nrm_r / nrm_r_old < 1.0e-6) {
         }
     }
     if(monolis_mpi_get_global_my_rank()==0){
-    	printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
+        printf("[step %d] max|v^{n+1}-v^{n}| = %.6e\n", step, max_du);
     }
     ROM_BB_vec_copy_2d(
         sys.vals.v,
@@ -3723,19 +3746,29 @@ static void wall_sym_nitsche_local_vecmat(
     }
 }
 
-
 void set_wall_face_vecmat_symmetric_nitsche(
     MONOLIS* monolis,
     const BBFE_DATA* fe,
     const BBFE_BASIS* basis_vol,
     const BBFE_DATA* surf,
     const BBFE_BASIS* basis_surf,
-    const VALUES* vals,
+    VALUES* vals,
     double rho,
     double mu_molecular,
     const double Uw[3],
     double gamma_n)
 {
+    /*
+     * y+ visualization arrays reset.
+     * この関数が呼ばれるたびに、最新の壁面 y+ を作り直す。
+     */
+    if (vals->y_plus != NULL && vals->y_plus_count != NULL) {
+        for (int i = 0; i < fe->total_num_nodes; ++i) {
+            vals->y_plus[i] = 0.0;
+            vals->y_plus_count[i] = 0;
+        }
+    }
+
     int faces_map[6][4];
     build_hex8_faces_from_sgn(SGN, faces_map);
 
@@ -3788,7 +3821,9 @@ void set_wall_face_vecmat_symmetric_nitsche(
     const int np = basis_surf->num_integ_points;
 
     if (ns != 4) {
-        fprintf(stderr, "[wall] set_wall_face_vecmat_symmetric_nitsche assumes QUAD4 surface, ns=%d\n", ns);
+        fprintf(stderr,
+            "[wall] set_wall_face_vecmat_symmetric_nitsche assumes QUAD4 surface, ns=%d\n",
+            ns);
         free(volF);
         free(sF);
         free(owner);
@@ -3806,7 +3841,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
             exit(EXIT_FAILURE);
         }
 
-        /* surface face と owner volume が本当に同じ4節点を共有しているか確認 */
         {
             int common = 0;
 
@@ -3857,10 +3891,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
             xvol[a][2] = fe->x[gid][2];
         }
 
-        /*
-          owner HEX8 の代表長さ。
-          体積 VMS 側と同じ h_e = cbrt(volume) の考え方に合わせる。
-        */
         double vol_e = 0.0;
         for (int pp = 0; pp < basis_vol->num_integ_points; ++pp) {
             vol_e += basis_vol->integ_weight[pp] * fe->geo[ke][pp].Jacobian;
@@ -3869,11 +3899,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
         double h_e_vms = cbrt(fabs(vol_e));
         if (h_e_vms <= 1.0e-12) h_e_vms = 1.0e-12;
 
-        /*
-          map each surface local node to owner-volume local node.
-          通常は owner mapping が成功していれば必ず見つかるが、
-          防御的に face 全体を skip できる形にしておく。
-        */
         int s2v[4];
         int ok_s2v = 1;
 
@@ -3926,6 +3951,7 @@ void set_wall_face_vecmat_symmetric_nitsche(
 
         for (int p = 0; p < np; ++p) {
             double nrm[3];
+
             dl_quad4_normal(
                 xsurf,
                 basis_surf->dN_dxi[p],
@@ -3947,10 +3973,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
                 n[2] *= -1.0;
             }
 
-            /*
-              Reference coordinate of this surface quadrature point
-              inside owner HEX8.
-            */
             double xi3[3] = {0.0, 0.0, 0.0};
 
             for (int a = 0; a < ns; ++a) {
@@ -3970,44 +3992,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
             double Jacobian_face = 0.0;
 
             hex8_shape_grad_ref(SGN, xi3, Nv, dN_dxi);
-
-            {
-                const double tol_xi = 1.0e-10;
-
-                int on_face = 0;
-                for (int d = 0; d < 3; ++d) {
-                    if (fabs(fabs(xi3[d]) - 1.0) < tol_xi) {
-                        on_face = 1;
-                    }
-                }
-
-                if (!on_face) {
-                    fprintf(stderr,
-                        "[wall][WARN] xi3 is not on HEX face: es=%d ke=%d xi=(%.15e %.15e %.15e)\n",
-                        es, ke, xi3[0], xi3[1], xi3[2]);
-                }
-            }
-
-            /* face に乗っていない volume node の Nv が 0 になっているか確認 */
-            {
-                int on_surface_node[8] = {0,0,0,0,0,0,0,0};
-
-                for (int a = 0; a < ns; ++a) {
-                    if (s2v[a] >= 0 && s2v[a] < 8) {
-                        on_surface_node[s2v[a]] = 1;
-                    }
-                }
-
-                for (int i = 0; i < 8; ++i) {
-                    if (!on_surface_node[i] && fabs(Nv[i]) > 1.0e-10) {
-                        fprintf(stderr,
-                            "[wall][WARN] off-face Nv not zero: es=%d ke=%d i=%d Nv=%.15e xi=(%.15e %.15e %.15e)\n",
-                            es, ke, i, Nv[i], xi3[0], xi3[1], xi3[2]);
-                    }
-                }
-            }
-
-
 
             if (!hex8_grad_phys_metric(
                     xvol,
@@ -4044,11 +4028,6 @@ void set_wall_face_vecmat_symmetric_nitsche(
                 }
             }
 
-            /*
-              壁面求積点で VMS 有効粘性を計算する。
-              tau_face, tau_c_face はここでは直接使わないが、
-              BBFE_vms_mu_eff_tau の仕様上受け取る。
-            */
             double* grad_u_ptr[3] = {
                 grad_u_q[0],
                 grad_u_q[1],
@@ -4086,14 +4065,58 @@ void set_wall_face_vecmat_symmetric_nitsche(
             const double y_wall = h_n;
             const double w = basis_surf->integ_weight[p] * Jface;
 
+            /*
+             * ------------------------------------------------------------
+             * y+ visualization value at this wall quadrature point
+             * ------------------------------------------------------------
+             */
+            if (vals->y_plus != NULL && vals->y_plus_count != NULL) {
+                double ur[3];
+                for (int a = 0; a < 3; ++a) {
+                    ur[a] = u_q[a] - Uw[a];
+                }
+
+                const double un = dot3(ur, n);
+
+                double ut[3];
+                for (int a = 0; a < 3; ++a) {
+                    ut[a] = ur[a] - un * n[a];
+                }
+
+                const double ut_norm = sqrt(dot3(ut, ut));
+
+                const double u_tau =
+                    compute_utau_all_yplus(
+                        ut_norm,
+                        y_wall,
+                        rho,
+                        mu_molecular);
+
+                double yplus_q = 0.0;
+
+                if (u_tau > 0.0 && rho > 0.0 && mu_molecular > 0.0) {
+                    yplus_q = rho * u_tau * y_wall / mu_molecular;
+                }
+
+                /*
+                 * 面上の4節点へ蓄積する。
+                 * 求積点重み付き平均にしたい場合は、
+                 * y_plus_weight 配列を別途持たせて w で平均する。
+                 */
+                for (int a = 0; a < ns; ++a) {
+                    int gid = surf->conn[es][a];
+
+                    vals->y_plus[gid] += yplus_q;
+                    vals->y_plus_count[gid] += 1;
+                }
+            }
+
+            /*
+             * Original Nitsche residual and matrix assembly
+             */
             for (int i = 0; i < 8; ++i) {
                 int gi = fe->conn[ke][i];
 
-                /*
-                  Residual: compute once per i.
-                  vec_i には Nitsche 残差 R_i が入る。
-                  既存コードと同じく RHS が -R の想定で -= する。
-                */
                 double vec_i[4];
                 double dummy_mat[4][4];
                 double zero_grad[3] = {0.0, 0.0, 0.0};
@@ -4164,12 +4187,2244 @@ void set_wall_face_vecmat_symmetric_nitsche(
         }
     }
 
+    /*
+     * Final average at wall nodes.
+     * Non-wall nodes are set to 0.0.
+     */
+    if (vals->y_plus != NULL && vals->y_plus_count != NULL) {
+        for (int i = 0; i < fe->total_num_nodes; ++i) {
+            if (vals->y_plus_count[i] > 0) {
+                vals->y_plus[i] /= (double)vals->y_plus_count[i];
+            } else {
+                vals->y_plus[i] = 0.0;
+            }
+        }
+    }
+
     free(volF);
     free(sF);
     free(owner);
     free(lface);
 }
 
+/* ---- TET4/TRI3 face-key utilities ---- */
+typedef long long t4_node_id_t;
+
+static inline void t4_sort3(t4_node_id_t k[3])
+{
+    if (k[1] < k[0]) { t4_node_id_t t = k[0]; k[0] = k[1]; k[1] = t; }
+    if (k[2] < k[1]) { t4_node_id_t t = k[1]; k[1] = k[2]; k[2] = t; }
+    if (k[1] < k[0]) { t4_node_id_t t = k[0]; k[0] = k[1]; k[1] = t; }
+}
+
+
+static inline double t4_dot3(const double a[3], const double b[3])
+{
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+static inline double t4_norm3(const double a[3])
+{
+    return sqrt(t4_dot3(a, a));
+}
+
+static inline void t4_normalize3(double a[3])
+{
+    const double n = t4_norm3(a);
+    if (n > 0.0) {
+        a[0] /= n;
+        a[1] /= n;
+        a[2] /= n;
+    }
+}
+
+static inline void t4_cross3(const double a[3], const double b[3], double c[3])
+{
+    c[0] = a[1]*b[2] - a[2]*b[1];
+    c[1] = a[2]*b[0] - a[0]*b[2];
+    c[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+static inline int t4_cmp3(const t4_node_id_t a[3], const t4_node_id_t b[3])
+{
+    if (a[0] != b[0]) return (a[0] < b[0]) ? -1 : +1;
+    if (a[1] != b[1]) return (a[1] < b[1]) ? -1 : +1;
+    if (a[2] != b[2]) return (a[2] < b[2]) ? -1 : +1;
+    return 0;
+}
+
+/* Standard outward-oriented faces for a positive-orientation TET4.
+ * The orientation is not required for the owner map because keys are sorted;
+ * normals are still corrected by centroid direction in the integral loop.
+ */
+static const int T4_FACE[4][3] = {
+    {1, 2, 3},  /* opposite node 0 */
+    {0, 3, 2},  /* opposite node 1 */
+    {0, 1, 3},  /* opposite node 2 */
+    {0, 2, 1}   /* opposite node 3 */
+};
+
+typedef struct {
+    t4_node_id_t key[3];
+    int owner_elem;
+    int owner_lface;
+} t4_FaceEntry;
+
+typedef struct {
+    t4_node_id_t key[3];
+    int surf_face_id;
+} t4_SurfFaceEntry;
+
+static int t4_cmp_face(const void* A, const void* B)
+{
+    const t4_FaceEntry* a = (const t4_FaceEntry*)A;
+    const t4_FaceEntry* b = (const t4_FaceEntry*)B;
+    int c = t4_cmp3(a->key, b->key);
+    if (c) return c;
+    if (a->owner_elem  != b->owner_elem)  return (a->owner_elem  < b->owner_elem)  ? -1 : +1;
+    if (a->owner_lface != b->owner_lface) return (a->owner_lface < b->owner_lface) ? -1 : +1;
+    return 0;
+}
+
+static int t4_cmp_sface(const void* A, const void* B)
+{
+    const t4_SurfFaceEntry* a = (const t4_SurfFaceEntry*)A;
+    const t4_SurfFaceEntry* b = (const t4_SurfFaceEntry*)B;
+    int c = t4_cmp3(a->key, b->key);
+    if (c) return c;
+    if (a->surf_face_id != b->surf_face_id) return (a->surf_face_id < b->surf_face_id) ? -1 : +1;
+    return 0;
+}
+
+static t4_FaceEntry* t4_build_vol_faces_sorted(const BBFE_DATA* fe, int* nfaces_out)
+{
+    const int nfaces = fe->total_num_elems * 4;
+    t4_FaceEntry* arr = (t4_FaceEntry*)malloc(sizeof(t4_FaceEntry) * nfaces);
+    if (!arr) {
+        fprintf(stderr, "[t4][ERR] malloc vol faces failed\n");
+        *nfaces_out = 0;
+        return NULL;
+    }
+
+    int k = 0;
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        for (int f = 0; f < 4; ++f) {
+            t4_node_id_t key[3] = {
+                (t4_node_id_t)fe->conn[e][T4_FACE[f][0]],
+                (t4_node_id_t)fe->conn[e][T4_FACE[f][1]],
+                (t4_node_id_t)fe->conn[e][T4_FACE[f][2]]
+            };
+            t4_sort3(key);
+            for (int j = 0; j < 3; ++j) arr[k].key[j] = key[j];
+            arr[k].owner_elem  = e;
+            arr[k].owner_lface = f;
+            ++k;
+        }
+    }
+
+    qsort(arr, nfaces, sizeof(t4_FaceEntry), t4_cmp_face);
+    *nfaces_out = nfaces;
+    return arr;
+}
+
+static t4_SurfFaceEntry* t4_build_surf_faces_sorted(const BBFE_DATA* surf, int* nsurf_out)
+{
+    const int nsurf = surf->total_num_elems;
+    t4_SurfFaceEntry* arr = (t4_SurfFaceEntry*)malloc(sizeof(t4_SurfFaceEntry) * nsurf);
+    if (!arr) {
+        fprintf(stderr, "[t4][ERR] malloc surf faces failed\n");
+        *nsurf_out = 0;
+        return NULL;
+    }
+
+    for (int e = 0; e < nsurf; ++e) {
+        t4_node_id_t key[3] = {
+            (t4_node_id_t)surf->conn[e][0],
+            (t4_node_id_t)surf->conn[e][1],
+            (t4_node_id_t)surf->conn[e][2]
+        };
+        t4_sort3(key);
+        for (int j = 0; j < 3; ++j) arr[e].key[j] = key[j];
+        arr[e].surf_face_id = e;
+    }
+
+    qsort(arr, nsurf, sizeof(t4_SurfFaceEntry), t4_cmp_sface);
+    *nsurf_out = nsurf;
+    return arr;
+}
+
+static int t4_build_owner_map_mergejoin(
+    const t4_FaceEntry* volF,
+    int nVolF,
+    const t4_SurfFaceEntry* surfF,
+    int nSurfF,
+    int* owner_elem,
+    int* owner_lface)
+{
+    int i = 0;
+    int j = 0;
+    int matches = 0;
+
+    while (i < nVolF && j < nSurfF) {
+        int c = t4_cmp3(volF[i].key, surfF[j].key);
+
+        if (c == 0) {
+            const int es = surfF[j].surf_face_id;
+            owner_elem[es]  = volF[i].owner_elem;
+            owner_lface[es] = volF[i].owner_lface;
+            ++matches;
+
+            t4_node_id_t key0[3] = { volF[i].key[0], volF[i].key[1], volF[i].key[2] };
+            do { ++i; } while (i < nVolF && t4_cmp3(key0, volF[i].key) == 0);
+            ++j;
+        } else if (c < 0) {
+            ++i;
+        } else {
+            ++j;
+        }
+    }
+
+    return matches;
+}
+
+static int t4_make_owner_map(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    int** owner_out,
+    int** lface_out)
+{
+    *owner_out = NULL;
+    *lface_out = NULL;
+
+    if (fe->local_num_nodes != 4 || surf->local_num_nodes != 3) {
+        fprintf(stderr,
+            "[t4] expected TET4/TRI3 but got fe->local_num_nodes=%d surf->local_num_nodes=%d\n",
+            fe->local_num_nodes,
+            surf->local_num_nodes);
+        return -1;
+    }
+
+    int nVolF = 0;
+    int nSurfF = 0;
+    t4_FaceEntry* volF = t4_build_vol_faces_sorted(fe, &nVolF);
+    t4_SurfFaceEntry* sF = t4_build_surf_faces_sorted(surf, &nSurfF);
+    if (!volF || !sF) {
+        free(volF);
+        free(sF);
+        return -1;
+    }
+
+    int* owner = (int*)malloc(sizeof(int) * nSurfF);
+    int* lface = (int*)malloc(sizeof(int) * nSurfF);
+    if (!owner || !lface) {
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
+        return -1;
+    }
+
+    for (int e = 0; e < nSurfF; ++e) {
+        owner[e] = -1;
+        lface[e] = -1;
+    }
+
+    const int matched = t4_build_owner_map_mergejoin(volF, nVolF, sF, nSurfF, owner, lface);
+    if (matched != nSurfF) {
+        int cnt = 0;
+        for (int e = 0; e < nSurfF; ++e) {
+            if (owner[e] < 0) {
+                fprintf(stderr, "[t4] surf tri %d has NO owner\n", e);
+                ++cnt;
+            }
+        }
+        fprintf(stderr,
+            "[t4] %d / %d surface triangles unmapped. Check node IDs / connectivity.\n",
+            cnt,
+            nSurfF);
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
+        return -1;
+    }
+
+    free(volF);
+    free(sF);
+    *owner_out = owner;
+    *lface_out = lface;
+    return 0;
+}
+
+/* normal = dx/dr x dx/ds.  Its norm is 2*area for an affine TRI3. */
+static inline void t4_tri3_normal(
+    const double xtri[3][3],
+    const double* dN_dr,
+    const double* dN_ds,
+    double normal[3])
+{
+    double xr[3] = {0.0, 0.0, 0.0};
+    double xs[3] = {0.0, 0.0, 0.0};
+
+    for (int a = 0; a < 3; ++a) {
+        xr[0] += dN_dr[a] * xtri[a][0];
+        xr[1] += dN_dr[a] * xtri[a][1];
+        xr[2] += dN_dr[a] * xtri[a][2];
+        xs[0] += dN_ds[a] * xtri[a][0];
+        xs[1] += dN_ds[a] * xtri[a][1];
+        xs[2] += dN_ds[a] * xtri[a][2];
+    }
+
+    t4_cross3(xr, xs, normal);
+}
+
+/* Correct quadrature-weight convention for reference triangle.
+ * If sum(weights)=0.5, returns 1.0. If sum(weights)=1.0, returns 0.5.
+ */
+static double t4_tri_area_factor(const BBFE_BASIS* basis_surf)
+{
+    double sw = 0.0;
+    for (int p = 0; p < basis_surf->num_integ_points; ++p) {
+        sw += basis_surf->integ_weight[p];
+    }
+
+    if (fabs(sw) <= 1.0e-300) return 1.0;
+    return 0.5 / sw;
+}
+
+static int t4_inv3x3(const double A[3][3], double invA[3][3])
+{
+    const double a00=A[0][0], a01=A[0][1], a02=A[0][2];
+    const double a10=A[1][0], a11=A[1][1], a12=A[1][2];
+    const double a20=A[2][0], a21=A[2][1], a22=A[2][2];
+
+    const double c00 =  a11*a22 - a12*a21;
+    const double c01 =-(a10*a22 - a12*a20);
+    const double c02 =  a10*a21 - a11*a20;
+    const double c10 =-(a01*a22 - a02*a21);
+    const double c11 =  a00*a22 - a02*a20;
+    const double c12 =-(a00*a21 - a01*a20);
+    const double c20 =  a01*a12 - a02*a11;
+    const double c21 =-(a00*a12 - a02*a10);
+    const double c22 =  a00*a11 - a01*a10;
+
+    const double det = a00*c00 + a01*c01 + a02*c02;
+    if (fabs(det) < 1.0e-300) return 0;
+
+    const double id = 1.0 / det;
+    invA[0][0] = c00*id; invA[0][1] = c10*id; invA[0][2] = c20*id;
+    invA[1][0] = c01*id; invA[1][1] = c11*id; invA[1][2] = c21*id;
+    invA[2][0] = c02*id; invA[2][1] = c12*id; invA[2][2] = c22*id;
+    return 1;
+}
+
+static double t4_det3x3(const double A[3][3])
+{
+    return
+        A[0][0]*(A[1][1]*A[2][2] - A[1][2]*A[2][1])
+      - A[0][1]*(A[1][0]*A[2][2] - A[1][2]*A[2][0])
+      + A[0][2]*(A[1][0]*A[2][1] - A[1][1]*A[2][0]);
+}
+
+/* TET4 reference gradients for N0=1-r-s-t, N1=r, N2=s, N3=t. */
+static void t4_shape_grad_ref(double dN_dxi[4][3])
+{
+    dN_dxi[0][0] = -1.0; dN_dxi[0][1] = -1.0; dN_dxi[0][2] = -1.0;
+    dN_dxi[1][0] =  1.0; dN_dxi[1][1] =  0.0; dN_dxi[1][2] =  0.0;
+    dN_dxi[2][0] =  0.0; dN_dxi[2][1] =  1.0; dN_dxi[2][2] =  0.0;
+    dN_dxi[3][0] =  0.0; dN_dxi[3][1] =  0.0; dN_dxi[3][2] =  1.0;
+}
+
+static int t4_grad_phys_metric(
+    const double xvol[4][3],
+    double dN_dx[4][3],
+    double J_inv[3][3],
+    double* Jacobian)
+{
+    double dN_dxi[4][3];
+    t4_shape_grad_ref(dN_dxi);
+
+    double J[3][3] = {{0.0}};
+    for (int a = 0; a < 4; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                J[i][j] += xvol[a][i] * dN_dxi[a][j];
+            }
+        }
+    }
+
+    const double detJ = t4_det3x3(J);
+    if (fabs(detJ) < 1.0e-300) return 0;
+    if (!t4_inv3x3(J, J_inv)) return 0;
+
+    *Jacobian = fabs(detJ);  /* 6 * physical tet volume */
+
+    for (int a = 0; a < 4; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            dN_dx[a][i] = 0.0;
+            for (int j = 0; j < 3; ++j) {
+                dN_dx[a][i] += dN_dxi[a][j] * J_inv[j][i];
+            }
+        }
+    }
+
+    return 1;
+}
+
+static void t4_grad_tet4_exact(int ke, const BBFE_DATA* fe, const VALUES* vals, double G[3][3])
+{
+    memset(G, 0, sizeof(double) * 9);
+
+    if (fe->local_num_nodes != 4) return;
+
+    double xvol[4][3];
+    for (int a = 0; a < 4; ++a) {
+        const int gid = fe->conn[ke][a];
+        xvol[a][0] = fe->x[gid][0];
+        xvol[a][1] = fe->x[gid][1];
+        xvol[a][2] = fe->x[gid][2];
+    }
+
+    double dN_dx[4][3];
+    double J_inv[3][3];
+    double Jacobian = 0.0;
+    if (!t4_grad_phys_metric(xvol, dN_dx, J_inv, &Jacobian)) return;
+
+    for (int a = 0; a < 4; ++a) {
+        const int gid = fe->conn[ke][a];
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                G[i][j] += vals->v[gid][i] * dN_dx[a][j];
+            }
+        }
+    }
+}
+
+static void t4_compute_all_gradients_tet4_exact(
+    const BBFE_DATA* fe,
+    const VALUES* vals,
+    double (*G_all)[3][3])
+{
+    const int ne = fe->total_num_elems;
+
+    #pragma omp parallel for if(ne > 256) schedule(static) default(none) shared(fe, vals, G_all, ne)
+    for (int ke = 0; ke < ne; ++ke) {
+        t4_grad_tet4_exact(ke, fe, vals, G_all[ke]);
+    }
+}
+
+static int t4_surface_to_volume_nodes(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    int es,
+    int ke,
+    int s2v[3])
+{
+    for (int a = 0; a < 3; ++a) {
+        s2v[a] = -1;
+        const int sgid = surf->conn[es][a];
+        for (int b = 0; b < 4; ++b) {
+            if (fe->conn[ke][b] == sgid) {
+                s2v[a] = b;
+                break;
+            }
+        }
+        if (s2v[a] < 0) return 0;
+    }
+    return 1;
+}
+
+/* Pressure contribution on TRI3/TET4 surface: integrate -p n dS. */
+void calc_Cd_p_tet4_tri3(
+    BBFE_DATA* surf,
+    BBFE_DATA* fe,
+    BBFE_BASIS* basis_surf,
+    VALUES* vals,
+    const double eU_in[3],
+    const double eP_in[3],
+    double* D_out,
+    double* L_out)
+{
+    if (D_out) *D_out = 0.0;
+    if (L_out) *L_out = 0.0;
+
+    int* owner = NULL;
+    int* lface = NULL;
+    if (t4_make_owner_map(surf, fe, &owner, &lface) != 0) {
+        return;
+    }
+
+    double eU[3] = { eU_in[0], eU_in[1], eU_in[2] };
+    double eP[3] = { eP_in[0], eP_in[1], eP_in[2] };
+    t4_normalize3(eU);
+
+    /* Gram-Schmidt: make eP perpendicular to eU. */
+    const double ep_dot_eu = t4_dot3(eP, eU);
+    eP[0] -= ep_dot_eu * eU[0];
+    eP[1] -= ep_dot_eu * eU[1];
+    eP[2] -= ep_dot_eu * eU[2];
+    t4_normalize3(eP);
+
+    const double area_factor = t4_tri_area_factor(basis_surf);
+    double Fp[3] = {0.0, 0.0, 0.0};
+
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        const int ke = owner[es];
+        if (ke < 0) continue;
+
+        double xtri[3][3];
+        for (int a = 0; a < 3; ++a) {
+            const int gid = surf->conn[es][a];
+            xtri[a][0] = fe->x[gid][0];
+            xtri[a][1] = fe->x[gid][1];
+            xtri[a][2] = fe->x[gid][2];
+        }
+
+        double xf[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < 3; ++a) {
+            xf[0] += xtri[a][0];
+            xf[1] += xtri[a][1];
+            xf[2] += xtri[a][2];
+        }
+        xf[0] /= 3.0; xf[1] /= 3.0; xf[2] /= 3.0;
+
+        double xc[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < 4; ++a) {
+            const int gid = fe->conn[ke][a];
+            xc[0] += fe->x[gid][0];
+            xc[1] += fe->x[gid][1];
+            xc[2] += fe->x[gid][2];
+        }
+        xc[0] /= 4.0; xc[1] /= 4.0; xc[2] /= 4.0;
+
+        const double svec[3] = { xf[0] - xc[0], xf[1] - xc[1], xf[2] - xc[2] };
+
+        for (int p = 0; p < basis_surf->num_integ_points; ++p) {
+            double nraw[3];
+            t4_tri3_normal(xtri, basis_surf->dN_dxi[p], basis_surf->dN_det[p], nraw);
+
+            const double Jraw = t4_norm3(nraw);
+            if (Jraw <= 1.0e-300) continue;
+
+            double n[3] = { nraw[0]/Jraw, nraw[1]/Jraw, nraw[2]/Jraw };
+            if (t4_dot3(svec, n) < 0.0) {
+                n[0] *= -1.0;
+                n[1] *= -1.0;
+                n[2] *= -1.0;
+            }
+
+            double p_q = 0.0;
+            for (int a = 0; a < 3; ++a) {
+                const int gid = surf->conn[es][a];
+                p_q += basis_surf->N[p][a] * vals->p[gid];
+            }
+
+            const double w = basis_surf->integ_weight[p] * area_factor * Jraw;
+            Fp[0] += (-p_q) * n[0] * w;
+            Fp[1] += (-p_q) * n[1] * w;
+            Fp[2] += (-p_q) * n[2] * w;
+        }
+    }
+
+    if (D_out) *D_out = t4_dot3(Fp, eU);
+    if (L_out) *L_out = t4_dot3(Fp, eP);
+
+    free(owner);
+    free(lface);
+}
+
+/* Viscous contribution on TRI3/TET4 surface.
+ * Sign convention follows your current calc_Cd_v:
+ *   integrate tau*n on the fluid side, then report body force = -integral.
+ * The current HEX8 code stores D/L, not D/qA or L/qA, in Cd_out/Cl_out;
+ * this function keeps that behavior. Change the final two assignments if you
+ * want nondimensional coefficients.
+ */
+
+ 
+/* -------------------------------------------------------------------------- */
+/* Small TET4/TRI3 utilities                                                  */
+/* -------------------------------------------------------------------------- */
+
+typedef long long t4n_node_id_t;
+
+static inline double t4n_dot3(const double a[3], const double b[3])
+{
+    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
+}
+
+static inline double t4n_norm3(const double a[3])
+{
+    return sqrt(t4n_dot3(a, a));
+}
+
+static inline void t4n_cross3(const double a[3], const double b[3], double c[3])
+{
+    c[0] = a[1]*b[2] - a[2]*b[1];
+    c[1] = a[2]*b[0] - a[0]*b[2];
+    c[2] = a[0]*b[1] - a[1]*b[0];
+}
+
+static inline void t4n_sort3(t4n_node_id_t k[3])
+{
+    if (k[1] < k[0]) { t4n_node_id_t t = k[0]; k[0] = k[1]; k[1] = t; }
+    if (k[2] < k[1]) { t4n_node_id_t t = k[1]; k[1] = k[2]; k[2] = t; }
+    if (k[1] < k[0]) { t4n_node_id_t t = k[0]; k[0] = k[1]; k[1] = t; }
+}
+
+static inline int t4n_cmp3(const t4n_node_id_t a[3], const t4n_node_id_t b[3])
+{
+    if (a[0] != b[0]) return (a[0] < b[0]) ? -1 : +1;
+    if (a[1] != b[1]) return (a[1] < b[1]) ? -1 : +1;
+    if (a[2] != b[2]) return (a[2] < b[2]) ? -1 : +1;
+    return 0;
+}
+
+/* Faces of TET4. Orientation is not used for matching because the keys are sorted.
+ * Outward normal is corrected geometrically by the vector from cell centroid to face centroid.
+ */
+static const int T4N_FACE[4][3] = {
+    {1, 2, 3},
+    {0, 3, 2},
+    {0, 1, 3},
+    {0, 2, 1}
+};
+
+typedef struct {
+    t4n_node_id_t key[3];
+    int owner_elem;
+    int owner_lface;
+} t4n_FaceEntry;
+
+typedef struct {
+    t4n_node_id_t key[3];
+    int surf_face_id;
+} t4n_SurfFaceEntry;
+
+static int t4n_cmp_face(const void* A, const void* B)
+{
+    const t4n_FaceEntry* a = (const t4n_FaceEntry*)A;
+    const t4n_FaceEntry* b = (const t4n_FaceEntry*)B;
+    int c = t4n_cmp3(a->key, b->key);
+    if (c) return c;
+    if (a->owner_elem != b->owner_elem) return (a->owner_elem < b->owner_elem) ? -1 : +1;
+    if (a->owner_lface != b->owner_lface) return (a->owner_lface < b->owner_lface) ? -1 : +1;
+    return 0;
+}
+
+static int t4n_cmp_sface(const void* A, const void* B)
+{
+    const t4n_SurfFaceEntry* a = (const t4n_SurfFaceEntry*)A;
+    const t4n_SurfFaceEntry* b = (const t4n_SurfFaceEntry*)B;
+    int c = t4n_cmp3(a->key, b->key);
+    if (c) return c;
+    if (a->surf_face_id != b->surf_face_id) return (a->surf_face_id < b->surf_face_id) ? -1 : +1;
+    return 0;
+}
+
+static t4n_FaceEntry* t4n_build_vol_faces_sorted(const BBFE_DATA* fe, int* nfaces_out)
+{
+    const int nfaces = fe->total_num_elems * 4;
+    t4n_FaceEntry* arr = (t4n_FaceEntry*)malloc(sizeof(t4n_FaceEntry) * nfaces);
+    if (arr == NULL) {
+        fprintf(stderr, "[t4n][ERR] malloc vol faces failed\n");
+        *nfaces_out = 0;
+        return NULL;
+    }
+
+    int k = 0;
+    for (int e = 0; e < fe->total_num_elems; ++e) {
+        for (int f = 0; f < 4; ++f) {
+            t4n_node_id_t key[3] = {
+                (t4n_node_id_t)fe->conn[e][T4N_FACE[f][0]],
+                (t4n_node_id_t)fe->conn[e][T4N_FACE[f][1]],
+                (t4n_node_id_t)fe->conn[e][T4N_FACE[f][2]]
+            };
+            t4n_sort3(key);
+            for (int j = 0; j < 3; ++j) arr[k].key[j] = key[j];
+            arr[k].owner_elem  = e;
+            arr[k].owner_lface = f;
+            ++k;
+        }
+    }
+
+    qsort(arr, nfaces, sizeof(t4n_FaceEntry), t4n_cmp_face);
+    *nfaces_out = nfaces;
+    return arr;
+}
+
+static t4n_SurfFaceEntry* t4n_build_surf_faces_sorted(const BBFE_DATA* surf, int* nsurf_out)
+{
+    const int nsurf = surf->total_num_elems;
+    t4n_SurfFaceEntry* arr = (t4n_SurfFaceEntry*)malloc(sizeof(t4n_SurfFaceEntry) * nsurf);
+    if (arr == NULL) {
+        fprintf(stderr, "[t4n][ERR] malloc surf faces failed\n");
+        *nsurf_out = 0;
+        return NULL;
+    }
+
+    for (int es = 0; es < nsurf; ++es) {
+        t4n_node_id_t key[3] = {
+            (t4n_node_id_t)surf->conn[es][0],
+            (t4n_node_id_t)surf->conn[es][1],
+            (t4n_node_id_t)surf->conn[es][2]
+        };
+        t4n_sort3(key);
+        for (int j = 0; j < 3; ++j) arr[es].key[j] = key[j];
+        arr[es].surf_face_id = es;
+    }
+
+    qsort(arr, nsurf, sizeof(t4n_SurfFaceEntry), t4n_cmp_sface);
+    *nsurf_out = nsurf;
+    return arr;
+}
+
+static int t4n_build_owner_map_mergejoin(
+    const t4n_FaceEntry* volF,
+    int nVolF,
+    const t4n_SurfFaceEntry* surfF,
+    int nSurfF,
+    int* owner_elem,
+    int* owner_lface)
+{
+    int i = 0;
+    int j = 0;
+    int matches = 0;
+
+    while (i < nVolF && j < nSurfF) {
+        int c = t4n_cmp3(volF[i].key, surfF[j].key);
+        if (c == 0) {
+            const int es = surfF[j].surf_face_id;
+            owner_elem[es]  = volF[i].owner_elem;
+            owner_lface[es] = volF[i].owner_lface;
+            ++matches;
+
+            t4n_node_id_t key0[3] = { volF[i].key[0], volF[i].key[1], volF[i].key[2] };
+            do { ++i; } while (i < nVolF && t4n_cmp3(key0, volF[i].key) == 0);
+            ++j;
+        } else if (c < 0) {
+            ++i;
+        } else {
+            ++j;
+        }
+    }
+
+    return matches;
+}
+
+static int t4n_make_owner_map(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    int** owner_out,
+    int** lface_out)
+{
+    *owner_out = NULL;
+    *lface_out = NULL;
+
+    if (fe->local_num_nodes != 4 || surf->local_num_nodes != 3) {
+        fprintf(stderr,
+            "[t4n] expected TET4/TRI3 but got fe->local_num_nodes=%d surf->local_num_nodes=%d\n",
+            fe->local_num_nodes,
+            surf->local_num_nodes);
+        return -1;
+    }
+
+    int nVolF = 0;
+    int nSurfF = 0;
+    t4n_FaceEntry* volF = t4n_build_vol_faces_sorted(fe, &nVolF);
+    t4n_SurfFaceEntry* sF = t4n_build_surf_faces_sorted(surf, &nSurfF);
+    if (volF == NULL || sF == NULL) {
+        free(volF);
+        free(sF);
+        return -1;
+    }
+
+    int* owner = (int*)malloc(sizeof(int) * nSurfF);
+    int* lface = (int*)malloc(sizeof(int) * nSurfF);
+    if (owner == NULL || lface == NULL) {
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
+        return -1;
+    }
+
+    for (int es = 0; es < nSurfF; ++es) {
+        owner[es] = -1;
+        lface[es] = -1;
+    }
+
+    const int matched = t4n_build_owner_map_mergejoin(volF, nVolF, sF, nSurfF, owner, lface);
+    if (matched != nSurfF) {
+        int cnt = 0;
+        for (int es = 0; es < nSurfF; ++es) {
+            if (owner[es] < 0) {
+                fprintf(stderr, "[t4n] surf tri %d has NO owner\n", es);
+                ++cnt;
+            }
+        }
+        fprintf(stderr,
+            "[t4n] %d / %d surface triangles unmapped. Check node IDs / connectivity.\n",
+            cnt,
+            nSurfF);
+        free(volF);
+        free(sF);
+        free(owner);
+        free(lface);
+        return -1;
+    }
+
+    free(volF);
+    free(sF);
+    *owner_out = owner;
+    *lface_out = lface;
+    return 0;
+}
+
+static int t4n_surface_to_volume_nodes(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    int es,
+    int ke,
+    int s2v[3])
+{
+    for (int a = 0; a < 3; ++a) {
+        s2v[a] = -1;
+        const int sgid = surf->conn[es][a];
+        for (int b = 0; b < 4; ++b) {
+            if (fe->conn[ke][b] == sgid) {
+                s2v[a] = b;
+                break;
+            }
+        }
+        if (s2v[a] < 0) return 0;
+    }
+    return 1;
+}
+
+/* normal = dx/dr x dx/ds. For affine TRI3, |normal| = 2 * physical area. */
+static inline void t4n_tri3_normal(
+    const double xtri[3][3],
+    const double* dN_dr,
+    const double* dN_ds,
+    double normal[3])
+{
+    double xr[3] = {0.0, 0.0, 0.0};
+    double xs[3] = {0.0, 0.0, 0.0};
+
+    for (int a = 0; a < 3; ++a) {
+        xr[0] += dN_dr[a] * xtri[a][0];
+        xr[1] += dN_dr[a] * xtri[a][1];
+        xr[2] += dN_dr[a] * xtri[a][2];
+        xs[0] += dN_ds[a] * xtri[a][0];
+        xs[1] += dN_ds[a] * xtri[a][1];
+        xs[2] += dN_ds[a] * xtri[a][2];
+    }
+
+    t4n_cross3(xr, xs, normal);
+}
+
+/* If sum(weights)=0.5, returns 1.0. If sum(weights)=1.0, returns 0.5. */
+static double t4n_tri_area_factor(const BBFE_BASIS* basis_surf)
+{
+    double sw = 0.0;
+    for (int p = 0; p < basis_surf->num_integ_points; ++p) {
+        sw += basis_surf->integ_weight[p];
+    }
+
+    if (fabs(sw) <= 1.0e-300) return 1.0;
+    return 0.5 / sw;
+}
+
+static double t4n_det3x3(const double A[3][3])
+{
+    return
+        A[0][0]*(A[1][1]*A[2][2] - A[1][2]*A[2][1])
+      - A[0][1]*(A[1][0]*A[2][2] - A[1][2]*A[2][0])
+      + A[0][2]*(A[1][0]*A[2][1] - A[1][1]*A[2][0]);
+}
+
+static int t4n_inv3x3(const double A[3][3], double invA[3][3])
+{
+    const double a00=A[0][0], a01=A[0][1], a02=A[0][2];
+    const double a10=A[1][0], a11=A[1][1], a12=A[1][2];
+    const double a20=A[2][0], a21=A[2][1], a22=A[2][2];
+
+    const double c00 =  a11*a22 - a12*a21;
+    const double c01 =-(a10*a22 - a12*a20);
+    const double c02 =  a10*a21 - a11*a20;
+    const double c10 =-(a01*a22 - a02*a21);
+    const double c11 =  a00*a22 - a02*a20;
+    const double c12 =-(a00*a21 - a01*a20);
+    const double c20 =  a01*a12 - a02*a11;
+    const double c21 =-(a00*a12 - a02*a10);
+    const double c22 =  a00*a11 - a01*a10;
+
+    const double det = a00*c00 + a01*c01 + a02*c02;
+    if (fabs(det) < 1.0e-300) return 0;
+
+    const double id = 1.0 / det;
+    invA[0][0] = c00*id; invA[0][1] = c10*id; invA[0][2] = c20*id;
+    invA[1][0] = c01*id; invA[1][1] = c11*id; invA[1][2] = c21*id;
+    invA[2][0] = c02*id; invA[2][1] = c12*id; invA[2][2] = c22*id;
+    return 1;
+}
+
+static void t4n_shape_grad_ref(double dN_dxi[4][3])
+{
+    dN_dxi[0][0] = -1.0; dN_dxi[0][1] = -1.0; dN_dxi[0][2] = -1.0;
+    dN_dxi[1][0] =  1.0; dN_dxi[1][1] =  0.0; dN_dxi[1][2] =  0.0;
+    dN_dxi[2][0] =  0.0; dN_dxi[2][1] =  1.0; dN_dxi[2][2] =  0.0;
+    dN_dxi[3][0] =  0.0; dN_dxi[3][1] =  0.0; dN_dxi[3][2] =  1.0;
+}
+
+static int t4n_grad_phys_metric(
+    const double xvol[4][3],
+    double dN_dx[4][3],
+    double J_inv[3][3],
+    double* Jacobian)
+{
+    double dN_dxi[4][3];
+    t4n_shape_grad_ref(dN_dxi);
+
+    double J[3][3] = {{0.0}};
+    for (int a = 0; a < 4; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                J[i][j] += xvol[a][i] * dN_dxi[a][j];
+            }
+        }
+    }
+
+    const double detJ = t4n_det3x3(J);
+    if (fabs(detJ) < 1.0e-300) return 0;
+    if (!t4n_inv3x3(J, J_inv)) return 0;
+
+    *Jacobian = fabs(detJ);  /* 6 * physical TET volume */
+
+    for (int a = 0; a < 4; ++a) {
+        for (int i = 0; i < 3; ++i) {
+            dN_dx[a][i] = 0.0;
+            for (int j = 0; j < 3; ++j) {
+                dN_dx[a][i] += dN_dxi[a][j] * J_inv[j][i];
+            }
+        }
+    }
+
+    return 1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Local symmetric Nitsche + all-y+ wall law, TET helper copy                 */
+/* -------------------------------------------------------------------------- */
+
+static double t4n_eps_nn_from_grad_u(
+    const double grad_u[3][3],
+    const double n[3])
+{
+    double val = 0.0;
+    for (int a = 0; a < 3; ++a) {
+        for (int b = 0; b < 3; ++b) {
+            const double eps_ab = 0.5 * (grad_u[a][b] + grad_u[b][a]);
+            val += n[a] * eps_ab * n[b];
+        }
+    }
+    return val;
+}
+
+static double t4n_spalding_residual_uplus(
+    double u_plus,
+    double Re_y,
+    double kappa,
+    double A)
+{
+    const double x = kappa * u_plus;
+
+    /* Keep the same overflow guard style as the verified HEX-side code. */
+    const double huge_value = 10e13;
+    if (x > 50.0) {
+        return huge_value * 0.25;
+    }
+
+    const double y_plus =
+        u_plus
+        + A * (
+            exp(x)
+            - 1.0
+            - x
+            - 0.5 * x * x
+            - (x * x * x) / 6.0
+        );
+
+    return u_plus * y_plus - Re_y;
+}
+
+static double t4n_compute_utau_all_yplus(
+    double ut_norm,
+    double y_wall,
+    double rho,
+    double mu_eff)
+{
+    const double eps = 1.0e-30;
+
+    if (ut_norm <= eps) return 0.0;
+    if (y_wall  <= eps) return 0.0;
+    if (rho     <= eps) return 0.0;
+    if (mu_eff  <= eps) return 0.0;
+
+    const double nu = mu_eff / rho;
+    if (nu <= eps) return 0.0;
+
+    const double Re_y = ut_norm * y_wall / nu;
+    if (Re_y <= eps) return 0.0;
+
+    const double kappa = 0.41;
+    const double B     = 5.2;
+    const double A     = exp(-kappa * B);
+
+    double lo = 1.0e-12;
+    double hi = 1.0;
+
+    while (
+        t4n_spalding_residual_uplus(hi, Re_y, kappa, A) < 0.0
+        && hi < 1.0e6) {
+        hi *= 2.0;
+    }
+
+    for (int iter = 0; iter < 80; ++iter) {
+        const double mid = 0.5 * (lo + hi);
+        const double fmid = t4n_spalding_residual_uplus(mid, Re_y, kappa, A);
+
+        if (fmid > 0.0) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+
+    const double u_plus = 0.5 * (lo + hi);
+    if (u_plus <= eps) return 0.0;
+
+    return ut_norm / u_plus;
+}
+
+static void t4n_wall_sym_nitsche_local_vecmat(
+    double       vec_i[4],
+    double       mat_ij[4][4],
+    double       Ni,
+    double       Nj,
+    const double gradNi[3],
+    const double gradNj[3],
+    const double n[3],
+    const double u_q[3],
+    double       p_q,
+    const double grad_u_q[3][3],
+    const double Uw[3],
+    double       rho,
+    double       mu_eff,
+    double       mu_wall_law,
+    double       h_n,
+    double       y_wall,
+    double       dt,
+    double       gamma_n)
+{
+    for (int a = 0; a < 4; ++a) {
+        vec_i[a] = 0.0;
+        for (int b = 0; b < 4; ++b) {
+            mat_ij[a][b] = 0.0;
+        }
+    }
+
+    const double eps = 1.0e-30;
+    const double dt_eff = fmax(dt, eps);
+    const double h_eff  = fmax(h_n, 1.0e-12);
+    const double y_eff  = fmax(y_wall, 1.0e-12);
+
+    double ur[3];
+    for (int a = 0; a < 3; ++a) {
+        ur[a] = u_q[a] - Uw[a];
+    }
+
+    const double un = t4n_dot3(ur, n);
+
+    double ut[3];
+    for (int a = 0; a < 3; ++a) {
+        ut[a] = ur[a] - un * n[a];
+    }
+
+    const double ut_norm = sqrt(t4n_dot3(ut, ut));
+
+    const double beta_base = mu_eff / h_eff + rho * h_eff / dt_eff;
+    const double beta_n = gamma_n * beta_base;
+
+    double beta_wall = mu_wall_law / y_eff;
+    if (ut_norm > 1.0e-14) {
+        const double u_tau = t4n_compute_utau_all_yplus(ut_norm, y_eff, rho, mu_wall_law);
+        if (u_tau > 0.0) {
+            beta_wall = rho * u_tau * u_tau / ut_norm;
+        }
+    }
+
+    const double gni = t4n_dot3(gradNi, n);
+    const double gnj = t4n_dot3(gradNj, n);
+
+    const double epsnn_u = t4n_eps_nn_from_grad_u(grad_u_q, n);
+    const double tnn_u   = -p_q + 2.0 * mu_eff * epsnn_u;
+
+    for (int a = 0; a < 3; ++a) {
+        /* normal consistency */
+        vec_i[a] += dt * (-Ni * n[a] * tnn_u);
+
+        /* normal adjoint consistency */
+        vec_i[a] += dt * (-(2.0 * mu_eff * n[a] * gni) * un);
+
+        /* normal penalty */
+        vec_i[a] += dt * (Ni * beta_n * un * n[a]);
+
+        /* tangential all-y+ wall law */
+        vec_i[a] += dt * (Ni * beta_wall * ut[a]);
+    }
+
+    /* pressure test q = Ni */
+    vec_i[3] += dt * Ni * un;
+
+    for (int a = 0; a < 3; ++a) {
+        for (int b = 0; b < 3; ++b) {
+            const double Pt_ab = (a == b ? 1.0 : 0.0) - n[a] * n[b];
+
+            mat_ij[a][b] +=
+                dt * (-Ni * n[a] * (2.0 * mu_eff * n[b] * gnj));
+
+            mat_ij[a][b] +=
+                dt * (-(2.0 * mu_eff * n[a] * gni) * Nj * n[b]);
+
+            mat_ij[a][b] +=
+                dt * (Ni * Nj * beta_n * n[a] * n[b]);
+
+            mat_ij[a][b] +=
+                dt * (Ni * Nj * beta_wall * Pt_ab);
+        }
+
+        mat_ij[a][3] += dt * (Ni * Nj * n[a]);
+    }
+
+    for (int b = 0; b < 3; ++b) {
+        mat_ij[3][b] += dt * (Ni * Nj * n[b]);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* TET4 / TRI3 symmetric Nitsche wall assembly                                */
+/* -------------------------------------------------------------------------- */
+void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
+    MONOLIS* monolis,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_vol,
+    const BBFE_DATA* surf,
+    const BBFE_BASIS* basis_surf,
+    VALUES* vals,
+    double rho,
+    double mu_molecular,
+    const double Uw[3],
+    double gamma_n)
+{
+    (void)basis_vol;
+
+    if (fe->local_num_nodes != 4 || surf->local_num_nodes != 3) {
+        fprintf(stderr,
+            "[wall-t4] TET4/TRI3 expected, got fe->local_num_nodes=%d surf->local_num_nodes=%d\n",
+            fe->local_num_nodes,
+            surf->local_num_nodes);
+        return;
+    }
+
+    /*
+     * y+ visualization arrays reset.
+     * この関数を呼ぶたびに最新の y+ を作り直す。
+     */
+    const int do_yplus =
+        (vals->y_plus != NULL && vals->y_plus_count != NULL);
+
+    if (do_yplus) {
+        for (int i = 0; i < fe->total_num_nodes; ++i) {
+            vals->y_plus[i] = 0.0;
+            vals->y_plus_count[i] = 0;
+        }
+    }
+
+    int* owner = NULL;
+    int* lface = NULL;
+    if (t4n_make_owner_map(surf, fe, &owner, &lface) != 0) {
+        fprintf(stderr, "[wall-t4] surface-owner mapping failed\n");
+        return;
+    }
+
+    const int ns = surf->local_num_nodes;      /* TRI3 = 3 */
+    const int nv = fe->local_num_nodes;        /* TET4 = 4 */
+    const int np = basis_surf->num_integ_points;
+    const double area_factor = t4n_tri_area_factor(basis_surf);
+
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        const int ke = owner[es];
+
+        if (ke < 0) {
+            fprintf(stderr,
+                "[wall-t4][BUG] owner not found: es=%d owner=%d\n",
+                es,
+                ke);
+            exit(EXIT_FAILURE);
+        }
+
+        /*
+         * Verify that the surface triangle and owner TET share exactly 3 nodes.
+         */
+        {
+            int common = 0;
+
+            for (int a = 0; a < ns; ++a) {
+                const int sgid = surf->conn[es][a];
+
+                for (int b = 0; b < nv; ++b) {
+                    if (fe->conn[ke][b] == sgid) {
+                        ++common;
+                        break;
+                    }
+                }
+            }
+
+            if (common != ns) {
+                fprintf(stderr,
+                    "[wall-t4][BUG] surface-owner mismatch: es=%d ke=%d common=%d/%d\n",
+                    es,
+                    ke,
+                    common,
+                    ns);
+                exit(EXIT_FAILURE);
+            }
+        }
+
+        double xsurf[3][3];
+        for (int a = 0; a < ns; ++a) {
+            const int gid = surf->conn[es][a];
+
+            xsurf[a][0] = fe->x[gid][0];
+            xsurf[a][1] = fe->x[gid][1];
+            xsurf[a][2] = fe->x[gid][2];
+        }
+
+        double xvol[4][3];
+        for (int a = 0; a < nv; ++a) {
+            const int gid = fe->conn[ke][a];
+
+            xvol[a][0] = fe->x[gid][0];
+            xvol[a][1] = fe->x[gid][1];
+            xvol[a][2] = fe->x[gid][2];
+        }
+
+        int s2v[3];
+        if (!t4n_surface_to_volume_nodes(surf, fe, es, ke, s2v)) {
+            fprintf(stderr,
+                "[wall-t4] cannot map surface node to volume node: es=%d ke=%d\n",
+                es,
+                ke);
+            continue;
+        }
+
+        double dN_dx[4][3];
+        double J_inv_face[3][3];
+        double Jacobian_face = 0.0;
+
+        if (!t4n_grad_phys_metric(xvol, dN_dx, J_inv_face, &Jacobian_face)) {
+            fprintf(stderr, "[wall-t4] degenerate TET4: ke=%d\n", ke);
+            continue;
+        }
+
+        /*
+         * TET4 volume: physical volume = |detJ| / 6.
+         */
+        double h_e_vms = cbrt(fabs(Jacobian_face) / 6.0);
+        if (h_e_vms <= 1.0e-12) {
+            h_e_vms = 1.0e-12;
+        }
+
+        double xc[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < nv; ++a) {
+            xc[0] += xvol[a][0];
+            xc[1] += xvol[a][1];
+            xc[2] += xvol[a][2];
+        }
+        xc[0] /= 4.0;
+        xc[1] /= 4.0;
+        xc[2] /= 4.0;
+
+        double xf[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < ns; ++a) {
+            xf[0] += xsurf[a][0];
+            xf[1] += xsurf[a][1];
+            xf[2] += xsurf[a][2];
+        }
+        xf[0] /= 3.0;
+        xf[1] /= 3.0;
+        xf[2] /= 3.0;
+
+        const double svec[3] = {
+            xf[0] - xc[0],
+            xf[1] - xc[1],
+            xf[2] - xc[2]
+        };
+
+        for (int p = 0; p < np; ++p) {
+            double nrm[3];
+
+            t4n_tri3_normal(
+                xsurf,
+                basis_surf->dN_dxi[p],
+                basis_surf->dN_det[p],
+                nrm);
+
+            const double Jface_raw = t4n_norm3(nrm);
+            if (Jface_raw <= 1.0e-300) {
+                continue;
+            }
+
+            double n[3] = {
+                nrm[0] / Jface_raw,
+                nrm[1] / Jface_raw,
+                nrm[2] / Jface_raw
+            };
+
+            if (t4n_dot3(n, svec) < 0.0) {
+                n[0] *= -1.0;
+                n[1] *= -1.0;
+                n[2] *= -1.0;
+            }
+
+            /*
+             * TET4 basis at the surface quadrature point.
+             * The TRI3 quadrature shape value attached to surf node a becomes
+             * the TET4 shape value of its matched volume local node s2v[a].
+             * The opposite TET node remains zero.
+             */
+            double Nv[4] = {0.0, 0.0, 0.0, 0.0};
+            for (int a = 0; a < ns; ++a) {
+                Nv[s2v[a]] = basis_surf->N[p][a];
+            }
+
+            double u_q[3]     = {0.0, 0.0, 0.0};
+            double u_old_q[3] = {0.0, 0.0, 0.0};
+            double p_q        = 0.0;
+
+            double grad_u_q[3][3] = {{0.0}};
+            double grad_p_q[3]    = {0.0, 0.0, 0.0};
+
+            for (int a = 0; a < nv; ++a) {
+                const int gid = fe->conn[ke][a];
+
+                for (int c = 0; c < 3; ++c) {
+                    u_q[c]     += Nv[a] * vals->v[gid][c];
+                    u_old_q[c] += Nv[a] * vals->v_old[gid][c];
+
+                    for (int d = 0; d < 3; ++d) {
+                        grad_u_q[c][d] += dN_dx[a][d] * vals->v[gid][c];
+                    }
+                }
+
+                p_q += Nv[a] * vals->p[gid];
+
+                for (int d = 0; d < 3; ++d) {
+                    grad_p_q[d] += dN_dx[a][d] * vals->p[gid];
+                }
+            }
+
+            double* grad_u_ptr[3] = {
+                grad_u_q[0],
+                grad_u_q[1],
+                grad_u_q[2]
+            };
+
+            double mu_eff_face = mu_molecular;
+            double tau_face    = 0.0;
+            double tau_c_face  = 0.0;
+
+            BBFE_vms_mu_eff_tau(
+                &mu_eff_face,
+                &tau_face,
+                &tau_c_face,
+                J_inv_face,
+                Jacobian_face,
+                h_e_vms,
+                u_q,
+                u_old_q,
+                grad_u_ptr,
+                grad_p_q,
+                rho,
+                mu_molecular,
+                vals->dt,
+                vals->C_vms,
+                vals->vms_cap_coeff);
+
+            double h_n = fabs(
+                (xf[0] - xc[0]) * n[0]
+              + (xf[1] - xc[1]) * n[1]
+              + (xf[2] - xc[2]) * n[2]);
+
+            if (h_n <= 1.0e-12) {
+                h_n = 1.0e-12;
+            }
+
+            const double y_wall = h_n;
+            const double w =
+                basis_surf->integ_weight[p] * area_factor * Jface_raw;
+
+            /*
+             * ------------------------------------------------------------
+             * y+ visualization value at this wall quadrature point
+             * ------------------------------------------------------------
+             */
+            if (do_yplus) {
+                double ur[3];
+                for (int a = 0; a < 3; ++a) {
+                    ur[a] = u_q[a] - Uw[a];
+                }
+
+                const double un = t4n_dot3(ur, n);
+
+                double ut[3];
+                for (int a = 0; a < 3; ++a) {
+                    ut[a] = ur[a] - un * n[a];
+                }
+
+                const double ut_norm = sqrt(t4n_dot3(ut, ut));
+
+                const double u_tau =
+                    compute_utau_all_yplus(
+                        ut_norm,
+                        y_wall,
+                        rho,
+                        mu_molecular);
+
+                double yplus_q = 0.0;
+
+                if (u_tau > 0.0 && rho > 0.0 && mu_molecular > 0.0) {
+                    yplus_q = rho * u_tau * y_wall / mu_molecular;
+                }
+
+                /*
+                 * 求積点 y+ を面上 TRI3 の3節点へ蓄積する。
+                 * ここでは単純平均。
+                 */
+                for (int a = 0; a < ns; ++a) {
+                    const int gid = surf->conn[es][a];
+
+                    vals->y_plus[gid] += yplus_q;
+                    vals->y_plus_count[gid] += 1;
+                }
+            }
+
+            /*
+             * Original Nitsche residual and matrix assembly.
+             */
+            for (int i = 0; i < nv; ++i) {
+                const int gi = fe->conn[ke][i];
+
+                double vec_i[4];
+                double dummy_mat[4][4];
+                const double zero_grad[3] = {0.0, 0.0, 0.0};
+
+                t4n_wall_sym_nitsche_local_vecmat(
+                    vec_i,
+                    dummy_mat,
+                    Nv[i],
+                    0.0,
+                    dN_dx[i],
+                    zero_grad,
+                    n,
+                    u_q,
+                    p_q,
+                    grad_u_q,
+                    Uw,
+                    rho,
+                    mu_eff_face,
+                    mu_molecular,
+                    h_n,
+                    y_wall,
+                    vals->dt,
+                    gamma_n);
+
+                for (int a = 0; a < 4; ++a) {
+                    monolis->mat.R.B[4 * gi + a] -= w * vec_i[a];
+                }
+
+                for (int j = 0; j < nv; ++j) {
+                    const int gj = fe->conn[ke][j];
+
+                    double dummy_vec[4];
+                    double mat_ij[4][4];
+
+                    t4n_wall_sym_nitsche_local_vecmat(
+                        dummy_vec,
+                        mat_ij,
+                        Nv[i],
+                        Nv[j],
+                        dN_dx[i],
+                        dN_dx[j],
+                        n,
+                        u_q,
+                        p_q,
+                        grad_u_q,
+                        Uw,
+                        rho,
+                        mu_eff_face,
+                        mu_molecular,
+                        h_n,
+                        y_wall,
+                        vals->dt,
+                        gamma_n);
+
+                    for (int a = 0; a < 4; ++a) {
+                        for (int b = 0; b < 4; ++b) {
+                            monolis_add_scalar_to_sparse_matrix_R(
+                                monolis,
+                                gi,
+                                gj,
+                                a,
+                                b,
+                                w * mat_ij[a][b]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /*
+     * Final average at wall nodes.
+     * 非壁面節点は 0.0 にする。
+     */
+    if (do_yplus) {
+        for (int i = 0; i < fe->total_num_nodes; ++i) {
+            if (vals->y_plus_count[i] > 0) {
+                vals->y_plus[i] /= (double)vals->y_plus_count[i];
+            } else {
+                vals->y_plus[i] = 0.0;
+            }
+        }
+    }
+
+    free(owner);
+    free(lface);
+}
+
+/* -------------------------------------------------------------------------- */
+/* HEX/TET dispatch wrapper. HEX body remains unchanged.                      */
+/* -------------------------------------------------------------------------- */
+
+void set_wall_face_vecmat_symmetric_nitsche_hex_or_tet(
+    MONOLIS* monolis,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_vol,
+    const BBFE_DATA* surf,
+    const BBFE_BASIS* basis_surf,
+    VALUES* vals,
+    double rho,
+    double mu_molecular,
+    const double Uw[3],
+    double gamma_n)
+{
+    if (fe->local_num_nodes == 8) {
+        if (surf->local_num_nodes != 4) {
+            fprintf(stderr,
+                "[wall] HEX8 volume requires QUAD4 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return;
+        }
+
+        /* Verified HEX8/QUAD4 implementation. Do not change its body. */
+        set_wall_face_vecmat_symmetric_nitsche(
+            monolis,
+            fe,
+            basis_vol,
+            surf,
+            basis_surf,
+            vals,
+            rho,
+            mu_molecular,
+            Uw,
+            gamma_n);
+        return;
+    }
+
+    if (fe->local_num_nodes == 4) {
+        if (surf->local_num_nodes != 3) {
+            fprintf(stderr,
+                "[wall] TET4 volume requires TRI3 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return;
+        }
+
+        set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
+            monolis,
+            fe,
+            basis_vol,
+            surf,
+            basis_surf,
+            vals,
+            rho,
+            mu_molecular,
+            Uw,
+            gamma_n);
+        return;
+    }
+
+    fprintf(stderr,
+        "[wall] unsupported fe->local_num_nodes=%d. Expected 8 HEX8 or 4 TET4.\n",
+        fe->local_num_nodes);
+}
+
+/* -------------------------------------------------------------------------- */
+/* TET4/TRI3 viscous + optional Nitsche/wall-law force integral                */
+/* -------------------------------------------------------------------------- */
+
+static void t4_cd_nitsche_wall_force_density(
+    const double n[3],
+    const double u_q[3],
+    const double Uw_in[3],
+    double rho,
+    double mu_eff,        /* VMS effective viscosity for normal Nitsche */
+    double mu_wall_law,   /* molecular viscosity for all-y+ wall law */
+    double h_n,
+    double y_wall,
+    double dt,
+    double gamma_n,
+    double f_body[3],     /* force density added to body force */
+    double* beta_n_out,
+    double* beta_wall_out)
+{
+    const double eps = 1.0e-30;
+    const double dt_eff = fmax(dt, eps);
+    const double h_eff  = fmax(h_n, 1.0e-12);
+    const double y_eff  = fmax(y_wall, 1.0e-12);
+
+    const double Uw[3] = {
+        Uw_in ? Uw_in[0] : 0.0,
+        Uw_in ? Uw_in[1] : 0.0,
+        Uw_in ? Uw_in[2] : 0.0
+    };
+
+    double ur[3];
+    for (int a = 0; a < 3; ++a) {
+        ur[a] = u_q[a] - Uw[a];
+    }
+
+    const double un = t4_dot3(ur, n);
+
+    double ut[3];
+    for (int a = 0; a < 3; ++a) {
+        ut[a] = ur[a] - un * n[a];
+    }
+
+    const double ut_norm = sqrt(t4_dot3(ut, ut));
+
+    /* Keep exactly the same normal Nitsche scaling as the wall assembly. */
+    const double beta_base = mu_eff / h_eff + rho * h_eff / dt_eff;
+    const double beta_n = gamma_n * beta_base;
+
+    /* Keep exactly the same all-y+ wall-law scaling as the wall assembly. */
+    double beta_wall = mu_wall_law / y_eff;
+    if (ut_norm > 1.0e-14) {
+        const double u_tau =
+            compute_utau_all_yplus(
+                ut_norm,
+                y_eff,
+                rho,
+                mu_wall_law);
+
+        if (u_tau > 0.0) {
+            beta_wall = rho * u_tau * u_tau / ut_norm;
+        }
+    }
+
+    /*
+     * This is the body-force correction corresponding to the discrete wall
+     * residual terms
+     *     beta_n (u-Uw)_n n + beta_wall (u-Uw)_t.
+     * The sign follows calc_Cd_v_tet4_tri3: body force is the negative of the
+     * fluid-side wall traction/reaction integral.
+     */
+    for (int a = 0; a < 3; ++a) {
+        f_body[a] = -(beta_n * un * n[a] + beta_wall * ut[a]);
+    }
+
+    if (beta_n_out)    *beta_n_out    = beta_n;
+    if (beta_wall_out) *beta_wall_out = beta_wall;
+}
+
+static int calc_Cd_v_tet4_tri3_core(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_surf,
+    MONOLIS_COM* monolis_com,
+    const VALUES* vals,
+    double rho,
+    double mu,
+    double Uinf,
+    double Aref,
+    const double eU_in[3],
+    const double eP_in[3],
+    int include_wall_nitsche,
+    const double Uw[3],
+    double gamma_n,
+    double* D_out,
+    double* L_out,
+    double* Cd_out,
+    double* Cl_out,
+    double* D_nitsche_out,
+    double* L_nitsche_out,
+    double* Cd_nitsche_out,
+    double* Cl_nitsche_out)
+{
+    (void)monolis_com;
+    (void)Uinf;
+    (void)Aref;
+
+    if (D_out)           *D_out           = 0.0;
+    if (L_out)           *L_out           = 0.0;
+    if (Cd_out)          *Cd_out          = 0.0;
+    if (Cl_out)          *Cl_out          = 0.0;
+    if (D_nitsche_out)   *D_nitsche_out   = 0.0;
+    if (L_nitsche_out)   *L_nitsche_out   = 0.0;
+    if (Cd_nitsche_out)  *Cd_nitsche_out  = 0.0;
+    if (Cl_nitsche_out)  *Cl_nitsche_out  = 0.0;
+
+    int* owner = NULL;
+    int* lface = NULL;
+    if (t4_make_owner_map(surf, fe, &owner, &lface) != 0) {
+        return -1;
+    }
+
+    double (*G_all)[3][3] =
+        (double(*)[3][3])malloc(sizeof(double) * fe->total_num_elems * 9);
+    if (!G_all) {
+        free(owner);
+        free(lface);
+        return -1;
+    }
+    t4_compute_all_gradients_tet4_exact(fe, vals, G_all);
+
+    const double area_factor = t4_tri_area_factor(basis_surf);
+
+    double F_vis[3] = {0.0, 0.0, 0.0};
+    double F_nit[3] = {0.0, 0.0, 0.0};
+
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        const int ke = owner[es];
+        if (ke < 0) continue;
+
+        double xtri[3][3];
+        for (int a = 0; a < 3; ++a) {
+            const int gid = surf->conn[es][a];
+            xtri[a][0] = fe->x[gid][0];
+            xtri[a][1] = fe->x[gid][1];
+            xtri[a][2] = fe->x[gid][2];
+        }
+
+        double xvol[4][3];
+        for (int a = 0; a < 4; ++a) {
+            const int gid = fe->conn[ke][a];
+            xvol[a][0] = fe->x[gid][0];
+            xvol[a][1] = fe->x[gid][1];
+            xvol[a][2] = fe->x[gid][2];
+        }
+
+        int s2v[3];
+        if (!t4_surface_to_volume_nodes(surf, fe, es, ke, s2v)) {
+            fprintf(stderr,
+                "[Cd_v_t4] cannot map surface node to volume node: es=%d ke=%d\n",
+                es,
+                ke);
+            continue;
+        }
+
+        double xf[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < 3; ++a) {
+            xf[0] += xtri[a][0];
+            xf[1] += xtri[a][1];
+            xf[2] += xtri[a][2];
+        }
+        xf[0] /= 3.0;
+        xf[1] /= 3.0;
+        xf[2] /= 3.0;
+
+        double xc[3] = {0.0, 0.0, 0.0};
+        for (int a = 0; a < 4; ++a) {
+            xc[0] += xvol[a][0];
+            xc[1] += xvol[a][1];
+            xc[2] += xvol[a][2];
+        }
+        xc[0] /= 4.0;
+        xc[1] /= 4.0;
+        xc[2] /= 4.0;
+
+        const double svec[3] = {
+            xf[0] - xc[0],
+            xf[1] - xc[1],
+            xf[2] - xc[2]
+        };
+
+        const double (*G)[3] = G_all[ke];
+        const double divu = G[0][0] + G[1][1] + G[2][2];
+
+        double dN_dx[4][3];
+        double J_inv_face[3][3];
+        double Jacobian_face = 0.0;
+        const int have_metric =
+            t4_grad_phys_metric(xvol, dN_dx, J_inv_face, &Jacobian_face);
+
+        double h_e_vms = 1.0e-12;
+        if (have_metric) {
+            h_e_vms = cbrt(fabs(Jacobian_face) / 6.0);
+            if (h_e_vms <= 1.0e-12) h_e_vms = 1.0e-12;
+        }
+
+        for (int p = 0; p < basis_surf->num_integ_points; ++p) {
+            double nraw[3];
+            t4_tri3_normal(
+                xtri,
+                basis_surf->dN_dxi[p],
+                basis_surf->dN_det[p],
+                nraw);
+
+            const double Jraw = t4_norm3(nraw);
+            if (Jraw <= 1.0e-300) continue;
+
+            double n[3] = {
+                nraw[0] / Jraw,
+                nraw[1] / Jraw,
+                nraw[2] / Jraw
+            };
+
+            if (t4_dot3(svec, n) < 0.0) {
+                n[0] *= -1.0;
+                n[1] *= -1.0;
+                n[2] *= -1.0;
+            }
+
+            double Nv[4] = {0.0, 0.0, 0.0, 0.0};
+            for (int a = 0; a < 3; ++a) {
+                Nv[s2v[a]] = basis_surf->N[p][a];
+            }
+
+            double p_q = 0.0;
+            double u_q[3] = {0.0, 0.0, 0.0};
+            double u_old_q[3] = {0.0, 0.0, 0.0};
+            double grad_u_q[3][3] = {{0.0}};
+            double grad_p_q[3] = {0.0, 0.0, 0.0};
+
+            for (int a = 0; a < 4; ++a) {
+                const int gid = fe->conn[ke][a];
+
+                p_q += Nv[a] * vals->p[gid];
+
+                for (int c = 0; c < 3; ++c) {
+                    u_q[c] += Nv[a] * vals->v[gid][c];
+
+                    if (vals->v_old != NULL) {
+                        u_old_q[c] += Nv[a] * vals->v_old[gid][c];
+                    } else {
+                        u_old_q[c] += Nv[a] * vals->v[gid][c];
+                    }
+                }
+
+                if (have_metric) {
+                    for (int c = 0; c < 3; ++c) {
+                        for (int d = 0; d < 3; ++d) {
+                            grad_u_q[c][d] +=
+                                dN_dx[a][d] * vals->v[gid][c];
+                        }
+                    }
+
+                    for (int d = 0; d < 3; ++d) {
+                        grad_p_q[d] += dN_dx[a][d] * vals->p[gid];
+                    }
+                }
+            }
+
+            double tau_n[3] = {0.0, 0.0, 0.0};
+            for (int i = 0; i < 3; ++i) {
+                double s = 0.0;
+                for (int j = 0; j < 3; ++j) {
+                    s += (G[i][j] + G[j][i]) * n[j];
+                }
+                tau_n[i] = mu * s - (2.0 / 3.0) * mu * divu * n[i];
+            }
+
+            const double w = basis_surf->integ_weight[p] * area_factor * Jraw;
+
+            F_vis[0] += tau_n[0] * w;
+            F_vis[1] += tau_n[1] * w;
+            F_vis[2] += tau_n[2] * w;
+
+            if (include_wall_nitsche && have_metric) {
+                double* grad_u_ptr[3] = {
+                    grad_u_q[0],
+                    grad_u_q[1],
+                    grad_u_q[2]
+                };
+
+                double mu_eff_face = mu;
+                double tau_face = 0.0;
+                double tau_c_face = 0.0;
+
+                BBFE_vms_mu_eff_tau(
+                    &mu_eff_face,
+                    &tau_face,
+                    &tau_c_face,
+                    J_inv_face,
+                    Jacobian_face,
+                    h_e_vms,
+                    u_q,
+                    u_old_q,
+                    grad_u_ptr,
+                    grad_p_q,
+                    rho,
+                    mu,
+                    vals->dt,
+                    vals->C_vms,
+                    vals->vms_cap_coeff);
+
+                double h_n = fabs(
+                    (xf[0] - xc[0]) * n[0]
+                  + (xf[1] - xc[1]) * n[1]
+                  + (xf[2] - xc[2]) * n[2]);
+
+                if (h_n <= 1.0e-12) h_n = 1.0e-12;
+
+                const double y_wall = h_n;
+
+                double f_nit_q[3];
+                t4_cd_nitsche_wall_force_density(
+                    n,
+                    u_q,
+                    Uw,
+                    rho,
+                    mu_eff_face,
+                    mu,
+                    h_n,
+                    y_wall,
+                    vals->dt,
+                    gamma_n,
+                    f_nit_q,
+                    NULL,
+                    NULL);
+
+                F_nit[0] += f_nit_q[0] * w;
+                F_nit[1] += f_nit_q[1] * w;
+                F_nit[2] += f_nit_q[2] * w;
+            }
+        }
+    }
+
+    double eU[3] = { eU_in[0], eU_in[1], eU_in[2] };
+    double eP[3] = { eP_in[0], eP_in[1], eP_in[2] };
+    t4_normalize3(eU);
+
+    const double ep_dot_eu = t4_dot3(eP, eU);
+    eP[0] -= ep_dot_eu * eU[0];
+    eP[1] -= ep_dot_eu * eU[1];
+    eP[2] -= ep_dot_eu * eU[2];
+    t4_normalize3(eP);
+
+    const double F_body[3] = {
+        -F_vis[0] + F_nit[0],
+        -F_vis[1] + F_nit[1],
+        -F_vis[2] + F_nit[2]
+    };
+
+    const double D = t4_dot3(F_body, eU);
+    const double L = t4_dot3(F_body, eP);
+    const double D_nit = t4_dot3(F_nit, eU);
+    const double L_nit = t4_dot3(F_nit, eP);
+
+    if (D_out)          *D_out          = D;
+    if (L_out)          *L_out          = L;
+    if (Cd_out)         *Cd_out         = D;      /* or D / (0.5*rho*Uinf*Uinf*Aref) */
+    if (Cl_out)         *Cl_out         = L;      /* or L / (0.5*rho*Uinf*Uinf*Aref) */
+    if (D_nitsche_out)  *D_nitsche_out  = D_nit;
+    if (L_nitsche_out)  *L_nitsche_out  = L_nit;
+    if (Cd_nitsche_out) *Cd_nitsche_out = D_nit;  /* or nondimensionalized value */
+    if (Cl_nitsche_out) *Cl_nitsche_out = L_nit;  /* or nondimensionalized value */
+
+    free(G_all);
+    free(owner);
+    free(lface);
+    return 0;
+}
+
+/*
+ * Backward-compatible entry point: original viscous force only.
+ * Use calc_Cd_v_tet4_tri3_nitsche() when the wall is imposed by symmetric
+ * Nitsche + all-y+ wall law and you want the discrete wall reaction included.
+ */
+int calc_Cd_v_tet4_tri3(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_surf,
+    MONOLIS_COM* monolis_com,
+    const VALUES* vals,
+    double rho,
+    double mu,
+    double Uinf,
+    double Aref,
+    const double eU_in[3],
+    const double eP_in[3],
+    double* D_out,
+    double* L_out,
+    double* Cd_out,
+    double* Cl_out)
+{
+    return calc_Cd_v_tet4_tri3_core(
+        surf,
+        fe,
+        basis_surf,
+        monolis_com,
+        vals,
+        rho,
+        mu,
+        Uinf,
+        Aref,
+        eU_in,
+        eP_in,
+        0,
+        NULL,
+        0.0,
+        D_out,
+        L_out,
+        Cd_out,
+        Cl_out,
+        NULL,
+        NULL,
+        NULL,
+        NULL);
+}
+
+/*
+ * Extended entry point: viscous force plus the discrete wall reaction from
+ *   normal symmetric Nitsche penalty + tangential all-y+ wall law.
+ * D_nitsche_out/L_nitsche_out are diagnostics for only the added wall term.
+ */
+int calc_Cd_v_tet4_tri3_nitsche(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis_surf,
+    MONOLIS_COM* monolis_com,
+    const VALUES* vals,
+    double rho,
+    double mu,
+    double Uinf,
+    double Aref,
+    const double eU_in[3],
+    const double eP_in[3],
+    const double Uw[3],
+    double gamma_n,
+    double* D_out,
+    double* L_out,
+    double* Cd_out,
+    double* Cl_out,
+    double* D_nitsche_out,
+    double* L_nitsche_out,
+    double* Cd_nitsche_out,
+    double* Cl_nitsche_out)
+{
+    return calc_Cd_v_tet4_tri3_core(
+        surf,
+        fe,
+        basis_surf,
+        monolis_com,
+        vals,
+        rho,
+        mu,
+        Uinf,
+        Aref,
+        eU_in,
+        eP_in,
+        1,
+        Uw,
+        gamma_n,
+        D_out,
+        L_out,
+        Cd_out,
+        Cl_out,
+        D_nitsche_out,
+        L_nitsche_out,
+        Cd_nitsche_out,
+        Cl_nitsche_out);
+}
+
+
+/*
+ * Dispatch wrapper including TET4/TRI3 Nitsche wall reaction.
+ * For HEX8/QUAD4 this currently falls back to the verified existing calc_Cd_v().
+ * For TET4/TRI3 it calls calc_Cd_v_tet4_tri3_nitsche().
+ */
+int calc_Cd_v_hex_or_tet_nitsche(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe,
+    const BBFE_BASIS* basis,
+    MONOLIS_COM* monolis_com,
+    const VALUES* vals,
+    double rho,
+    double mu,
+    double Uinf,
+    double Aref,
+    const double eU_in[3],
+    const double eP_in[3],
+    const double Uw[3],
+    double gamma_n,
+    double* D_out,
+    double* L_out,
+    double* Cd_out,
+    double* Cl_out,
+    double* D_nitsche_out,
+    double* L_nitsche_out,
+    double* Cd_nitsche_out,
+    double* Cl_nitsche_out)
+{
+    if (D_out)          *D_out          = 0.0;
+    if (L_out)          *L_out          = 0.0;
+    if (Cd_out)         *Cd_out         = 0.0;
+    if (Cl_out)         *Cl_out         = 0.0;
+    if (D_nitsche_out)  *D_nitsche_out  = 0.0;
+    if (L_nitsche_out)  *L_nitsche_out  = 0.0;
+    if (Cd_nitsche_out) *Cd_nitsche_out = 0.0;
+    if (Cl_nitsche_out) *Cl_nitsche_out = 0.0;
+
+    if (fe->local_num_nodes == 8) {
+        if (surf->local_num_nodes != 4) {
+            fprintf(stderr,
+                "[Cd_v_nitsche] HEX8 volume requires QUAD4 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return -1;
+        }
+
+        /* HEX Nitsche force is not added here because the verified HEX Cd_v()
+         * interface has no Uw/gamma_n. Add an analogous HEX-specific extended
+         * routine if you also want HEX wall reaction diagnostics.
+         */
+        return calc_Cd_v(
+            surf,
+            fe,
+            basis,
+            monolis_com,
+            vals,
+            rho,
+            mu,
+            Uinf,
+            Aref,
+            eU_in,
+            eP_in,
+            D_out,
+            L_out,
+            Cd_out,
+            Cl_out);
+    }
+
+    if (fe->local_num_nodes == 4) {
+        if (surf->local_num_nodes != 3) {
+            fprintf(stderr,
+                "[Cd_v_nitsche] TET4 volume requires TRI3 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return -1;
+        }
+
+        return calc_Cd_v_tet4_tri3_nitsche(
+            surf,
+            fe,
+            basis,
+            monolis_com,
+            vals,
+            rho,
+            mu,
+            Uinf,
+            Aref,
+            eU_in,
+            eP_in,
+            Uw,
+            gamma_n,
+            D_out,
+            L_out,
+            Cd_out,
+            Cl_out,
+            D_nitsche_out,
+            L_nitsche_out,
+            Cd_nitsche_out,
+            Cl_nitsche_out);
+    }
+
+    fprintf(stderr,
+        "[Cd_v_nitsche] unsupported fe->local_num_nodes=%d. Expected 8 HEX8 or 4 TET4.\n",
+        fe->local_num_nodes);
+
+    return -1;
+}
+
+void calc_Cd_p_hex_or_tet(
+    BBFE_DATA*  surf,
+    BBFE_DATA*  fe,
+    BBFE_BASIS* basis,
+    VALUES*     vals,
+    const double eU_in[3],
+    const double eP_in[3],
+    double* D_out,
+    double* L_out)
+{
+    if (D_out) *D_out = 0.0;
+    if (L_out) *L_out = 0.0;
+
+    if (fe->local_num_nodes == 8) {
+        /* HEX8/QUAD4: verified existing implementation. Do not change its body. */
+        if (surf->local_num_nodes != 4) {
+            fprintf(stderr,
+                "[Cd_p] HEX8 volume requires QUAD4 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return;
+        }
+
+        calc_Cd_p(
+            surf,
+            fe,
+            basis,
+            vals,
+            eU_in,
+            eP_in,
+            D_out,
+            L_out);
+        return;
+
+    } else if (fe->local_num_nodes == 4) {
+        /* TET4/TRI3: new implementation. */
+        if (surf->local_num_nodes != 3) {
+            fprintf(stderr,
+                "[Cd_p] TET4 volume requires TRI3 surface, but surf->local_num_nodes=%d\n",
+                surf->local_num_nodes);
+            return;
+        }
+
+        calc_Cd_p_tet4_tri3(
+            surf,
+            fe,
+            basis,
+            vals,
+            eU_in,
+            eP_in,
+            D_out,
+            L_out);
+        return;
+    }
+
+    fprintf(stderr,
+        "[Cd_p] unsupported fe->local_num_nodes=%d. Expected 8 HEX8 or 4 TET4.\n",
+        fe->local_num_nodes);
+}
 
 void solver_fom_VMS(
     FE_SYSTEM        sys,
@@ -4184,7 +6439,7 @@ void solver_fom_VMS(
     const int comm_size = monolis_mpi_get_global_comm_size();
 
     sys.vals.C_vms = 1.0e-2;
-    sys.vals.vms_cap_coeff = 1.0e-1;
+    sys.vals.vms_cap_coeff = 1.0e-2;
     //sys.vals.C_vms = 0.0;
     //sys.vals.vms_cap_coeff = 0.0;
 
@@ -4281,8 +6536,8 @@ void solver_fom_VMS(
           壁面境界：Nitsche + all-y+ 壁関数
           Dirichlet BC を入れる前に追加する。
         */
-       
-        set_wall_face_vecmat_symmetric_nitsche(
+  
+        set_wall_face_vecmat_symmetric_nitsche_hex_or_tet(
             &(sys.monolis),
             &(sys.fe),
             &(sys.basis),
@@ -4368,7 +6623,7 @@ void solver_fom_VMS(
             &(sys.basis),
             &(sys.vals));
 
-        set_wall_face_vecmat_symmetric_nitsche(
+        set_wall_face_vecmat_symmetric_nitsche_hex_or_tet(
             &(sys.monolis),
             &(sys.fe),
             &(sys.basis),

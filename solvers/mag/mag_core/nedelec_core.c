@@ -1990,11 +1990,11 @@ void BBFE_mag_pre_2nd(
     );
     */
 
-        read_phi_elem(
-			fe,
-        	ned,
-            "elem_phi.dat",
-            directory);
+    read_phi_elem(
+        fe,
+        ned,
+        "elem_phi.dat",
+        directory);
 
     read_connectivity_graph_lag_nedelec_from_distval(
 			fe,

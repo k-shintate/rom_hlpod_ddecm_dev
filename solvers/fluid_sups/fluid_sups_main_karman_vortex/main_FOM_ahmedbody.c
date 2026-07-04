@@ -99,7 +99,6 @@ int main (
 	filename = monolis_get_global_input_file_name(MONOLIS_DEFAULT_TOP_DIR, MONOLIS_DEFAULT_PART_DIR, INPUT_FILENAME_D_BC_V);
 	BBFE_fluid_sups_read_Dirichlet_bc(
 			&(sys.bc),
-			//&(sys.vals),
 			filename,
 			sys.cond.directory,
 			sys.fe.total_num_nodes,
@@ -187,9 +186,6 @@ int main (
 
 	t = 0.0; step = 0; file_num = 0;
 
-    while (t < sys.vals.finish_time) {
-        t += sys.vals.dt;
-        step += 1;
 /*
         //if(sys.rom_prm_p.hot_start == 1){
             char fname[BUFFER_SIZE];         
@@ -212,9 +208,14 @@ int main (
             BB_std_free_1d_double(val, 4*sys.fe.total_num_nodes);
         //}
 */
+
+    while (t < sys.vals.finish_time) {
+        t += sys.vals.dt;
+        step += 1;
+
         printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
-        solver_fom_NR(sys, t, count);
-        //solver_fom_VMS(sys, &(sys.surf), &(sys.basis_surf), t, count);
+        //solver_fom_NR(sys, t, count);
+        solver_fom_VMS(sys, &(sys.surf), &(sys.basis_surf), t, count);
         count ++;
 
         if(step%sys.vals.output_interval == 0) {
@@ -222,19 +223,23 @@ int main (
             file_num += 1;
         }
         
-        /*
+        
         if(step%10 == 0) {
             double D_out = 0.0; double L_out = 0.0; double Cd_out = 0.0; double Cl_out = 0.0;
             const double eU[3] = {1.0, 0.0, 0.0};
             const double eP[3] = {0.0, 1.0, 0.0};
+            double Uw[3] = {0.0, 0.0, 0.0};
 
-            calc_Cd_v(&(sys.surf), &(sys.fe), &(sys.basis_surf), &(sys.mono_com), &(sys.vals), sys.vals.density,
-                sys.vals.viscosity, 1, 0.08*1, eU, eP, &D_out, &L_out, &Cd_out, &Cl_out);
+            //Nitsche penalty
+            double gamma_n = 20;
+            
+            calc_Cd_v_tet4_tri3_nitsche(&(sys.surf), &(sys.fe), &(sys.basis_surf), &(sys.mono_com), &(sys.vals), sys.vals.density,
+                sys.vals.viscosity, 60, 0.112032, eU, eP, Uw, gamma_n, &D_out, &L_out, &Cd_out, &Cl_out);
 
             Cd_out = 0.0;
             Cl_out = 0.0;
 
-            calc_Cd_p(&(sys.surf), &(sys.fe), &(sys.basis_surf), &(sys.vals), eU, eP, &Cd_out, &Cl_out);
+            calc_Cd_p_hex_or_tet(&(sys.surf), &(sys.fe), &(sys.basis_surf), &(sys.vals), eU, eP, &Cd_out, &Cl_out);
 
             monolis_allreduce_R(1, &D_out, MONOLIS_MPI_SUM, sys.mono_com.comm);
             monolis_allreduce_R(1, &L_out, MONOLIS_MPI_SUM, sys.mono_com.comm);
@@ -250,7 +255,7 @@ int main (
             ROM_std_hlpod_output_add_calc_time(Cl_out, t,
                             "cylinder_lift_coeff.txt", sys.cond.directory);
         }
-        */
+        
                             
 
         BBFE_fluid_sups_add_velocity_pressure(
