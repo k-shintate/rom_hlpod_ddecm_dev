@@ -1,10 +1,10 @@
-CC = mpic++
-FC = mpif90
+CC = mpiicpc
+FC = mpiifort -qmkl=cluster -nofor-main
 
 CFLAGS   := -g -O3
 LDFLAGS  :=
 INCLUDES := -I/usr/local/include -I/usr/include/mkl -I./../../../test_thermal/submodule/monolis/include
-LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lscalapack -llapack -lblas -lmkl_rt
+LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lmkl_rt
 
 
 INCLUDES_BB = -I../../../test_thermal/include
@@ -18,7 +18,7 @@ SRC_DIR := ./fluid_sups_core ./fluid_sups_matvec
 SRC     := $(wildcard $(addsuffix /*.c,$(SRC_DIR)))
 OBJ1    := $(patsubst %.c,%.o,$(SRC)) ./fluid_sups_main_karman_vortex/main_FOM_backstep.o
 
-TARGET1 := hlpod_fluid_sups_karman_vortex_FOM
+TARGET1 := hlpod_fluid_sups_ahmedbody_FOM
 
 # Default make target
 all: build clean_data

@@ -1,29 +1,21 @@
 #!/bin/bash
 
-#podモード数
-nm=$3
-#POD計算領域数
-nd=$4
 #並列計算領域数 (=並列数)
-np=$5
-#基底本数可変の閾値 1.0E-{pa}
-pa=$6
-#solver type
-st=$7
+np=$1
 #計算ノード数
-N_node=$8
+N_node=$2
 #計算ノード当たりのCPU数
-N_cpu=$9
+N_cpu=$3
 
 # 実行ディレクトリ
-directory="result_fluid_sups_karman_vortex/FOM-${np}"
+directory="result_fluid_sups_ahmedbody/FOM-${np}"
 
 cd solvers/fluid_sups
 make -f Makefile_FOM_squid clean
 make -f Makefile_FOM_squid
 cd ../..
 
-fname="execution_hrom_offline_FOM_karman_vortex.sh"
+fname="execution_hrom_offline_FOM_ahmedbody.sh"
 rm $fname
 touch $fname
 echo "#!/bin/bash" >> $fname
@@ -41,12 +33,11 @@ echo "cd \$PBS_O_WORKDIR" >> $fname
 echo "" >> $fname
 
 echo "cd solvers/fluid_sups" >> $fname
-echo "cp -r hlpod_fluid_sups_karman_vortex_FOM ./../../$directory" >> $fname
+echo "cp -r hlpod_fluid_sups_ahmedbody_FOM ./../../$directory" >> $fname
 echo "cd ./../../$directory" >> $fname
 echo "mkdir -p {pod_modes_vtk,pod_modes,fem_solver_prm,pod_solver_prm,hr_solver_prm,calctime,DDECM,hr_prm,hot_start}" >> $fname
 
-echo "mpirun \${NQSV_MPIOPTS} -np ${np} ./hlpod_fluid_sups_karman_vortex_FOM ./  > ../../result/result_offline_FOM_${nd}-${nm}.txt" >> $fname
-
+echo "mpirun \${NQSV_MPIOPTS} -np ${np} ./hlpod_fluid_sups_ahmedbody_FOM ./  > ../../result/result_FOM-${np}.txt" >> $fname
 
 echo "cd ../.." >> $fname
 echo "" >> $fname
