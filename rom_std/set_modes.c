@@ -686,6 +686,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
     //exit(1);
 }
 
+/*
 void ROM_std_hlpod_read_podmodes_local_para(
     HLPOD_VALUES*       hlpod_vals,
     HLPOD_MAT*      hlpod_mat,
@@ -752,7 +753,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
 
     //exit(1);
 }
-
+*/
 
 
 void ROM_std_hlpod_set_podmodes_global_para(
