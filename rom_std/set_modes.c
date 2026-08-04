@@ -649,7 +649,7 @@ void ROM_std_hlpod_read_podmodes_local_para(
             label,
             directory);
 
-        n_basis = 3;
+        //n_basis = 3;
 
         printf("n_basis = %d\n", n_basis);
 
@@ -667,8 +667,8 @@ void ROM_std_hlpod_read_podmodes_local_para(
         }
 
         //for arbit dof ddecm
-            for(int i = 0; i < n_internal_vertex; i++){
-                        hlpod_mat->subdomain_id_in_nodes_internal[index_row + i][m] = m + 1;
+        for(int i = 0; i < n_internal_vertex; i++){
+            hlpod_mat->subdomain_id_in_nodes_internal[index_row + i][m] = m + 1;
         }
 
 
@@ -681,9 +681,6 @@ void ROM_std_hlpod_read_podmodes_local_para(
     double t = monolis_get_time_global_sync();
 
     hlpod_vals->num_modes = index_column;
-
-
-    //exit(1);
 }
 
 
