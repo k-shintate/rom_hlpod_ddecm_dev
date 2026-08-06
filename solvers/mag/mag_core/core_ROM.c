@@ -1136,7 +1136,7 @@ void solver_rom_NR_Aphi_team21a2(
     monolis_copy_mat_value_R(&(sys.monolis_rom0), &(sys.monolis_rom));
     
     set_element_vec_NR_Aphi_team21a02(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                            x_prev, x_curr, sys.vals.dt, t);
+                            x_prev, x_curr, sys.vals.dt, t, omega);
     apply_dirichlet_bc_ned_R(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
     /* 残差ベクトルを保存（B = -F） */

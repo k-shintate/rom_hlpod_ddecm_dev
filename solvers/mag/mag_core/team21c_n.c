@@ -183,14 +183,14 @@ static inline double get_coil_current_team21a0(int prop){
     return 0.0;
 }
 
-static inline double get_coil_NI_time_team21a0(int prop, double time)
+static inline double get_coil_NI_time_team21a0(int prop, double time, double omega)
 {
     if(is_team21a0_coil_prop(prop)){
         const double phase_rad = 90.0 * M_PI / 180.0;
 
         return sqrt(2.0)
              * NI_RMS_team21a0
-             * cos(omega_team21a0 * time + phase_rad);
+             * cos(omega * time + phase_rad);
     }
 
     return 0.0;
@@ -1265,8 +1265,9 @@ void set_element_vec_NR_Aphi_team21a02(
     const double* x_prev,
     const double* x_curr,
     double dt,
-    double current_time
-){
+    double current_time,
+    double omega)
+{
     const int np = basis->num_integ_points;
 
     double* Jacobian_ip = BB_std_calloc_1d_double(Jacobian_ip, np);
@@ -1302,7 +1303,7 @@ void set_element_vec_NR_Aphi_team21a02(
 
             coil_elem_count++;
 
-            const double NI_t  = get_coil_NI_time_team21a0(prop, current_time);
+            const double NI_t  = get_coil_NI_time_team21a0(prop, current_time, omega);
             const double J_mag = NI_t / coil_area;
 
             for(int i = 0; i < ned->local_num_edges; ++i){

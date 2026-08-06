@@ -825,7 +825,8 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
     int step,
     double* x_prev,
     double* x_curr,
-    int total_num_dof)
+    int total_num_dof,
+    double omega)
 {
     const int max_iter = 20;
     const double relaxation = 1.0;
@@ -868,10 +869,10 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
         }
 
         /* 組み立て */
-        set_element_mat_NR_Aphi_team21a02c(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
+        set_element_mat_NR_Aphi_team21a02(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
                                 x_curr, sys.vals.dt);
         set_element_vec_NR_Aphi_team21a02(&(sys.monolis), &(sys.fe), &(sys.basis), &(sys.ned),
-                                x_prev, x_curr, sys.vals.dt, t);
+                                x_prev, x_curr, sys.vals.dt, t, omega);
         apply_dirichlet_bc_ned(&(sys.monolis), &(sys.fe), &(sys.bc), &(sys.ned));
 
         /* 残差ベクトルを保存（B = -F） */

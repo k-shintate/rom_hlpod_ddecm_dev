@@ -40,7 +40,9 @@ python3 mesh_io/fileter_index.py ./mesh_tmp/lowerWall_triangle_bc.dat ./mesh_tmp
 python3 mesh_io/fileter_index.py ./mesh_tmp/upperWall_triangle_bc.dat ./mesh_tmp/filtered_upperWall_triangle_bc.dat 0 1
 
 # b.c. のマージ (境界条件ファイル間で共有する節点がある場合、後から入力した節点の情報を優先する)
-python3 mesh_io/merge_bc.py ./mesh_tmp/filtered_lowerWall_triangle_bc.dat ./mesh_tmp/filtered_upperWall_triangle_bc.dat ./mesh_tmp/filtered_frontAndBack_triangle_bc.dat ./mesh_tmp/Inlet_triangle_bc.dat -d ./ -o mesh_tmp/merged_bc.dat
+#python3 mesh_io/merge_bc.py ./mesh_tmp/filtered_lowerWall_triangle_bc.dat ./mesh_tmp/filtered_upperWall_triangle_bc.dat ./mesh_tmp/filtered_frontAndBack_triangle_bc.dat ./mesh_tmp/Inlet_triangle_bc.dat -d ./ -o mesh_tmp/merged_bc.dat
+python3 mesh_io/merge_bc.py ./mesh_tmp/filtered_lowerWall_triangle_bc.dat ./mesh_tmp/filtered_upperWall_triangle_bc.dat ./mesh_tmp/filtered_frontAndBack_triangle_bc.dat ./mesh_tmp/filtered_lowerWall_triangle_bc.dat ./mesh_tmp/filtered_upperWall_triangle_bc.dat ./mesh_tmp/Inlet_triangle_bc.dat -d ./ -o mesh_tmp/merged_bc.dat
+
 
 mv ./mesh_tmp/merged_bc.dat ./mesh_karman_vortex/D_bc_v.dat
 

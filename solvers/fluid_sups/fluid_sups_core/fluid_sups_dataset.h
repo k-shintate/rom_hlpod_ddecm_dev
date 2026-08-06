@@ -80,6 +80,9 @@ typedef struct
 	BBFE_BASIS   basis_surf;
     BBFE_DATA    surf;
 
+	BBFE_BASIS   basis_surf_internal;
+    BBFE_DATA    surf_internal;
+
     /*for ROM*/
 	MONOLIS      monolis_rom;
 	MONOLIS      monolis_rom0;

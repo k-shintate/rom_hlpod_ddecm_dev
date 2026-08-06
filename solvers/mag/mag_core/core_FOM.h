@@ -61,5 +61,6 @@ void solver_fom_NR_Aphi_team21c_collect_snapmat(
     int step,
     double* x_prev,
     double* x_curr,
-    int n_dof_total);
+    int n_dof_total,
+    double omega);
 
