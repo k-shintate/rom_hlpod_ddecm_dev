@@ -209,6 +209,8 @@ int main (
             "pod_modes",
             sys.cond.directory);
 
+
+    /*
 	ROM_std_hlpod_online_pre(
             &(sys.monolis_rom0),
             &(sys.monolis_com),
@@ -228,7 +230,31 @@ int main (
             sys.fe.total_num_nodes,
             metagraph_name,
             sys.cond.directory);
-    
+    */
+
+    	HROM_std_hlpod_online_pre(
+            &(sys.monolis_rom0),
+            &(sys.monolis_com),
+            &(sys.mono_com_rom),
+            &(sys.mono_com_rom_solv),
+            &(sys.rom),
+            sys.fe.total_num_nodes,
+            1,
+            metagraph_name,
+            sys.cond.directory);
+        
+        HROM_std_hlpod_online_pre(
+            &(sys.monolis_hr0),
+            &(sys.monolis_com),
+            &(sys.mono_com_rom),
+            &(sys.mono_com_rom_solv),
+            &(sys.rom),
+            sys.fe.total_num_nodes,
+            1,
+            metagraph_name,
+            sys.cond.directory);
+
+
     monolis_copy_mat_nonzero_pattern_R(&(sys.monolis_rom0), &(sys.monolis_rom));
     monolis_com_initialize_by_self(&(sys.mono_com0));
     /******************/
@@ -247,6 +273,8 @@ int main (
         &(sys.rom.hlpod_mat));
     /************************/
 
+    solver_rom_NR4(&(sys), 0, 0, 0);
+    double tt2 = monolis_get_time_global_sync();
     
     /**************************************************/
 
@@ -257,6 +285,7 @@ int main (
     int file_num = 0;
     int step = 0;
     double t = 0;
+    /*
 	while (t < sys.vals.finish_time) {
 		t += sys.vals.dt;
 		step += 1;
@@ -264,6 +293,7 @@ int main (
 		printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
         solver_fom(sys, t, step);	
     }
+    */
 
     HROM_ddecm_memory_allocation_sol_vec(&(sys.hrom.hr_vals), sys.fe.total_num_nodes, 1);
 
@@ -282,7 +312,7 @@ int main (
 
     printf("\n%s ----------------- ROM solver ----------------\n", CODENAME);
 
-	while (t < sys.vals.rom_finish_time) {
+	while (t < sys.vals.finish_time) {
 		t += sys.vals.dt;
 		step += 1;
 
@@ -298,6 +328,9 @@ int main (
         double calctime_rom_t2 = monolis_get_time();
 		/**********************************************/
 
+        double T = monolis_get_time_global_sync();
+        printf("test");
+
 		if(monolis_mpi_get_global_comm_size() == 1){
 			HROM_nonparallel(sys, &(sys.rom), &(sys.hrom), step, 0, t);
         }
@@ -307,6 +340,7 @@ int main (
 
         if(step%sys.vals.output_interval == 0) {
 			HROM_output_files(&sys, file_num, t);
+            ROM_output_files(&sys, file_num, t);
                         
             ROM_std_hlpod_write_solver_prm(&(sys.monolis), t, "fem_solver_prm/" , sys.cond.directory);
 			ROM_std_hlpod_write_solver_prm(&(sys.monolis_rom), t, "pod_solver_prm/", sys.cond.directory);
