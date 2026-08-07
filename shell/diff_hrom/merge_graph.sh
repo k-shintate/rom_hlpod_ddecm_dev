@@ -20,7 +20,8 @@ cp -r ./parted.0/metagraph.dat ./
 
 mkdir merged_graph
 mpirun -np $np ./../../utils/bin/merge_graph ./ -np1 $nd -np2 $np
-mpirun -np $np ./../../utils/bin/merge_graph_bc ./ -np1 $nd -np2 $np -nbc 1 -fbc D_bc
+#mpirun -np $np ./../../utils/bin/merge_graph_bc ./ -np1 $nd -np2 $np -nbc 1 -fbc D_bc
+./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_bc_partitioner_R -n $np -i D_bc.dat -ig node.dat -d merged_graph
 
 # POD計算領域の分割ファイルをparted.1 として扱う
 mv parted.0 parted.1

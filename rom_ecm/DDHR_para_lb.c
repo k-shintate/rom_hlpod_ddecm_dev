@@ -2,6 +2,13 @@
 //内部要素の総和が分割前の要素数の総和になることを利用
 //load balancing, 2階層目のbscr形式に対応
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <math.h>
+#include <float.h>
+
+
 #include "DDHR_para_lb.h"
 
 static const int BUFFER_SIZE = 10000;
@@ -1179,7 +1186,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd(
     double t1 = monolis_get_time_global_sync();
 
 	const int max_ITER = 10000;
-	const double TOL = 1.0e-12;
+	const double TOL = 1.0e-10;
 
 	double residual;
 
@@ -2802,5 +2809,2787 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd(
 	double t = monolis_get_time_global_sync();
 }
 
+/*
+ * CLEAN REPLACEMENT BLOCK - Stage 3 global-row-key + exact-route version 4
+ *
+ * Keep exactly one copy of this block in DDHR_para_lb.c.
+ * Remove older HROM_stage3_* helper definitions and the older
+ * HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical()
+ * before inserting this block.
+ *
+ * Stage-3 MPI-side output policy:
+ *   - Do NOT use elem.dat.n_internal.{rank}.
+ *   - Read only parted.0/elem.dat.id.{rank}.
+ *   - Save this rank's Stage-2 selected ORIGINAL-global IDs/weights.
+ *   - Save this rank's raw RHS contribution.
+ *   - Save raw contribution columns for ALL rank-local elements.
+ *
+ * The later serial Stage-3 program forms the union of Stage-2 selected
+ * original-global element IDs and then resolves duplicate physical-element
+ * copies across rank files.  No direct MPI_* routine is used here.
+ */
+
+/*
+ * CLEAN REPLACEMENT BLOCK - Stage 3 global-row-key + exact-route version 4
+ *
+ * Keep exactly one copy of this block in DDHR_para_lb.c.
+ * Remove older HROM_stage3_* helper definitions and the older
+ * HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical()
+ * before inserting this block.
+ *
+ * Stage-3 MPI-side output policy:
+ *   - Do NOT use elem.dat.n_internal.{rank}.
+ *   - Read only parted.0/elem.dat.id.{rank}.
+ *   - Save this rank's Stage-2 selected ORIGINAL-global IDs/weights.
+ *   - Save this rank's raw RHS contribution.
+ *   - Save raw contribution columns for ALL rank-local elements.
+ *
+ * The later serial Stage-3 program forms the union of Stage-2 selected
+ * original-global element IDs and then resolves duplicate physical-element
+ * copies across rank files.  No direct MPI_* routine is used here.
+ */
+
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstdint>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include "DDHR_para_lb.h"
+#include "monolis_nnls_c.h"
+
+#ifndef HROM_STAGE3_RANK_PARTITION_DIR
+#define HROM_STAGE3_RANK_PARTITION_DIR "parted.0"
+#endif
+
+static void HROM_stage3_fail(
+    const char* message,
+    const int rank)
+{
+    fprintf(
+        stderr,
+        "ERROR: %s (rank=%d)\n",
+        message,
+        rank);
+
+    /*
+     * No direct MPI_Abort.  This Stage-3 output path contains no
+     * collective communication.
+     */
+    exit(EXIT_FAILURE);
+}
+
+static bool HROM_stage3_read_rank_element_ids(
+    const int rank,
+    const int expected_rank_elem_count,
+    const char* directory,
+    std::vector<int>& original_global_elem_id)
+{
+    FILE* fp = NULL;
+    char fname[BUFFER_SIZE];
+    char label[BUFFER_SIZE];
+    int n_elem = 0;
+    int tmp = 0;
+
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "%s/elem.dat.id.%d",
+        HROM_STAGE3_RANK_PARTITION_DIR,
+        rank);
+
+    fp = ROM_BB_read_fopen(fp, fname, directory);
+
+    if (fp == NULL) {
+        fprintf(
+            stderr,
+            "WARNING: Stage3 metadata: failed to open %s (rank=%d)\n",
+            fname,
+            rank);
+        return false;
+    }
+
+    if (fscanf(fp, "%s", label) != 1 ||
+        fscanf(fp, "%d %d", &n_elem, &tmp) != 2 ||
+        n_elem < 0) {
+
+        fclose(fp);
+        fprintf(
+            stderr,
+            "WARNING: Stage3 metadata: invalid header in %s (rank=%d)\n",
+            fname,
+            rank);
+        return false;
+    }
+
+    original_global_elem_id.assign((size_t)n_elem, -1);
+
+    for (int e = 0; e < n_elem; e++) {
+        if (fscanf(
+                fp,
+                "%d",
+                &original_global_elem_id[(size_t)e]) != 1) {
+
+            fclose(fp);
+            fprintf(
+                stderr,
+                "WARNING: Stage3 metadata: failed to read element ID %d/%d "
+                "from %s (rank=%d)\n",
+                e,
+                n_elem,
+                fname,
+                rank);
+
+            original_global_elem_id.clear();
+            return false;
+        }
+    }
+
+    fclose(fp);
+
+    printf(
+        "[Stage3 metadata] rank=%d, partition_dir=%s, "
+        "elem.dat.id count=%d, expected rank elements=%d\n",
+        rank,
+        HROM_STAGE3_RANK_PARTITION_DIR,
+        n_elem,
+        expected_rank_elem_count);
+
+    /*
+     * rank-local element IDs are used as direct indices into this array,
+     * so a count mismatch is not safe to ignore.
+     */
+    if (expected_rank_elem_count > 0 &&
+        n_elem != expected_rank_elem_count) {
+
+        fprintf(
+            stderr,
+            "WARNING: Stage3 output skipped on rank %d: "
+            "elem.dat.id count=%d differs from expected rank elements=%d. "
+            "Verify HROM_STAGE3_RANK_PARTITION_DIR='%s'.\n",
+            rank,
+            n_elem,
+            expected_rank_elem_count,
+            HROM_STAGE3_RANK_PARTITION_DIR);
+
+        original_global_elem_id.clear();
+        return false;
+    }
+
+    return true;
+}
+
+static void HROM_stage3_write_rank_file_no_mpi(
+    MONOLIS_COM* monolis_com,
+    HLPOD_VALUES* hlpod_vals,
+    HLPOD_DDHR* hlpod_ddhr,
+    HLPOD_META* hlpod_meta,
+    const int total_num_elem,
+    const int total_num_snapshot,
+    const int num_subdomains,
+    const int* subdomain_id,
+    const std::vector<int>& stage2_selected_parallel_elem,
+    const std::vector<double>& stage2_selected_weight,
+    const char* directory)
+{
+    const int myrank = monolis_mpi_get_global_my_rank();
+
+    if (subdomain_id == NULL) {
+        HROM_stage3_fail("subdomain_id is NULL", myrank);
+    }
+
+    if (stage2_selected_parallel_elem.size() !=
+        stage2_selected_weight.size()) {
+        HROM_stage3_fail(
+            "selected element/weight size mismatch",
+            myrank);
+    }
+
+    std::vector<int> original_global_elem_id;
+    if (!HROM_stage3_read_rank_element_ids(
+            myrank,
+            total_num_elem,
+            directory,
+            original_global_elem_id)) {
+        fprintf(stderr,
+            "WARNING: Stage3 rank file is not written on rank %d; "
+            "the normal Stage1/Stage2 HROM calculation continues.\n",
+            myrank);
+        return;
+    }
+
+    const int num_rank_local_elem =
+        (int)original_global_elem_id.size();
+
+    /*
+     * Exact route information used by the original parallel writer:
+     *   original-global ID -> parallel element ID -> fine subdomain ID.
+     * Save it explicitly so the serial Stage-3 program never has to guess
+     * how to return a final physical element to the legacy online files.
+     */
+    struct RouteEntry {
+        int original_global_id;
+        int parallel_elem_id;
+        int fine_subdomain_id;
+    };
+
+    std::vector<RouteEntry> routes;
+    routes.reserve((size_t)num_rank_local_elem);
+
+    std::unordered_map<int, int> parallel_to_rank_local;
+    parallel_to_rank_local.reserve(
+        (size_t)num_rank_local_elem * 2 + 1);
+
+    std::unordered_set<unsigned long long> route_seen;
+    route_seen.reserve((size_t)num_rank_local_elem * 2 + 1);
+
+    for (int m = 0; m < num_subdomains; m++) {
+        const int num_local_elems = hlpod_ddhr->num_elems[m];
+
+        for (int i = 0; i < num_local_elems; i++) {
+            const int rank_local_elem_id =
+                hlpod_ddhr->elem_id_local[i][m];
+
+            if (rank_local_elem_id < 0 ||
+                rank_local_elem_id >= num_rank_local_elem) {
+                HROM_stage3_fail(
+                    "rank-local element ID is out of elem.dat.id range",
+                    myrank);
+            }
+
+            const int parallel_elem_id =
+                hlpod_ddhr->parallel_elems_id[rank_local_elem_id];
+
+            const auto old =
+                parallel_to_rank_local.find(parallel_elem_id);
+
+            if (old == parallel_to_rank_local.end()) {
+                parallel_to_rank_local.emplace(
+                    parallel_elem_id,
+                    rank_local_elem_id);
+            }
+            else {
+                const int old_local = old->second;
+                if (original_global_elem_id[(size_t)old_local] !=
+                    original_global_elem_id[(size_t)rank_local_elem_id]) {
+                    HROM_stage3_fail(
+                        "same parallel element ID maps to different original-global IDs",
+                        myrank);
+                }
+            }
+
+            /* de-duplicate exact (rank-local element, fine subdomain) route */
+            const unsigned long long key =
+                ((unsigned long long)(unsigned int)rank_local_elem_id << 32) |
+                (unsigned long long)(unsigned int)subdomain_id[m];
+
+            if (route_seen.insert(key).second) {
+                RouteEntry e;
+                e.original_global_id =
+                    original_global_elem_id[(size_t)rank_local_elem_id];
+                e.parallel_elem_id = parallel_elem_id;
+                e.fine_subdomain_id = subdomain_id[m];
+                routes.push_back(e);
+            }
+        }
+    }
+
+    /* Save the exact route table as text. */
+    {
+        char route_name[BUFFER_SIZE];
+        snprintf(route_name, BUFFER_SIZE,
+            "DDECM/stage3_route.%d.txt", myrank);
+
+        FILE* route_fp = ROM_BB_write_fopen(
+            route_fp, route_name, directory);
+
+        fprintf(route_fp, "%d\n", (int)routes.size());
+        for (const RouteEntry& e : routes) {
+            fprintf(route_fp, "%d %d %d\n",
+                e.original_global_id,
+                e.parallel_elem_id,
+                e.fine_subdomain_id);
+        }
+        fclose(route_fp);
+
+        printf("[STAGE3-ROUTE] rank=%d entries=%zu file=%s\n",
+            myrank, routes.size(), route_name);
+    }
+
+    /* This rank's Stage-2 selected elements in ORIGINAL-global IDs. */
+    std::unordered_map<int, double> local_selected_weight_by_global;
+    local_selected_weight_by_global.reserve(
+        stage2_selected_parallel_elem.size() * 2 + 1);
+
+    for (size_t k = 0; k < stage2_selected_parallel_elem.size(); k++) {
+        const int parallel_elem_id =
+            stage2_selected_parallel_elem[k];
+
+        const auto it =
+            parallel_to_rank_local.find(parallel_elem_id);
+
+        if (it == parallel_to_rank_local.end()) {
+            HROM_stage3_fail(
+                "Stage-2 selected parallel element cannot be mapped to rank-local element",
+                myrank);
+        }
+
+        const int rank_local_elem_id = it->second;
+        const int original_global_id =
+            original_global_elem_id[(size_t)rank_local_elem_id];
+        const double weight = stage2_selected_weight[k];
+
+        const auto old =
+            local_selected_weight_by_global.find(original_global_id);
+
+        if (old == local_selected_weight_by_global.end()) {
+            local_selected_weight_by_global.emplace(
+                original_global_id, weight);
+        }
+        else if (weight > old->second) {
+            old->second = weight;
+        }
+    }
+
+    std::vector<std::pair<int, double>> selected_pairs;
+    selected_pairs.reserve(local_selected_weight_by_global.size());
+    for (const auto& kv : local_selected_weight_by_global) {
+        selected_pairs.emplace_back(kv.first, kv.second);
+    }
+    std::sort(selected_pairs.begin(), selected_pairs.end(),
+        [](const std::pair<int,double>& a,
+           const std::pair<int,double>& b) {
+            return a.first < b.first;
+        });
+
+    std::vector<int64_t> local_selected_global;
+    std::vector<double> local_selected_weight;
+    local_selected_global.reserve(selected_pairs.size());
+    local_selected_weight.reserve(selected_pairs.size());
+    for (const auto& p : selected_pairs) {
+        local_selected_global.push_back((int64_t)p.first);
+        local_selected_weight.push_back(p.second);
+    }
+
+    const int num_output_columns = num_rank_local_elem;
+    std::vector<int64_t> output_original_global_elem(
+        (size_t)num_output_columns, -1);
+    for (int c = 0; c < num_output_columns; c++) {
+        output_original_global_elem[(size_t)c] =
+            (int64_t)original_global_elem_id[(size_t)c];
+    }
+
+    const int rank_row_space =
+        total_num_snapshot * hlpod_vals->n_neib_vec;
+
+    if (rank_row_space <= 0) {
+        HROM_stage3_fail(
+            "invalid rank Stage-3 row space",
+            myrank);
+    }
+
+    /*
+     * IMPORTANT: j itself is only a rank-local array index.  It must NOT be
+     * used as a cross-rank row ID.  For every j we store a globally meaningful
+     * key:
+     *   (snapshot, global mode-owner ID, mode offset inside that owner block).
+     */
+    struct RowKeyLocal {
+        int snapshot;
+        int64_t owner_global_id;
+        int mode_offset;
+    };
+
+    std::vector<RowKeyLocal> row_key((size_t)rank_row_space);
+    std::vector<unsigned char> row_key_valid(
+        (size_t)rank_row_space, (unsigned char)0);
+    std::vector<int> row_contribution_count(
+        (size_t)rank_row_space, 0);
+    std::vector<double> raw_RH(
+        (size_t)rank_row_space, 0.0);
+    std::vector<double> raw_matrix(
+        (size_t)rank_row_space * (size_t)num_output_columns,
+        0.0);
+
+    auto register_key = [&] (
+        const int j,
+        const int p,
+        const int64_t owner_global_id,
+        const int mode_offset) {
+
+        if (j < 0 || j >= rank_row_space) {
+            HROM_stage3_fail(
+                "Stage-3 rank-local row is out of range",
+                myrank);
+        }
+
+        if (row_key_valid[(size_t)j] == 0) {
+            row_key[(size_t)j].snapshot = p;
+            row_key[(size_t)j].owner_global_id = owner_global_id;
+            row_key[(size_t)j].mode_offset = mode_offset;
+            row_key_valid[(size_t)j] = 1;
+        }
+        else {
+            const RowKeyLocal& old = row_key[(size_t)j];
+            if (old.snapshot != p ||
+                old.owner_global_id != owner_global_id ||
+                old.mode_offset != mode_offset) {
+                fprintf(stderr,
+                    "ERROR: one rank-local row j=%d maps to inconsistent "
+                    "global mode keys on rank=%d. old=(%d,%lld,%d) "
+                    "new=(%d,%lld,%d)\n",
+                    j, myrank,
+                    old.snapshot,
+                    (long long)old.owner_global_id,
+                    old.mode_offset,
+                    p,
+                    (long long)owner_global_id,
+                    mode_offset);
+                exit(EXIT_FAILURE);
+            }
+        }
+    };
+
+    for (int m = 0; m < num_subdomains; m++) {
+        const int num_local_elems = hlpod_ddhr->num_elems[m];
+        std::vector<unsigned char> row_seen_in_subdomain(
+            (size_t)rank_row_space, (unsigned char)0);
+
+        for (int p = 0; p < total_num_snapshot; p++) {
+            const int JS =
+                hlpod_ddhr->num_internal_modes_1stdd_sum[m]
+                + hlpod_vals->n_neib_vec * p;
+            const int JE =
+                hlpod_ddhr->num_internal_modes_1stdd_sum[m + 1]
+                + hlpod_vals->n_neib_vec * p;
+
+            const int64_t internal_owner_global_id =
+                (int64_t)subdomain_id[m];
+
+            for (int j = JS; j < JE; j++) {
+                if (row_seen_in_subdomain[(size_t)j] != 0) {
+                    HROM_stage3_fail(
+                        "duplicate Stage-3 internal row in one subdomain",
+                        myrank);
+                }
+                row_seen_in_subdomain[(size_t)j] = 1;
+
+                register_key(
+                    j, p, internal_owner_global_id, j - JS);
+
+                raw_RH[(size_t)j] += hlpod_ddhr->RH[j][m];
+                row_contribution_count[(size_t)j]++;
+
+                for (int i = 0; i < num_local_elems; i++) {
+                    const int rank_local_elem_id =
+                        hlpod_ddhr->elem_id_local[i][m];
+                    if (rank_local_elem_id < 0 ||
+                        rank_local_elem_id >= num_rank_local_elem) {
+                        HROM_stage3_fail(
+                            "Stage-3 rank-local element ID is out of range",
+                            myrank);
+                    }
+                    raw_matrix[
+                        (size_t)j * (size_t)num_output_columns
+                        + (size_t)rank_local_elem_id]
+                        += hlpod_ddhr->matrix[j][i][m];
+                }
+            }
+
+            const int iS = hlpod_meta->index[m];
+            const int iE = hlpod_meta->index[m + 1];
+
+            for (int n = iS; n < iE; n++) {
+                const int target_global_id =
+                    hlpod_meta->my_global_id[
+                        hlpod_meta->item[n]];
+
+                bool found_mode_owner = false;
+
+                for (int l = 0;
+                     l < hlpod_meta->n_internal_sum
+                         + monolis_com->n_internal_vertex;
+                     l++) {
+
+                    if (target_global_id != hlpod_meta->global_id[l]) {
+                        continue;
+                    }
+
+                    found_mode_owner = true;
+
+                    const int IS =
+                        hlpod_ddhr->num_neib_modes_1stdd_sum[l]
+                        + hlpod_vals->n_neib_vec * p;
+                    const int IE =
+                        hlpod_ddhr->num_neib_modes_1stdd_sum[l + 1]
+                        + hlpod_vals->n_neib_vec * p;
+
+                    for (int j = IS; j < IE; j++) {
+                        if (row_seen_in_subdomain[(size_t)j] != 0) {
+                            HROM_stage3_fail(
+                                "duplicate Stage-3 neighbor row in one subdomain",
+                                myrank);
+                        }
+                        row_seen_in_subdomain[(size_t)j] = 1;
+
+                        register_key(
+                            j, p, (int64_t)target_global_id, j - IS);
+
+                        raw_RH[(size_t)j] += hlpod_ddhr->RH[j][m];
+                        row_contribution_count[(size_t)j]++;
+
+                        for (int i = 0; i < num_local_elems; i++) {
+                            const int rank_local_elem_id =
+                                hlpod_ddhr->elem_id_local[i][m];
+                            if (rank_local_elem_id < 0 ||
+                                rank_local_elem_id >= num_rank_local_elem) {
+                                HROM_stage3_fail(
+                                    "Stage-3 rank-local element ID is out of range",
+                                    myrank);
+                            }
+                            raw_matrix[
+                                (size_t)j * (size_t)num_output_columns
+                                + (size_t)rank_local_elem_id]
+                                += hlpod_ddhr->matrix[j][i][m];
+                        }
+                    }
+                    break;
+                }
+
+                if (!found_mode_owner) {
+                    HROM_stage3_fail(
+                        "neighbor global mode ID was not found",
+                        myrank);
+                }
+            }
+        }
+    }
+
+    std::vector<int> used_rows;
+    used_rows.reserve((size_t)rank_row_space);
+    for (int j = 0; j < rank_row_space; j++) {
+        if (row_contribution_count[(size_t)j] > 0) {
+            if (row_key_valid[(size_t)j] == 0) {
+                HROM_stage3_fail(
+                    "used Stage-3 row has no global row key",
+                    myrank);
+            }
+            used_rows.push_back(j);
+        }
+    }
+
+    const int num_used_rows = (int)used_rows.size();
+    std::vector<double> used_RH((size_t)num_used_rows, 0.0);
+    std::vector<double> used_matrix(
+        (size_t)num_used_rows * (size_t)num_output_columns,
+        0.0);
+
+    for (int r = 0; r < num_used_rows; r++) {
+        const int j = used_rows[(size_t)r];
+        used_RH[(size_t)r] = raw_RH[(size_t)j];
+        for (int c = 0; c < num_output_columns; c++) {
+            used_matrix[
+                (size_t)r * (size_t)num_output_columns + (size_t)c]
+                = raw_matrix[
+                    (size_t)j * (size_t)num_output_columns + (size_t)c];
+        }
+    }
+
+    char out_name[BUFFER_SIZE];
+    snprintf(out_name, BUFFER_SIZE,
+        "DDECM/stage3_rank.%d.bin", myrank);
+
+    FILE* out = ROM_BB_write_fopen(out, out_name, directory);
+
+    const char magic[8] = {'H','3','N','N','L','S','4','\0'};
+    const int32_t version = 4;
+    const int32_t rank32 = (int32_t)myrank;
+    const int32_t nrow32 = (int32_t)num_used_rows;
+    const int32_t nselected32 =
+        (int32_t)local_selected_global.size();
+    const int32_t nlocal32 = (int32_t)num_output_columns;
+
+    if (fwrite(magic, sizeof(char), 8, out) != 8 ||
+        fwrite(&version, sizeof(int32_t), 1, out) != 1 ||
+        fwrite(&rank32, sizeof(int32_t), 1, out) != 1 ||
+        fwrite(&nrow32, sizeof(int32_t), 1, out) != 1 ||
+        fwrite(&nselected32, sizeof(int32_t), 1, out) != 1 ||
+        fwrite(&nlocal32, sizeof(int32_t), 1, out) != 1) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 header", myrank);
+    }
+
+    for (int r = 0; r < num_used_rows; r++) {
+        const int j = used_rows[(size_t)r];
+        const int32_t snapshot32 =
+            (int32_t)row_key[(size_t)j].snapshot;
+        const int64_t owner64 =
+            row_key[(size_t)j].owner_global_id;
+        const int32_t offset32 =
+            (int32_t)row_key[(size_t)j].mode_offset;
+
+        if (fwrite(&snapshot32, sizeof(int32_t), 1, out) != 1 ||
+            fwrite(&owner64, sizeof(int64_t), 1, out) != 1 ||
+            fwrite(&offset32, sizeof(int32_t), 1, out) != 1) {
+            fclose(out);
+            HROM_stage3_fail("failed to write Stage-3 global row keys", myrank);
+        }
+    }
+
+    if (num_used_rows > 0 &&
+        fwrite(used_RH.data(), sizeof(double),
+            (size_t)num_used_rows, out) != (size_t)num_used_rows) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 RHS", myrank);
+    }
+
+    if (!local_selected_global.empty() &&
+        fwrite(local_selected_global.data(), sizeof(int64_t),
+            local_selected_global.size(), out)
+            != local_selected_global.size()) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 selected IDs", myrank);
+    }
+
+    if (!local_selected_weight.empty() &&
+        fwrite(local_selected_weight.data(), sizeof(double),
+            local_selected_weight.size(), out)
+            != local_selected_weight.size()) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 selected weights", myrank);
+    }
+
+    if (num_output_columns > 0 &&
+        fwrite(output_original_global_elem.data(), sizeof(int64_t),
+            (size_t)num_output_columns, out) != (size_t)num_output_columns) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 local element IDs", myrank);
+    }
+
+    const size_t matrix_count =
+        (size_t)num_used_rows * (size_t)num_output_columns;
+    if (matrix_count > 0 &&
+        fwrite(used_matrix.data(), sizeof(double), matrix_count, out)
+            != matrix_count) {
+        fclose(out);
+        HROM_stage3_fail("failed to write Stage-3 matrix", myrank);
+    }
+
+    fclose(out);
+
+    printf(
+        "[STAGE3-OUTPUT-V4] rank=%d stage2_selected_local=%zu "
+        "rank_local_columns=%d global_key_rows=%d file=%s\n",
+        myrank,
+        local_selected_global.size(),
+        num_output_columns,
+        num_used_rows,
+        out_name);
+}
+
+void HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical(
+    MONOLIS_COM*  monolis_com,
+    BBFE_DATA*    fe,
+    BBFE_BC*      bc,
+    HLPOD_VALUES* hlpod_vals,
+    HLPOD_DDHR*   hlpod_ddhr,
+    HLPOD_MAT*    hlpod_mat,
+    HLPOD_META*   hlpod_meta,
+    const int     total_num_elem,
+    const int     total_num_snapshot,
+    const int     total_num_modes,
+    const int     num_subdomains,
+    const int     max_iter,
+    const double  tol,
+    const int     dof,
+    const char*   directory)
+{
+    const int myrank = monolis_mpi_get_global_my_rank();
+
+    //exit(1);
+    printf(" hierarchical\n\n");
+
+    /*
+     * max_iter と tol は引数を使用する。
+     * 不正値が渡された場合のみデフォルト値を使用する。
+     */
+    /*
+     * Avoid pathological add/remove cycling from consuming thousands
+     * of iterations.  The caller may request fewer than 1000, but never
+     * more than 1000 in this hierarchical routine.
+     */
+    const int nnls_max_iter =
+        (max_iter > 0) ? std::min(max_iter, 1000) : 1000;
+
+    const double nnls_tol =
+        (tol > 0.0) ? tol : 1.0e-10;
+
+    /*
+     * NNLS 解を選択要素とみなす閾値。
+     * 必要に応じて nnls_tol とは別の値にしてもよい。
+     */
+    const double weight_tol = nnls_tol;
+
+    FILE* fp;
+    char fname[BUFFER_SIZE];
+    char id[BUFFER_SIZE];
+
+    int ndof;
+    int* subdomain_id = NULL;
+
+    double start_time =
+        monolis_get_time_global_sync();
+
+    /*
+     * この値は「1要素を構成する節点数」であることを前提とする。
+     *
+     * 元コードでは fe->local_num_nodes が使われているが、
+     * これが全局所節点数を意味する場合は、
+     * 要素種別に応じた節点数へ置き換える必要がある。
+     */
+    const int num_nodes_per_elem =
+        fe->local_num_nodes;
+
+    /*
+     * 使用しない引数に対する警告抑制。
+     * 必要になれば削除する。
+     */
+    (void)hlpod_mat;
+    (void)total_num_modes;
+
+    /*
+     * 部分領域IDを読み込む。
+     */
+    subdomain_id =
+        (int*)calloc((size_t)num_subdomains, sizeof(int));
+
+    if (subdomain_id == NULL) {
+        fprintf(
+            stderr,
+            "ERROR: failed to allocate subdomain_id\n");
+        return;
+    }
+
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "metagraph_parted.0/metagraph.dat.id.%d",
+        myrank);
+
+    fp = ROM_BB_read_fopen(fp, fname, directory);
+
+    if (fp == NULL) {
+        fprintf(
+            stderr,
+            "ERROR: failed to open %s\n",
+            fname);
+
+        free(subdomain_id);
+        return;
+    }
+
+    if (fscanf(fp, "%s", id) != 1) {
+        fprintf(
+            stderr,
+            "ERROR: failed to read ID from %s\n",
+            fname);
+
+        fclose(fp);
+        free(subdomain_id);
+        return;
+    }
+
+    /*
+     * 元コードの形式を維持する。
+     */
+    if (fscanf(fp, "%d %d", &ndof, &ndof) != 2) {
+        fprintf(
+            stderr,
+            "ERROR: failed to read header from %s\n",
+            fname);
+
+        fclose(fp);
+        free(subdomain_id);
+        return;
+    }
+
+    for (int m = 0; m < num_subdomains; m++) {
+        if (fscanf(fp, "%d", &subdomain_id[m]) != 1) {
+            fprintf(
+                stderr,
+                "ERROR: failed to read subdomain ID: m = %d\n",
+                m);
+
+            fclose(fp);
+            free(subdomain_id);
+            return;
+        }
+    }
+
+    fclose(fp);
+
+    /*
+     * parallel_elems_id は連続した配列添字とは限らない。
+     * そのため、任意のグローバル要素IDをキーとして候補集合を保持する。
+     */
+    std::unordered_set<int> unique_element_ids;
+    std::unordered_set<int> candidate_ids;
+    std::unordered_set<int> initial_active_ids;
+
+    size_t max_local_elements = 0;
+
+    for (int m = 0; m < num_subdomains; m++) {
+        max_local_elements +=
+            (size_t)hlpod_ddhr->num_elems[m];
+    }
+
+    unique_element_ids.reserve(max_local_elements);
+    candidate_ids.reserve(max_local_elements);
+    initial_active_ids.reserve((size_t)num_subdomains);
+
+    /*
+     * 全領域に存在する要素コピーを、グローバル要素IDで
+     * 重複排除し、削減率の基準となる物理要素集合を作る。
+     */
+    for (int m = 0; m < num_subdomains; m++) {
+        const int num_local_elems =
+            hlpod_ddhr->num_elems[m];
+
+        for (int i = 0; i < num_local_elems; i++) {
+            const int local_elem_id =
+                hlpod_ddhr->elem_id_local[i][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            if (global_elem_id < 0) {
+                fprintf(
+                    stderr,
+                    "ERROR: negative global element ID while "
+                    "building unique element set: "
+                    "rank=%d subdomain=%d local_col=%d "
+                    "local_elem=%d global_elem=%d\n",
+                    myrank,
+                    m,
+                    i,
+                    local_elem_id,
+                    global_elem_id);
+
+                exit(EXIT_FAILURE);
+            }
+
+            unique_element_ids.insert(global_elem_id);
+        }
+    }
+
+    int num_domains_with_candidates = 0;
+    int num_domains_with_initial_active = 0;
+
+    /*
+     * Persist Stage-1 per-fine-subdomain statistics so that the later
+     * serial Stage-3 executable can print one combined report over all
+     * MPI ranks and all fine subdomains.
+     *
+     * Candidate IDs stored here are the legacy parallel element IDs.
+     * The serial program maps them to original-global IDs using the
+     * exact stage3_route.<rank>.txt table.
+     */
+    std::vector<int> stage1_local_unique_count(
+        (size_t)num_subdomains, 0);
+    std::vector<int> stage1_local_candidate_count(
+        (size_t)num_subdomains, 0);
+    std::vector<int> stage1_local_initial_active(
+        (size_t)num_subdomains, 0);
+    std::vector<double> stage1_local_residual(
+        (size_t)num_subdomains, 0.0);
+    std::vector<std::vector<int>> stage1_local_candidate_ids(
+        (size_t)num_subdomains);
+
+    size_t sum_local_unique_elements = 0;
+    size_t sum_local_candidate_elements = 0;
+
+    printf(
+        "\n"
+        "============================================================\n"
+        "[NNLS element set before two-stage reduction]\n"
+        "rank                              = %d\n"
+        "number of subdomains              = %d\n"
+        "input total_num_elem              = %d\n"
+        "element copies over subdomains    = %zu\n"
+        "unique physical elements          = %zu\n"
+        "duplicate element copies          = %zu\n"
+        "============================================================\n",
+        myrank,
+        num_subdomains,
+        total_num_elem,
+        max_local_elements,
+        unique_element_ids.size(),
+        (max_local_elements >= unique_element_ids.size())
+            ? max_local_elements - unique_element_ids.size()
+            : 0);
+
+    /*
+     * 各部分領域の正規化係数。
+     *
+     * 第1パスの局所NNLSと、第2パスの全体NNLSで
+     * 同じ正規化を再現するために保存する。
+     */
+    double* subdomain_scale =
+        (double*)calloc(
+            (size_t)num_subdomains,
+            sizeof(double));
+
+    /*
+     * 各領域のNNLS行数。
+     */
+    int* subdomain_num_rows =
+        (int*)calloc(
+            (size_t)num_subdomains,
+            sizeof(int));
+
+    if (subdomain_scale == NULL ||
+        subdomain_num_rows == NULL) {
+
+        fprintf(
+            stderr,
+            "ERROR: failed to allocate candidate arrays\n");
+
+        free(subdomain_scale);
+        free(subdomain_num_rows);
+        free(subdomain_id);
+
+        return;
+    }
+
+    /*
+     * ============================================================
+     * 第1パス
+     *
+     * 各領域で局所 sparse NNLS を解き、
+     *
+     * 1. 選択された全要素を候補集合へ登録
+     * 2. 最大重み要素を初期 active set へ登録
+     *
+     * する。
+     * ============================================================
+     */
+
+    /*
+     * hlpod_ddhr->matrix と RH の第1添字 j が属する、
+     * スナップショット込みの共通グローバル・モード行空間。
+     *
+     * 第1段階の NNLS_row は各領域が使用する行数であり、
+     * 第2段階の共通行番号そのものではない。
+     */
+    const int global_NNLS_row =
+        total_num_snapshot * hlpod_vals->n_neib_vec;
+
+    if (global_NNLS_row <= 0) {
+        fprintf(
+            stderr,
+            "ERROR: invalid global mode row count: "
+            "rank=%d snapshots=%d n_neib_vec=%d rows=%d\n",
+            myrank,
+            total_num_snapshot,
+            hlpod_vals->n_neib_vec,
+            global_NNLS_row);
+
+        exit(EXIT_FAILURE);
+    }
+
+    for (int m = 0; m < num_subdomains; m++) {
+        const int NNLS_row =
+            hlpod_ddhr->num_modes_1stdd[m]
+            * total_num_snapshot;
+
+        const int num_local_elems =
+            hlpod_ddhr->num_elems[m];
+
+        std::unordered_set<int> local_unique_ids;
+        std::unordered_set<int> local_candidate_ids;
+
+        local_unique_ids.reserve((size_t)num_local_elems);
+        local_candidate_ids.reserve((size_t)num_local_elems);
+
+        for (int i = 0; i < num_local_elems; i++) {
+            const int local_elem_id =
+                hlpod_ddhr->elem_id_local[i][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            if (global_elem_id < 0) {
+                fprintf(
+                    stderr,
+                    "ERROR: negative global element ID in local set: "
+                    "rank=%d subdomain=%d local_col=%d "
+                    "local_elem=%d global_elem=%d\n",
+                    myrank,
+                    m,
+                    i,
+                    local_elem_id,
+                    global_elem_id);
+
+                exit(EXIT_FAILURE);
+            }
+
+            local_unique_ids.insert(global_elem_id);
+        }
+
+        subdomain_num_rows[m] = NNLS_row;
+
+        /*
+         * NNLS_row は、この領域で第1段階に使用する方程式数。
+         * 第2段階では各方程式を元の行番号 j へ戻して組み立てる。
+         */
+
+        printf(
+            "rank = %d, subdomain = %d, "
+            "NNLS_row = %d, num_elems = %d\n",
+            myrank,
+            m,
+            NNLS_row,
+            num_local_elems);
+
+        double* ans_vec = NULL;
+        double** matrix = NULL;
+        double* RH = NULL;
+
+        ans_vec =
+            BB_std_calloc_1d_double(
+                ans_vec,
+                num_local_elems);
+
+        matrix =
+            BB_std_calloc_2d_double(
+                matrix,
+                NNLS_row,
+                num_local_elems);
+
+        RH =
+            BB_std_calloc_1d_double(
+                RH,
+                NNLS_row);
+
+        int local_row = 0;
+
+        /*
+         * 現在のモード・スナップショットループを
+         * そのまま使用して局所NNLS行列を構築する。
+         */
+        for (int p = 0;
+             p < total_num_snapshot;
+             p++) {
+
+            /*
+             * 内部モード。
+             */
+            const int JS =
+                hlpod_ddhr
+                    ->num_internal_modes_1stdd_sum[m]
+                + hlpod_vals->n_neib_vec * p;
+
+            const int JE =
+                hlpod_ddhr
+                    ->num_internal_modes_1stdd_sum[m + 1]
+                + hlpod_vals->n_neib_vec * p;
+
+            for (int j = JS; j < JE; j++) {
+                if (local_row >= NNLS_row) {
+                    fprintf(
+                        stderr,
+                        "ERROR: NNLS row overflow: "
+                        "rank=%d subdomain=%d "
+                        "row=%d expected=%d\n",
+                        myrank,
+                        m,
+                        local_row,
+                        NNLS_row);
+
+                    exit(EXIT_FAILURE);
+                }
+
+                for (int i = 0;
+                     i < num_local_elems;
+                     i++) {
+
+                    matrix[local_row][i] =
+                        hlpod_ddhr->matrix[j][i][m];
+                }
+
+                RH[local_row] =
+                    hlpod_ddhr->RH[j][m];
+
+                local_row++;
+            }
+
+            /*
+             * 近傍モード。
+             */
+            const int iS =
+                hlpod_meta->index[m];
+
+            const int iE =
+                hlpod_meta->index[m + 1];
+
+            for (int n = iS; n < iE; n++) {
+                const int target_global_id =
+                    hlpod_meta->my_global_id[
+                        hlpod_meta->item[n]];
+
+                for (int l = 0;
+                     l <
+                         hlpod_meta->n_internal_sum
+                         + monolis_com->n_internal_vertex;
+                     l++) {
+
+                    if (target_global_id
+                        != hlpod_meta->global_id[l]) {
+                        continue;
+                    }
+
+                    const int IS =
+                        hlpod_ddhr
+                            ->num_neib_modes_1stdd_sum[l]
+                        + hlpod_vals->n_neib_vec * p;
+
+                    const int IE =
+                        hlpod_ddhr
+                            ->num_neib_modes_1stdd_sum[l + 1]
+                        + hlpod_vals->n_neib_vec * p;
+
+                    for (int j = IS; j < IE; j++) {
+                        if (local_row >= NNLS_row) {
+                            fprintf(
+                                stderr,
+                                "ERROR: NNLS row overflow: "
+                                "rank=%d subdomain=%d "
+                                "row=%d expected=%d\n",
+                                myrank,
+                                m,
+                                local_row,
+                                NNLS_row);
+
+                            exit(EXIT_FAILURE);
+                        }
+
+                        for (int i = 0;
+                             i < num_local_elems;
+                             i++) {
+
+                            matrix[local_row][i] =
+                                hlpod_ddhr
+                                    ->matrix[j][i][m];
+                        }
+
+                        RH[local_row] =
+                            hlpod_ddhr->RH[j][m];
+
+                        local_row++;
+                    }
+
+                    /*
+                     * target_global_id に一致する l は
+                     * 一意であることを前提とする。
+                     */
+                    break;
+                }
+            }
+        }
+
+        if (local_row != NNLS_row) {
+            fprintf(
+                stderr,
+                "ERROR: NNLS row mismatch: "
+                "rank=%d subdomain=%d "
+                "actual=%d expected=%d\n",
+                myrank,
+                m,
+                local_row,
+                NNLS_row);
+
+            exit(EXIT_FAILURE);
+        }
+
+        /*
+         * Frobeniusノルムを計算する。
+         *
+         * 元コードの単純和
+         *
+         *   local_Frovnorm += matrix[j][e]
+         *
+         * では正負が打ち消し合うため、
+         * 二乗和の平方根を使用する。
+         */
+        double local_Frovnorm = 0.0;
+
+        for (int j = 0; j < NNLS_row; j++) {
+            for (int i = 0;
+                 i < num_local_elems;
+                 i++) {
+
+                const double value =
+                    matrix[j][i];
+
+                local_Frovnorm +=
+                    value * value;
+            }
+        }
+
+        local_Frovnorm =
+            std::sqrt(local_Frovnorm);
+
+        if (local_Frovnorm <= DBL_MIN) {
+            /*
+             * ゼロ行列の場合は正規化しない。
+             */
+            local_Frovnorm = 1.0;
+        }
+
+        subdomain_scale[m] =
+            local_Frovnorm;
+
+        for (int j = 0; j < NNLS_row; j++) {
+            RH[j] /= local_Frovnorm;
+
+            for (int i = 0;
+                 i < num_local_elems;
+                 i++) {
+
+                matrix[j][i] /=
+                    local_Frovnorm;
+            }
+        }
+
+        double local_residual = 0.0;
+
+        monolis_optimize_nnls_R_with_sparse_solution(
+            matrix,
+            RH,
+            ans_vec,
+            NNLS_row,
+            num_local_elems,
+            nnls_max_iter,
+            nnls_tol,
+            &local_residual);
+
+        printf(
+            "rank = %d, subdomain = %d, "
+            "local residual = %.15e\n",
+            myrank,
+            m,
+            local_residual);
+
+        /*
+         * この領域で最大重みとなった局所列。
+         */
+        int max_local_col = -1;
+        double max_weight = -1.0;
 
 
+        for (int i = 0;
+             i < num_local_elems;
+             i++) {
+
+            if (ans_vec[i] <= weight_tol) {
+                continue;
+            }
+
+            const int local_elem_id =
+                hlpod_ddhr
+                    ->elem_id_local[i][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            if (global_elem_id < 0) {
+                fprintf(
+                    stderr,
+                    "ERROR: negative global element ID: "
+                    "rank=%d subdomain=%d local_col=%d "
+                    "local_elem=%d global_elem=%d\n",
+                    myrank,
+                    m,
+                    i,
+                    local_elem_id,
+                    global_elem_id);
+
+                exit(EXIT_FAILURE);
+            }
+
+            /*
+             * 各領域で選択された要素の和集合。
+             * global_elem_id は配列添字ではなくキーとして扱う。
+             */
+            candidate_ids.insert(global_elem_id);
+            local_candidate_ids.insert(global_elem_id);
+
+            if (ans_vec[i] > max_weight) {
+                max_weight = ans_vec[i];
+                max_local_col = i;
+            }
+        }
+
+        /*
+         * 各領域で最大重みの要素を初期 active にする。
+         */
+        if (max_local_col >= 0) {
+            const int local_elem_id =
+                hlpod_ddhr
+                    ->elem_id_local[max_local_col][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            candidate_ids.insert(global_elem_id);
+            local_candidate_ids.insert(global_elem_id);
+            initial_active_ids.insert(global_elem_id);
+            num_domains_with_initial_active++;
+
+            printf(
+                "rank = %d, subdomain = %d, "
+                "initial active global element = %d, "
+                "weight = %.15e\n",
+                myrank,
+                m,
+                global_elem_id,
+                max_weight);
+        }
+        else {
+            printf(
+                "WARNING: no positive NNLS coefficient: "
+                "rank=%d subdomain=%d\n",
+                myrank,
+                m);
+        }
+
+        const size_t local_unique_count =
+            local_unique_ids.size();
+
+        const size_t local_candidate_count =
+            local_candidate_ids.size();
+
+        stage1_local_unique_count[(size_t)m] =
+            (int)local_unique_count;
+        stage1_local_candidate_count[(size_t)m] =
+            (int)local_candidate_count;
+        stage1_local_initial_active[(size_t)m] =
+            (max_local_col >= 0) ? 1 : 0;
+        stage1_local_residual[(size_t)m] =
+            local_residual;
+
+        stage1_local_candidate_ids[(size_t)m].assign(
+            local_candidate_ids.begin(),
+            local_candidate_ids.end());
+        std::sort(
+            stage1_local_candidate_ids[(size_t)m].begin(),
+            stage1_local_candidate_ids[(size_t)m].end());
+
+        sum_local_unique_elements +=
+            local_unique_count;
+
+        sum_local_candidate_elements +=
+            local_candidate_count;
+
+        if (local_candidate_count > 0) {
+            num_domains_with_candidates++;
+        }
+
+        const size_t local_removed =
+            (local_unique_count >= local_candidate_count)
+            ? local_unique_count - local_candidate_count
+            : 0;
+
+        const double local_keep_ratio =
+            (local_unique_count > 0)
+            ? 100.0
+                * (double)local_candidate_count
+                / (double)local_unique_count
+            : 0.0;
+
+        const double local_reduction_ratio =
+            (local_unique_count > 0)
+            ? 100.0
+                * (double)local_removed
+                / (double)local_unique_count
+            : 0.0;
+
+        printf(
+            "\n"
+            "[Stage 1: subdomain reduction]\n"
+            "rank                       = %d\n"
+            "subdomain                  = %d / %d\n"
+            "subdomain ID               = %d\n"
+            "local element copies       = %d\n"
+            "local unique elements      = %zu\n"
+            "local candidate elements   = %zu\n"
+            "local initial active       = %d\n"
+            "local removed              = %zu\n"
+            "local retained             = %.3f %%\n"
+            "local reduction            = %.3f %%\n"
+            "local residual             = %.15e\n",
+            myrank,
+            m + 1,
+            num_subdomains,
+            subdomain_id[m],
+            num_local_elems,
+            local_unique_count,
+            local_candidate_count,
+            (max_local_col >= 0) ? 1 : 0,
+            local_removed,
+            local_keep_ratio,
+            local_reduction_ratio,
+            local_residual);
+
+        BB_std_free_1d_double(
+            ans_vec,
+            num_local_elems);
+
+        BB_std_free_2d_double(
+            matrix,
+            NNLS_row,
+            num_local_elems);
+
+        BB_std_free_1d_double(
+            RH,
+            NNLS_row);
+    }
+
+    /*
+     * ============================================================
+     * 候補集合を縮約列番号へ変換する。
+     * ============================================================
+     */
+
+    std::vector<int> candidate_elem(
+        candidate_ids.begin(),
+        candidate_ids.end());
+
+    /*
+     * unordered_set の反復順序は不定なので、
+     * グローバルID順に並べて候補列順序を再現可能にする。
+     */
+    std::sort(
+        candidate_elem.begin(),
+        candidate_elem.end());
+
+    const int num_candidates =
+        (int)candidate_elem.size();
+
+    const int num_initial_active =
+        (int)initial_active_ids.size();
+
+    const int num_unique_elements =
+        (int)unique_element_ids.size();
+
+    const int num_removed_stage1 =
+        num_unique_elements - num_candidates;
+
+    const size_t duplicate_candidates_across_domains =
+        (sum_local_candidate_elements >= (size_t)num_candidates)
+        ? sum_local_candidate_elements - (size_t)num_candidates
+        : 0;
+
+    const int duplicate_initial_active =
+        (num_domains_with_initial_active >= num_initial_active)
+        ? num_domains_with_initial_active - num_initial_active
+        : 0;
+
+    const double stage1_keep_ratio =
+        (num_unique_elements > 0)
+        ? 100.0
+            * (double)num_candidates
+            / (double)num_unique_elements
+        : 0.0;
+
+    const double stage1_reduction_ratio =
+        (num_unique_elements > 0)
+        ? 100.0
+            * (double)num_removed_stage1
+            / (double)num_unique_elements
+        : 0.0;
+
+    const double average_candidates_per_domain =
+        (num_subdomains > 0)
+        ? (double)sum_local_candidate_elements
+            / (double)num_subdomains
+        : 0.0;
+
+    const double active_domain_coverage =
+        (num_subdomains > 0)
+        ? 100.0
+            * (double)num_domains_with_initial_active
+            / (double)num_subdomains
+        : 0.0;
+
+    printf(
+        "\n"
+        "============================================================\n"
+        "[Stage 1 summary]\n"
+        "rank                              = %d\n"
+        "number of subdomains              = %d\n"
+        "domains with candidates           = %d\n"
+        "domains with initial active       = %d\n"
+        "active-domain coverage            = %.3f %%\n"
+        "global NNLS rows                  = %d\n"
+        "element copies over subdomains    = %zu\n"
+        "sum of local unique counts        = %zu\n"
+        "unique physical elements          = %d\n"
+        "sum of local candidate counts     = %zu\n"
+        "unique stage-1 candidates         = %d\n"
+        "candidate duplicates              = %zu\n"
+        "average candidates per domain     = %.3f\n"
+        "initial-active selections         = %d\n"
+        "unique initial-active elements    = %d\n"
+        "duplicate initial-active picks    = %d\n"
+        "stage-1 removed                   = %d\n"
+        "stage-1 retained                  = %.3f %%\n"
+        "stage-1 reduction                 = %.3f %%\n"
+        "============================================================\n",
+        myrank,
+        num_subdomains,
+        num_domains_with_candidates,
+        num_domains_with_initial_active,
+        active_domain_coverage,
+        global_NNLS_row,
+        max_local_elements,
+        sum_local_unique_elements,
+        num_unique_elements,
+        sum_local_candidate_elements,
+        num_candidates,
+        duplicate_candidates_across_domains,
+        average_candidates_per_domain,
+        num_domains_with_initial_active,
+        num_initial_active,
+        duplicate_initial_active,
+        num_removed_stage1,
+        stage1_keep_ratio,
+        stage1_reduction_ratio);
+
+
+    /*
+     * Write Stage-1 statistics for the serial/global reduction report.
+     *
+     * File format:
+     *   HROM_STAGE1_STATS_V1
+     *   <num_subdomains>
+     *   <fine_subdomain_id> <local_unique> <local_candidates>
+     *       <initial_active> <local_residual>
+     *   <candidate_parallel_id 0>
+     *   ...
+     */
+    {
+        char stage1_stats_name[BUFFER_SIZE];
+        snprintf(
+            stage1_stats_name,
+            BUFFER_SIZE,
+            "DDECM/stage1_stats.%d.txt",
+            myrank);
+
+        FILE* fp_stage1_stats =
+            ROM_BB_write_fopen(
+                fp_stage1_stats,
+                stage1_stats_name,
+                directory);
+
+        if (fp_stage1_stats == NULL) {
+            fprintf(
+                stderr,
+                "ERROR: failed to open Stage-1 stats output on rank %d\n",
+                myrank);
+            exit(EXIT_FAILURE);
+        }
+
+        fprintf(fp_stage1_stats, "HROM_STAGE1_STATS_V1\n");
+        fprintf(fp_stage1_stats, "%d\n", num_subdomains);
+
+        for (int m = 0; m < num_subdomains; m++) {
+            fprintf(
+                fp_stage1_stats,
+                "%d %d %d %d %.30e\n",
+                subdomain_id[m],
+                stage1_local_unique_count[(size_t)m],
+                stage1_local_candidate_count[(size_t)m],
+                stage1_local_initial_active[(size_t)m],
+                stage1_local_residual[(size_t)m]);
+
+            const std::vector<int>& ids =
+                stage1_local_candidate_ids[(size_t)m];
+
+            for (size_t k = 0; k < ids.size(); k++) {
+                fprintf(fp_stage1_stats, "%d\n", ids[k]);
+            }
+        }
+
+        fclose(fp_stage1_stats);
+
+        printf(
+            "[STAGE1-STATS] rank=%d subdomains=%d "
+            "file=%s\n",
+            myrank,
+            num_subdomains,
+            stage1_stats_name);
+    }
+
+    if (num_candidates == 0) {
+        fprintf(
+            stderr,
+            "WARNING: no candidate elements were selected "
+            "on rank %d\n",
+            myrank);
+
+        /*
+         * 出力配列を空の状態で確保する。
+         */
+        const int selection_capacity =
+            (nnls_max_iter > 0)
+            ? nnls_max_iter
+            : 1;
+
+        hlpod_ddhr->D_bc_exists =
+            BB_std_calloc_2d_bool(
+                hlpod_ddhr->D_bc_exists,
+                fe->total_num_nodes,
+                num_subdomains);
+
+        hlpod_ddhr->id_selected_elems =
+            BB_std_calloc_2d_int(
+                hlpod_ddhr->id_selected_elems,
+                selection_capacity,
+                num_subdomains);
+
+        hlpod_ddhr->id_selected_elems_D_bc =
+            BB_std_calloc_2d_int(
+                hlpod_ddhr->id_selected_elems_D_bc,
+                selection_capacity,
+                num_subdomains);
+
+        hlpod_ddhr->elem_weight =
+            BB_std_calloc_2d_double(
+                hlpod_ddhr->elem_weight,
+                selection_capacity,
+                num_subdomains);
+
+        hlpod_ddhr->elem_weight_D_bc =
+            BB_std_calloc_2d_double(
+                hlpod_ddhr->elem_weight_D_bc,
+                selection_capacity,
+                num_subdomains);
+
+        hlpod_ddhr->num_selected_elems =
+            BB_std_calloc_1d_int(
+                hlpod_ddhr->num_selected_elems,
+                num_subdomains);
+
+        hlpod_ddhr->num_selected_elems_D_bc =
+            BB_std_calloc_1d_int(
+                hlpod_ddhr->num_selected_elems_D_bc,
+                num_subdomains);
+
+        for (int m = 0;
+             m < num_subdomains;
+             m++) {
+
+            hr_write_NNLS_residual(
+                0.0,
+                myrank,
+                m,
+                directory);
+
+            hr_write_NNLS_num_elems(
+                0,
+                myrank,
+                m,
+                directory);
+
+            char fname_D_bc[BUFFER_SIZE];
+            char fname_no_D_bc[BUFFER_SIZE];
+
+            snprintf(
+                fname_D_bc,
+                BUFFER_SIZE,
+                "DDECM/lb_selected_elem_D_bc.%d.txt",
+                subdomain_id[m]);
+
+            snprintf(
+                fname_no_D_bc,
+                BUFFER_SIZE,
+                "DDECM/lb_selected_elem.%d.txt",
+                subdomain_id[m]);
+
+            FILE* fp_D_bc =
+                ROM_BB_write_fopen(
+                    fp_D_bc,
+                    fname_D_bc,
+                    directory);
+
+            FILE* fp_no_D_bc =
+                ROM_BB_write_fopen(
+                    fp_no_D_bc,
+                    fname_no_D_bc,
+                    directory);
+
+            fprintf(fp_D_bc, "0\n");
+            fprintf(fp_no_D_bc, "0\n");
+
+            fclose(fp_D_bc);
+            fclose(fp_no_D_bc);
+        }
+
+        /*
+         * Stage 3 output must also be written by a rank with no Stage-2
+         * selections, because this rank may own an element selected as a
+         * ghost on another rank. No MPI collective is used here.
+         */
+        {
+            const std::vector<int> empty_selected_elem;
+            const std::vector<double> empty_selected_weight;
+
+            HROM_stage3_write_rank_file_no_mpi(
+                monolis_com,
+                hlpod_vals,
+                hlpod_ddhr,
+                hlpod_meta,
+                total_num_elem,
+                total_num_snapshot,
+                num_subdomains,
+                subdomain_id,
+                empty_selected_elem,
+                empty_selected_weight,
+                directory);
+        }
+
+        free(subdomain_scale);
+        free(subdomain_num_rows);
+        free(subdomain_id);
+
+        const int max_num_elem_empty =
+            ROM_BB_findMax(
+                hlpod_ddhr->num_elems,
+                num_subdomains);
+
+        BB_std_free_3d_double(
+            hlpod_ddhr->matrix,
+            total_num_snapshot
+                * hlpod_vals->n_neib_vec,
+            max_num_elem_empty,
+            num_subdomains);
+
+        BB_std_free_2d_double(
+            hlpod_ddhr->RH,
+            total_num_snapshot
+                * hlpod_vals->n_neib_vec,
+            num_subdomains);
+
+        return;
+    }
+
+    /*
+     * 任意のグローバル要素IDを、
+     * 0 ～ num_candidates - 1 の候補列番号へ変換する。
+     */
+    std::unordered_map<int, int> candidate_col;
+    candidate_col.reserve(candidate_elem.size() * 2 + 1);
+
+    std::vector<int> active_set_init(
+        (size_t)num_candidates,
+        0);
+
+    for (int c = 0; c < num_candidates; c++) {
+        const int global_elem_id =
+            candidate_elem[(size_t)c];
+
+        candidate_col.emplace(
+            global_elem_id,
+            c);
+
+        if (initial_active_ids.find(global_elem_id)
+            != initial_active_ids.end()) {
+
+            active_set_init[(size_t)c] = 1;
+        }
+    }
+
+    /*
+     * ============================================================
+     * 第2パス
+     *
+     * 第1段階で選択された要素の和集合だけを列として使用する。
+     *
+     * 行番号には各領域で0から振り直した local_row を使わず、
+     * hlpod_ddhr->matrix[j][i][m] と RH[j][m] の元の行番号 j を使う。
+     * これにより、異なる領域にある同じグローバル・モード行の寄与を
+     * 正しい同一行へ加算する。
+     *
+     * full_matrix の大きさ：
+     *   行数 = total_num_snapshot * hlpod_vals->n_neib_vec
+     *   列数 = 第1段階 active 要素の和集合数
+     *
+     * 最後に、実際に寄与が存在する行だけへ圧縮してNNLSへ渡す。
+     * ============================================================
+     */
+
+    double** full_matrix = NULL;
+    double* full_RH = NULL;
+
+    full_matrix =
+        BB_std_calloc_2d_double(
+            full_matrix,
+            global_NNLS_row,
+            num_candidates);
+
+    full_RH =
+        BB_std_calloc_1d_double(
+            full_RH,
+            global_NNLS_row);
+
+    std::vector<int> row_contribution_count(
+        (size_t)global_NNLS_row,
+        0);
+
+    std::vector<int> column_contribution_count(
+        (size_t)num_candidates,
+        0);
+
+    for (int m = 0;
+         m < num_subdomains;
+         m++) {
+
+        const int NNLS_row =
+            subdomain_num_rows[m];
+
+        const int num_local_elems =
+            hlpod_ddhr->num_elems[m];
+
+        /*
+         * 同一領域内で同じ j を複数回登録すると、RHを二重加算する。
+         * そのような行対応の重複を検出する。
+         */
+        std::vector<unsigned char> row_seen_in_subdomain(
+            (size_t)global_NNLS_row,
+            (unsigned char)0);
+
+        int local_equation_count = 0;
+
+        for (int p = 0;
+             p < total_num_snapshot;
+             p++) {
+
+            /* 内部モード。 */
+            const int JS =
+                hlpod_ddhr
+                    ->num_internal_modes_1stdd_sum[m]
+                + hlpod_vals->n_neib_vec * p;
+
+            const int JE =
+                hlpod_ddhr
+                    ->num_internal_modes_1stdd_sum[m + 1]
+                + hlpod_vals->n_neib_vec * p;
+
+            for (int j = JS; j < JE; j++) {
+                if (j < 0 || j >= global_NNLS_row) {
+                    fprintf(
+                        stderr,
+                        "ERROR: stage-2 internal mode row is out of range: "
+                        "rank=%d subdomain=%d snapshot=%d j=%d rows=%d\n",
+                        myrank,
+                        m,
+                        p,
+                        j,
+                        global_NNLS_row);
+
+                    exit(EXIT_FAILURE);
+                }
+
+                if (row_seen_in_subdomain[(size_t)j] != 0) {
+                    fprintf(
+                        stderr,
+                        "ERROR: duplicate stage-2 row in one subdomain: "
+                        "rank=%d subdomain=%d snapshot=%d j=%d\n",
+                        myrank,
+                        m,
+                        p,
+                        j);
+
+                    exit(EXIT_FAILURE);
+                }
+
+                row_seen_in_subdomain[(size_t)j] = 1;
+                local_equation_count++;
+
+                for (int i = 0;
+                     i < num_local_elems;
+                     i++) {
+
+                    const int local_elem_id =
+                        hlpod_ddhr
+                            ->elem_id_local[i][m];
+
+                    const int global_elem_id =
+                        hlpod_ddhr
+                            ->parallel_elems_id[
+                                local_elem_id];
+
+                    const auto candidate_it =
+                        candidate_col.find(global_elem_id);
+
+                    /*
+                     * 第1段階でactiveでなかった要素の寄与は、
+                     * 第2段階には入れない。
+                     */
+                    if (candidate_it == candidate_col.end()) {
+                        continue;
+                    }
+
+                    const int c =
+                        candidate_it->second;
+
+                    const double contribution =
+                        hlpod_ddhr->matrix[j][i][m];
+
+                    full_matrix[j][c] +=
+                        contribution;
+
+                    if (contribution != 0.0) {
+                        column_contribution_count[(size_t)c]++;
+                    }
+                }
+
+                full_RH[j] +=
+                    hlpod_ddhr->RH[j][m];
+
+                row_contribution_count[(size_t)j]++;
+            }
+
+            /* 近傍モード。 */
+            const int iS =
+                hlpod_meta->index[m];
+
+            const int iE =
+                hlpod_meta->index[m + 1];
+
+            for (int n = iS; n < iE; n++) {
+                const int target_global_id =
+                    hlpod_meta->my_global_id[
+                        hlpod_meta->item[n]];
+
+                for (int l = 0;
+                     l <
+                         hlpod_meta->n_internal_sum
+                         + monolis_com->n_internal_vertex;
+                     l++) {
+
+                    if (target_global_id
+                        != hlpod_meta->global_id[l]) {
+                        continue;
+                    }
+
+                    const int IS =
+                        hlpod_ddhr
+                            ->num_neib_modes_1stdd_sum[l]
+                        + hlpod_vals->n_neib_vec * p;
+
+                    const int IE =
+                        hlpod_ddhr
+                            ->num_neib_modes_1stdd_sum[l + 1]
+                        + hlpod_vals->n_neib_vec * p;
+
+                    for (int j = IS; j < IE; j++) {
+                        if (j < 0 || j >= global_NNLS_row) {
+                            fprintf(
+                                stderr,
+                                "ERROR: stage-2 neighbor mode row is out of range: "
+                                "rank=%d subdomain=%d snapshot=%d j=%d rows=%d\n",
+                                myrank,
+                                m,
+                                p,
+                                j,
+                                global_NNLS_row);
+
+                            exit(EXIT_FAILURE);
+                        }
+
+                        if (row_seen_in_subdomain[(size_t)j] != 0) {
+                            fprintf(
+                                stderr,
+                                "ERROR: duplicate stage-2 row in one subdomain: "
+                                "rank=%d subdomain=%d snapshot=%d j=%d\n",
+                                myrank,
+                                m,
+                                p,
+                                j);
+
+                            exit(EXIT_FAILURE);
+                        }
+
+                        row_seen_in_subdomain[(size_t)j] = 1;
+                        local_equation_count++;
+
+                        for (int i = 0;
+                             i < num_local_elems;
+                             i++) {
+
+                            const int local_elem_id =
+                                hlpod_ddhr
+                                    ->elem_id_local[i][m];
+
+                            const int global_elem_id =
+                                hlpod_ddhr
+                                    ->parallel_elems_id[
+                                        local_elem_id];
+
+                            const auto candidate_it =
+                                candidate_col.find(
+                                    global_elem_id);
+
+                            if (candidate_it
+                                == candidate_col.end()) {
+                                continue;
+                            }
+
+                            const int c =
+                                candidate_it->second;
+
+                            const double contribution =
+                                hlpod_ddhr
+                                    ->matrix[j][i][m];
+
+                            full_matrix[j][c] +=
+                                contribution;
+
+                            if (contribution != 0.0) {
+                                column_contribution_count[(size_t)c]++;
+                            }
+                        }
+
+                        full_RH[j] +=
+                            hlpod_ddhr->RH[j][m];
+
+                        row_contribution_count[(size_t)j]++;
+                    }
+
+                    break;
+                }
+            }
+        }
+
+        if (local_equation_count != NNLS_row) {
+            fprintf(
+                stderr,
+                "ERROR: stage-2 mapped equation count mismatch: "
+                "rank=%d subdomain=%d mapped=%d stage1_rows=%d\n",
+                myrank,
+                m,
+                local_equation_count,
+                NNLS_row);
+
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    /* 候補列に少なくとも1つ寄与があることを確認する。 */
+    for (int c = 0;
+         c < num_candidates;
+         c++) {
+
+        if (column_contribution_count[(size_t)c] == 0) {
+            fprintf(
+                stderr,
+                "ERROR: candidate column has no contribution: "
+                "rank=%d candidate_col=%d global_elem=%d\n",
+                myrank,
+                c,
+                candidate_elem[(size_t)c]);
+
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    /* 実際に使用されたグローバル行だけを抽出する。 */
+    std::vector<int> used_global_rows;
+    used_global_rows.reserve((size_t)global_NNLS_row);
+
+    for (int row = 0;
+         row < global_NNLS_row;
+         row++) {
+
+        if (row_contribution_count[(size_t)row] > 0) {
+            used_global_rows.push_back(row);
+        }
+    }
+
+    const int stage2_NNLS_row =
+        (int)used_global_rows.size();
+
+    if (stage2_NNLS_row <= 0) {
+        fprintf(
+            stderr,
+            "ERROR: stage-2 system has no active mode rows: rank=%d\n",
+            myrank);
+
+        exit(EXIT_FAILURE);
+    }
+
+    double** global_matrix = NULL;
+    double* global_RH = NULL;
+    double* global_ans = NULL;
+
+    global_matrix =
+        BB_std_calloc_2d_double(
+            global_matrix,
+            stage2_NNLS_row,
+            num_candidates);
+
+    global_RH =
+        BB_std_calloc_1d_double(
+            global_RH,
+            stage2_NNLS_row);
+
+    global_ans =
+        BB_std_calloc_1d_double(
+            global_ans,
+            num_candidates);
+
+    for (int row2 = 0;
+         row2 < stage2_NNLS_row;
+         row2++) {
+
+        const int global_row =
+            used_global_rows[(size_t)row2];
+
+        global_RH[row2] =
+            full_RH[global_row];
+
+        for (int c = 0;
+             c < num_candidates;
+             c++) {
+
+            global_matrix[row2][c] =
+                full_matrix[global_row][c];
+        }
+    }
+
+    /* 元のフル行空間は圧縮後に不要。 */
+    BB_std_free_2d_double(
+        full_matrix,
+        global_NNLS_row,
+        num_candidates);
+
+    BB_std_free_1d_double(
+        full_RH,
+        global_NNLS_row);
+
+    /* 最初の数行だけ、グローバル行との対応を表示する。 */
+    const int num_row_debug =
+        (stage2_NNLS_row < 10) ? stage2_NNLS_row : 10;
+
+    for (int row2 = 0;
+         row2 < num_row_debug;
+         row2++) {
+
+        const int global_row =
+            used_global_rows[(size_t)row2];
+
+        printf(
+            "[STAGE2-ROW] rank=%d compressed_row=%d "
+            "global_mode_row=%d contributions=%d RH=%.15e\n",
+            myrank,
+            row2,
+            global_row,
+            row_contribution_count[(size_t)global_row],
+            global_RH[row2]);
+    }
+
+    /*
+     * 全領域のactive要素寄与を組み立て、行圧縮した後に、
+     * 第2段階全体で1つの共通スケールを用いて正規化する。
+     */
+    double global_scale_sq = 0.0;
+
+    for (int row = 0;
+         row < stage2_NNLS_row;
+         row++) {
+
+        for (int c = 0;
+             c < num_candidates;
+             c++) {
+
+            const double value =
+                global_matrix[row][c];
+
+            global_scale_sq +=
+                value * value;
+        }
+    }
+
+    double global_scale =
+        std::sqrt(global_scale_sq);
+
+    if (global_scale <= DBL_MIN) {
+        global_scale = 1.0;
+    }
+
+    for (int row = 0;
+         row < stage2_NNLS_row;
+         row++) {
+
+        global_RH[row] /=
+            global_scale;
+
+        for (int c = 0;
+             c < num_candidates;
+             c++) {
+
+            global_matrix[row][c] /=
+                global_scale;
+        }
+    }
+
+    printf(
+        "\n"
+        "============================================================\n"
+        "[Stage 2 reduced NNLS system]\n"
+        "rank                              = %d\n"
+        "number of subdomains              = %d\n"
+        "full global mode rows             = %d\n"
+        "used stage-2 mode rows            = %d\n"
+        "stage-1 active union columns      = %d\n"
+        "initial active columns            = %d\n"
+        "global normalization scale        = %.15e\n"
+        "============================================================\n",
+        myrank,
+        num_subdomains,
+        global_NNLS_row,
+        stage2_NNLS_row,
+        num_candidates,
+        num_initial_active,
+        global_scale);
+
+    /*
+     * ============================================================
+     * 初期 active set 付き全体 sparse NNLS。
+     * ============================================================
+     */
+
+    double global_residual = 0.0;
+
+    monolis_optimize_nnls_R_with_sparse_solution_initial_set(
+        global_matrix,
+        global_RH,
+        global_ans,
+        stage2_NNLS_row,
+        num_candidates,
+        nnls_max_iter,
+        nnls_tol,
+        active_set_init.data(),
+        &global_residual);
+
+    int num_global_selected = 0;
+
+    std::vector<int> stage2_selected_parallel_elem;
+    std::vector<double> stage2_selected_weight;
+
+    stage2_selected_parallel_elem.reserve(
+        (size_t)num_candidates);
+
+    stage2_selected_weight.reserve(
+        (size_t)num_candidates);
+
+    for (int c = 0;
+         c < num_candidates;
+         c++) {
+
+        if (global_ans[c] > weight_tol) {
+            num_global_selected++;
+
+            stage2_selected_parallel_elem.push_back(
+                candidate_elem[(size_t)c]);
+
+            stage2_selected_weight.push_back(
+                global_ans[c]);
+        }
+    }
+
+    /*
+     * Save the raw rank contribution for the later serial Stage-3 run.
+     * No MPI_* routine is called: the serial executable performs the
+     * union of all Stage-2 selected original-global element IDs.
+     */
+    HROM_stage3_write_rank_file_no_mpi(
+        monolis_com,
+        hlpod_vals,
+        hlpod_ddhr,
+        hlpod_meta,
+        total_num_elem,
+        total_num_snapshot,
+        num_subdomains,
+        subdomain_id,
+        stage2_selected_parallel_elem,
+        stage2_selected_weight,
+        directory);
+
+    const int num_removed_stage2 =
+        num_candidates - num_global_selected;
+
+    const int num_removed_total =
+        num_unique_elements - num_global_selected;
+
+    const double stage2_keep_ratio =
+        (num_candidates > 0)
+        ? 100.0
+            * (double)num_global_selected
+            / (double)num_candidates
+        : 0.0;
+
+    const double stage2_reduction_ratio =
+        (num_candidates > 0)
+        ? 100.0
+            * (double)num_removed_stage2
+            / (double)num_candidates
+        : 0.0;
+
+    const double total_keep_ratio =
+        (num_unique_elements > 0)
+        ? 100.0
+            * (double)num_global_selected
+            / (double)num_unique_elements
+        : 0.0;
+
+    const double total_reduction_ratio =
+        (num_unique_elements > 0)
+        ? 100.0
+            * (double)num_removed_total
+            / (double)num_unique_elements
+        : 0.0;
+
+    printf(
+        "\n"
+        "============================================================\n"
+        "[Two-stage NNLS reduction summary]\n"
+        "rank                              = %d\n"
+        "number of subdomains              = %d\n"
+        "domains with candidates           = %d\n"
+        "domains with initial active       = %d\n"
+        "active-domain coverage            = %.3f %%\n"
+        "element copies over subdomains    = %zu\n"
+        "unique physical elements          = %d\n"
+        "sum of local candidate counts     = %zu\n"
+        "unique stage-1 candidates         = %d\n"
+        "candidate duplicates              = %zu\n"
+        "initial-active selections         = %d\n"
+        "unique initial-active elements    = %d\n"
+        "duplicate initial-active picks    = %d\n"
+        "stage-2 selected elements         = %d\n"
+        "stage-1 removed                   = %d\n"
+        "stage-1 retained                  = %.3f %%\n"
+        "stage-1 reduction                 = %.3f %%\n"
+        "stage-2 removed                   = %d\n"
+        "stage-2 retained                  = %.3f %%\n"
+        "stage-2 reduction                 = %.3f %%\n"
+        "total removed                     = %d\n"
+        "total retained                    = %.3f %%\n"
+        "total reduction                   = %.3f %%\n"
+        "global residual                   = %.15e\n"
+        "============================================================\n",
+        myrank,
+        num_subdomains,
+        num_domains_with_candidates,
+        num_domains_with_initial_active,
+        active_domain_coverage,
+        max_local_elements,
+        num_unique_elements,
+        sum_local_candidate_elements,
+        num_candidates,
+        duplicate_candidates_across_domains,
+        num_domains_with_initial_active,
+        num_initial_active,
+        duplicate_initial_active,
+        num_global_selected,
+        num_removed_stage1,
+        stage1_keep_ratio,
+        stage1_reduction_ratio,
+        num_removed_stage2,
+        stage2_keep_ratio,
+        stage2_reduction_ratio,
+        num_removed_total,
+        total_keep_ratio,
+        total_reduction_ratio,
+        global_residual);
+
+    /*
+     * ============================================================
+     * 全体NNLS結果を各領域へ戻す。
+     * ============================================================
+     */
+
+    /*
+     * num_candidates 以上の領域を確保しておけば、
+     * 最終的な選択数を格納できる。
+     *
+     * 既存コードとの互換性のため、
+     * nnls_max_iter より小さくならないようにする。
+     */
+    const int selection_capacity =
+        (num_candidates > nnls_max_iter)
+        ? num_candidates
+        : nnls_max_iter;
+
+    hlpod_ddhr->D_bc_exists =
+        BB_std_calloc_2d_bool(
+            hlpod_ddhr->D_bc_exists,
+            fe->total_num_nodes,
+            num_subdomains);
+
+    hlpod_ddhr->id_selected_elems =
+        BB_std_calloc_2d_int(
+            hlpod_ddhr->id_selected_elems,
+            selection_capacity,
+            num_subdomains);
+
+    hlpod_ddhr->id_selected_elems_D_bc =
+        BB_std_calloc_2d_int(
+            hlpod_ddhr->id_selected_elems_D_bc,
+            selection_capacity,
+            num_subdomains);
+
+    hlpod_ddhr->elem_weight =
+        BB_std_calloc_2d_double(
+            hlpod_ddhr->elem_weight,
+            selection_capacity,
+            num_subdomains);
+
+    hlpod_ddhr->elem_weight_D_bc =
+        BB_std_calloc_2d_double(
+            hlpod_ddhr->elem_weight_D_bc,
+            selection_capacity,
+            num_subdomains);
+
+    hlpod_ddhr->num_selected_elems =
+        BB_std_calloc_1d_int(
+            hlpod_ddhr->num_selected_elems,
+            num_subdomains);
+
+    hlpod_ddhr->num_selected_elems_D_bc =
+        BB_std_calloc_1d_int(
+            hlpod_ddhr->num_selected_elems_D_bc,
+            num_subdomains);
+
+    int* total_num_selected_elems =
+        (int*)calloc(
+            (size_t)num_subdomains,
+            sizeof(int));
+
+    if (total_num_selected_elems == NULL) {
+        fprintf(
+            stderr,
+            "ERROR: failed to allocate "
+            "total_num_selected_elems\n");
+
+        exit(EXIT_FAILURE);
+    }
+
+    for (int m = 0;
+         m < num_subdomains;
+         m++) {
+
+        int index_D_bc = 0;
+        int index_no_D_bc = 0;
+
+        const int num_local_elems =
+            hlpod_ddhr->num_elems[m];
+
+        for (int i = 0;
+             i < num_local_elems;
+             i++) {
+
+            const int local_elem_id =
+                hlpod_ddhr
+                    ->elem_id_local[i][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            const auto candidate_it =
+                candidate_col.find(global_elem_id);
+
+            if (candidate_it == candidate_col.end()) {
+                continue;
+            }
+
+            const int c =
+                candidate_it->second;
+
+            const double weight =
+                global_ans[c];
+
+            if (weight <= weight_tol) {
+                continue;
+            }
+
+            bool has_D_bc = false;
+
+            /*
+             * 選択要素にDirichlet境界節点が含まれるか確認する。
+             */
+            for (int a = 0;
+                 a < num_nodes_per_elem;
+                 a++) {
+
+                const int node =
+                    fe->conn[local_elem_id][a];
+
+                if (node < 0 ||
+                    node >= fe->total_num_nodes) {
+                    continue;
+                }
+
+                for (int k = 0;
+                     k < dof;
+                     k++) {
+
+                    if (bc->D_bc_exists[
+                            node * dof + k]) {
+
+                        has_D_bc = true;
+
+                        hlpod_ddhr
+                            ->D_bc_exists[node][m] =
+                            true;
+                    }
+                }
+            }
+
+            if (has_D_bc) {
+                if (index_D_bc >= selection_capacity) {
+                    fprintf(
+                        stderr,
+                        "ERROR: selected D_bc elements "
+                        "exceed capacity\n");
+
+                    exit(EXIT_FAILURE);
+                }
+
+                hlpod_ddhr
+                    ->id_selected_elems_D_bc[
+                        index_D_bc][m] =
+                    local_elem_id;
+
+                hlpod_ddhr
+                    ->elem_weight_D_bc[
+                        index_D_bc][m] =
+                    weight;
+
+                index_D_bc++;
+            }
+            else {
+                if (index_no_D_bc >= selection_capacity) {
+                    fprintf(
+                        stderr,
+                        "ERROR: selected elements "
+                        "exceed capacity\n");
+
+                    exit(EXIT_FAILURE);
+                }
+
+                hlpod_ddhr
+                    ->id_selected_elems[
+                        index_no_D_bc][m] =
+                    local_elem_id;
+
+                hlpod_ddhr
+                    ->elem_weight[
+                        index_no_D_bc][m] =
+                    weight;
+
+                index_no_D_bc++;
+            }
+        }
+
+        hlpod_ddhr->num_selected_elems[m] =
+            index_no_D_bc;
+
+        hlpod_ddhr->num_selected_elems_D_bc[m] =
+            index_D_bc;
+
+        total_num_selected_elems[m] =
+            index_no_D_bc + index_D_bc;
+
+        printf(
+            "rank = %d, subdomain = %d, "
+            "selected = %d, "
+            "D_bc = %d, no_D_bc = %d\n",
+            myrank,
+            m,
+            total_num_selected_elems[m],
+            index_D_bc,
+            index_no_D_bc);
+
+        /*
+         * 全体NNLSの残差を各領域の結果として出力する。
+         */
+        hr_write_NNLS_residual(
+            global_residual,
+            myrank,
+            m,
+            directory);
+
+        hr_write_NNLS_num_elems(
+            total_num_selected_elems[m],
+            myrank,
+            m,
+            directory);
+
+        /*
+         * 各領域のファイル出力。
+         */
+        char fname_D_bc[BUFFER_SIZE];
+        char fname_no_D_bc[BUFFER_SIZE];
+
+        snprintf(
+            fname_D_bc,
+            BUFFER_SIZE,
+            "DDECM/lb_selected_elem_D_bc.%d.txt",
+            subdomain_id[m]);
+
+        snprintf(
+            fname_no_D_bc,
+            BUFFER_SIZE,
+            "DDECM/lb_selected_elem.%d.txt",
+            subdomain_id[m]);
+
+        FILE* fp_D_bc =
+            ROM_BB_write_fopen(
+                fp_D_bc,
+                fname_D_bc,
+                directory);
+
+        FILE* fp_no_D_bc =
+            ROM_BB_write_fopen(
+                fp_no_D_bc,
+                fname_no_D_bc,
+                directory);
+
+        fprintf(
+            fp_D_bc,
+            "%d\n",
+            index_D_bc);
+
+        fprintf(
+            fp_no_D_bc,
+            "%d\n",
+            index_no_D_bc);
+
+        for (int h = 0;
+             h < index_D_bc;
+             h++) {
+
+            const int local_elem_id =
+                hlpod_ddhr
+                    ->id_selected_elems_D_bc[h][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            const double weight =
+                hlpod_ddhr
+                    ->elem_weight_D_bc[h][m];
+
+            fprintf(
+                fp_D_bc,
+                "%d %.30e\n",
+                global_elem_id,
+                weight);
+        }
+
+        for (int h = 0;
+             h < index_no_D_bc;
+             h++) {
+
+            const int local_elem_id =
+                hlpod_ddhr
+                    ->id_selected_elems[h][m];
+
+            const int global_elem_id =
+                hlpod_ddhr
+                    ->parallel_elems_id[local_elem_id];
+
+            const double weight =
+                hlpod_ddhr
+                    ->elem_weight[h][m];
+
+            fprintf(
+                fp_no_D_bc,
+                "%d %.30e\n",
+                global_elem_id,
+                weight);
+        }
+
+        fclose(fp_D_bc);
+        fclose(fp_no_D_bc);
+    }
+
+    /*
+     * ============================================================
+     * メモリ解放。
+     * ============================================================
+     */
+
+    BB_std_free_2d_double(
+        global_matrix,
+        stage2_NNLS_row,
+        num_candidates);
+
+    BB_std_free_1d_double(
+        global_RH,
+        stage2_NNLS_row);
+
+    BB_std_free_1d_double(
+        global_ans,
+        num_candidates);
+
+    free(total_num_selected_elems);
+
+    free(subdomain_scale);
+    free(subdomain_num_rows);
+    free(subdomain_id);
+
+    /*
+     * 元コードと同様に、
+     * hlpod_ddhr 内の入力用行列を解放する。
+     */
+    const int max_num_elem =
+        ROM_BB_findMax(
+            hlpod_ddhr->num_elems,
+            num_subdomains);
+
+    BB_std_free_3d_double(
+        hlpod_ddhr->matrix,
+        total_num_snapshot
+            * hlpod_vals->n_neib_vec,
+        max_num_elem,
+        num_subdomains);
+
+    BB_std_free_2d_double(
+        hlpod_ddhr->RH,
+        total_num_snapshot
+            * hlpod_vals->n_neib_vec,
+        num_subdomains);
+
+    const double end_time =
+        monolis_get_time_global_sync();
+
+    printf(
+        "rank = %d, HROM global candidate NNLS time = %.15e\n",
+        myrank,
+        end_time - start_time);
+}

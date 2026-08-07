@@ -398,7 +398,9 @@ void HROM_pre_offline3(
         }
     }
     else{
-        HROM_ddecm_write_selected_elems_para_arbit_subd(
+        //HROM_ddecm_write_selected_elems_para_arbit_subd(
+        HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical(
+        //HROM_ddecm_write_selected_elems_para_arbit_subd(
             &(sys->mono_com_rom_solv),
             &(sys->fe),
             &(sys->bc),
@@ -717,9 +719,14 @@ void HROM_hierarchical_parallel(
 {
     double t1 = monolis_get_time_global_sync();
 
+    double T = monolis_get_time_global_sync();
+    printf("test");
+
 	monolis_copy_mat_value_matrix_R(&(sys.monolis_hr0), &(sys.monolis_hr));
 	monolis_clear_mat_value_rhs_R(&(sys.monolis_hr));
 
+    double T1 = monolis_get_time_global_sync();
+    printf("test1\n");
 	//double set_bc1 = monolis_get_time();
 	HROM_manusol_set_bc(
         &(sys.fe),
@@ -743,6 +750,9 @@ void HROM_hierarchical_parallel(
         sys.vals.dt,
         t);
     
+    double T2 = monolis_get_time_global_sync();
+    printf("test2\n");
+
     HROM_ddecm_set_D_bc_para(
         &(sys.monolis_hr),
         &(sys.fe),
@@ -767,8 +777,11 @@ void HROM_hierarchical_parallel(
 
     t1 = monolis_get_time_global_sync();
 
+    double T3 = monolis_get_time_global_sync();
+    printf("test3\n");
+
     BBFE_sys_monowrap_solve(
-        &(sys.monolis_rom),
+        &(sys.monolis_hr),
         &(sys.mono_com_rom_solv),
         sys.rom.hlpod_mat.mode_coef,
         MONOLIS_ITER_CG,
@@ -800,6 +813,68 @@ void HROM_hierarchical_parallel(
 
 }
 
+void HROM_pre_offline(
+		FE_SYSTEM* sys,
+        ROM*            rom,
+        HROM*           hrom,
+		const int num_modes,
+		const int num_snapshot,
+		const int num_2nd_subdomains)
+{
+	monolis_initialize(&(sys->monolis_hr0));
+	monolis_initialize(&(sys->monolis_hr));
+
+	double t = monolis_get_time_global_sync();
+	//for arbit dof ddecm
+	HROM_ddecm_get_neib_subdomain_id(
+		&(sys->monolis_com),
+		&(rom->hlpod_mat),
+		rom->hlpod_vals.num_2nd_subdomains);		//num_2nd_subdomains
+
+    printf("HROM_ddecm_get_neib_subdomain_id done\n");
+
+    double t1 = monolis_get_time_global_sync();
+
+    HROM_ddecm_get_neib_num_modes(
+        &(sys->mono_com_rom),
+        &(rom->hlpod_vals),
+        &(rom->hlpod_mat),
+        1 + sys->monolis_com.recv_n_neib,
+        rom->hlpod_vals.num_modes);
+
+
+    HROM_ddecm_get_neib_coordinates_pre(
+        &(rom->hlpod_vals),
+        &(rom->hlpod_mat),
+        1 + sys->monolis_com.recv_n_neib,
+        rom->hlpod_vals.num_modes_max);
+
+    printf("%d %d\n", rom->hlpod_vals.num_modes_max, rom->hlpod_vals.num_modes_pre);
+
+	//level2領域の最大基底本数の共有
+    HROM_ddecm_get_neib_max_num_modes(
+		&(sys->mono_com_rom),
+        &(rom->hlpod_vals),
+		&(rom->hlpod_mat),
+        1 + sys->monolis_com.recv_n_neib,
+		rom->hlpod_vals.num_modes_max);
+
+	HROM_ecm_get_meta_neib(
+		&(sys->mono_com_rom_solv),
+		&(rom->hlpod_meta),
+		sys->cond.directory);
+
+	HROM_ddecm_set_neib(
+		&(sys->mono_com_rom_solv),
+		&(rom->hlpod_mat),
+		&(hrom->hlpod_ddhr),
+		&(rom->hlpod_meta),
+		num_2nd_subdomains,
+		rom->hlpod_vals.num_snapshot,
+		sys->cond.directory);
+
+}
+
 
 void HROM_pre(
         FE_SYSTEM* sys,
@@ -809,9 +884,10 @@ void HROM_pre(
     if(monolis_mpi_get_global_comm_size() == 1){
     }
     else{
-        HROM_pre_offline3(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
+        HROM_pre_offline(sys, rom, hrom, rom->hlpod_vals.num_modes_pre, rom->hlpod_vals.num_snapshot, rom->hlpod_vals.num_2nd_subdomains);
     }
 }
+
 
 
 void HROM_memory_allocation(
