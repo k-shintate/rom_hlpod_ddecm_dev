@@ -1,8 +1,6 @@
 
 #include "core_FOM.h"
 #include "core_NR.h"
-#include <mkl.h>
-
 
 const char* ID_NUM_IP_EACH_AXIS = "#num_ip_each_axis";
 const int DVAL_NUM_IP_EACH_AXIS = 3;
@@ -3210,7 +3208,7 @@ monolis_clear_mat_value_R(&(sys.monolis));
                                 sys.fe.total_num_nodes,
                                 4,
                                 &(sys.bc_NR),
-                                sys.monolis.mat.R.B);s
+                                sys.monolis.mat.R.B);
 
         /* 残差ベクトルを保存（B = -F） */
         //if(i==0){

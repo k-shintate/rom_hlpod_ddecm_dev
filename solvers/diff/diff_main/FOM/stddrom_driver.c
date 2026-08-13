@@ -1,5 +1,6 @@
 #include "core_ROM.h"
 #include "core_FOM_ST_spaceblock.h"
+#include "st_fom_common.h"
 #include "rom_std_stddrom.h"
 #include "rom_std_stddrom_stsb.h"
 #include "rom_std_strom.h"
@@ -6492,20 +6493,37 @@ int main(int argc, char* argv[])
         &num_windows,
         &num_internal_space_nodes);
 
-    if(num_internal_space_nodes !=
-       sys.monolis_com.n_internal_vertex)
     {
-        fprintf(
-            stderr,
-            "ERROR [rank %d]: reference-FOM owned-node contract failed: "
-            "returned=%d communication-owned=%d local=%d\n",
-            rank,
-            num_internal_space_nodes,
+        int expected_owned_space_nodes = 0;
+        const int comm_size = monolis_mpi_get_global_comm_size();
+
+        if(ST_fom_resolve_owned_space_points(
+            sys.fe.total_num_nodes,
+            comm_size,
             sys.monolis_com.n_internal_vertex,
-            sys.fe.total_num_nodes);
-        fail_message(
-            "ST-DDROM snapshots and HLPOD kernels must use the same owned "
-            "vertex prefix");
+            &expected_owned_space_nodes) != ST_FOM_SUCCESS)
+        {
+            fail_message(
+                "failed to resolve the reference-FOM owned-node count");
+        }
+
+        if(num_internal_space_nodes != expected_owned_space_nodes)
+        {
+            fprintf(
+                stderr,
+                "ERROR [rank %d]: reference-FOM owned-node contract failed: "
+                "returned=%d expected-owned=%d communication-owned=%d "
+                "local=%d comm_size=%d\n",
+                rank,
+                num_internal_space_nodes,
+                expected_owned_space_nodes,
+                sys.monolis_com.n_internal_vertex,
+                sys.fe.total_num_nodes,
+                comm_size);
+            fail_message(
+                "reference FOM and common ST layout disagree on the owned "
+                "vertex prefix");
+        }
     }
 
     read_options(&options, sys.cond.directory);

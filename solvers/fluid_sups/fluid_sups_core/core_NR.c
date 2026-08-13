@@ -2,7 +2,7 @@
 
 #include "core_FOM.h"
 #include "core_NR.h"
-#include <mkl.h>
+//#include <mkl.h>
 
 static void BBFE_metric_tensor_G(
     double       G[3][3],
@@ -1823,7 +1823,7 @@ void HROM_ddecm_set_residuals_NR(
 }
 
 
-#include <mkl.h>
+#include "fluid_linalg_compat.h"
 #include <string.h>
 
 static inline int max2_int(int a, int b){ return (a > b) ? a : b; }

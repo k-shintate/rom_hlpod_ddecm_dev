@@ -7,11 +7,11 @@ e=20
 ep=1
 
 #podモード数
-num_modes=(21)
+num_modes=(10)
 #POD計算領域数
-num_1stdd=(12)
+num_1stdd=(1)
 #並列計算領域数 (=並列数)
-num_parallel=(12)
+num_parallel=(1)
 #基底本数可変の閾値 1.0E-{pa}
 pa=0
 #solver type
@@ -26,7 +26,7 @@ do
 	
         #. shell/fluid_sups_hrom_cavity/meshgen.sh $e $ep $nm $nd $np $pa
 	#    . shell/fluid_sups_hrom_cavity/merge_graph.sh $e $ep $nm $nd $np $pa
-	    . shell/fluid_sups_hrom_cavity/execution_offline.sh $e $ep $nm $nd $np $pa $st
+	    . shell/fluid_sups_hrom_cavity/execution_ST.sh $e $ep $nm $nd $np $pa $st
 
         done
 	done

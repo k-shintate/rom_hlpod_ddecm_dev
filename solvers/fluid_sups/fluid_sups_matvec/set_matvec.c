@@ -1,7 +1,7 @@
 
 
 #include "set_matvec.h"
-#include <mkl.h>
+#include "fluid_linalg_compat.h"
 
 
 void ddhr_lb_set_reduced_mat_para_save_memory_debug(
@@ -1070,7 +1070,6 @@ void allreduce_global_para(
 
 #include "set_matvec.h"
 
-#include <mkl.h>
 
 static inline int max2(int a, int b){ return a > b ? a : b; }
 

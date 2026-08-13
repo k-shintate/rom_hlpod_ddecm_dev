@@ -1,4 +1,5 @@
 #include "core_FOM_ST_spaceblock.h"
+#include "st_fom_common.h"
 
 #include <limits.h>
 #include <math.h>
@@ -134,17 +135,48 @@ static int STSB_graph_row_contains(
     return 0;
 }
 
+static int STSB_initialize_common_layout(
+    ST_FOM_WINDOW_LAYOUT* layout,
+    const ST_TIME_ELEMENT* te,
+    int num_window_slabs,
+    int num_space_nodes)
+{
+    int alpha;
+
+    if(layout == NULL || te == NULL || te->n_dof <= 0 ||
+       num_window_slabs <= 0 || num_space_nodes <= 0)
+    {
+        return ST_FOM_ERR_ARGUMENT;
+    }
+
+    memset(layout, 0, sizeof(*layout));
+    layout->num_space_points = num_space_nodes;
+    layout->num_owned_space_points = num_space_nodes;
+    layout->physical_dof = 1;
+    layout->num_slabs = num_window_slabs;
+    layout->time.family = ST_FOM_TIME_FAMILY_DG;
+    layout->time.degree = te->degree;
+    layout->time.n_dof = te->n_dof;
+    layout->time.is_nodal = te->is_nodal;
+    for(alpha = 0; alpha < te->n_dof; alpha++){
+        layout->time.e_plus[alpha] = te->e_plus[alpha];
+        layout->time.e_minus[alpha] = te->e_minus[alpha];
+    }
+    return ST_FOM_SUCCESS;
+}
+
 int STSB_get_num_dofs_per_node(
     const ST_TIME_ELEMENT* te,
     int num_window_slabs)
 {
-    if(te == NULL || te->n_dof <= 0 || num_window_slabs <= 0) {
+    ST_FOM_WINDOW_LAYOUT layout;
+
+    if(STSB_initialize_common_layout(
+        &layout, te, num_window_slabs, 1) != ST_FOM_SUCCESS)
+    {
         STSB_fail("invalid temporal dimensions");
     }
-    if(num_window_slabs > INT_MAX / te->n_dof) {
-        STSB_fail("ST block DOF count exceeds INT_MAX");
-    }
-    return num_window_slabs * te->n_dof;
+    return ST_fom_window_dof_per_space_point(&layout);
 }
 
 int STSB_get_block_dof(
@@ -152,13 +184,20 @@ int STSB_get_block_dof(
     int alpha,
     const ST_TIME_ELEMENT* te)
 {
-    if(te == NULL || slab < 0 || alpha < 0 || alpha >= te->n_dof) {
+    ST_FOM_WINDOW_LAYOUT layout;
+    int value;
+
+    if(STSB_initialize_common_layout(&layout, te, slab + 1, 1)
+       != ST_FOM_SUCCESS)
+    {
         STSB_fail("invalid slab or temporal DOF");
     }
-    if(slab > (INT_MAX - alpha) / te->n_dof) {
-        STSB_fail("ST block DOF index exceeds INT_MAX");
+
+    value = ST_fom_block_dof(&layout, slab, alpha, 0);
+    if(value < 0){
+        STSB_fail("invalid slab or temporal DOF");
     }
-    return slab * te->n_dof + alpha;
+    return value;
 }
 
 size_t STSB_get_vector_index(
@@ -168,17 +207,23 @@ size_t STSB_get_vector_index(
     const ST_TIME_ELEMENT* te,
     int num_window_slabs)
 {
-    if(spatial_node < 0) {
-        STSB_fail("negative spatial node");
+    ST_FOM_WINDOW_LAYOUT layout;
+    size_t value;
+
+    if(spatial_node < 0 ||
+       STSB_initialize_common_layout(
+           &layout, te, num_window_slabs, spatial_node + 1)
+           != ST_FOM_SUCCESS)
+    {
+        STSB_fail("invalid ST vector index arguments");
     }
 
-    const int ndof = STSB_get_num_dofs_per_node(te, num_window_slabs);
-    const int q = STSB_get_block_dof(slab, alpha, te);
-
-    if((size_t)spatial_node > (SIZE_MAX - (size_t)q) / (size_t)ndof) {
+    value = ST_fom_vector_index(
+        &layout, spatial_node, slab, alpha, 0);
+    if(value == SIZE_MAX){
         STSB_fail("ST vector index exceeds SIZE_MAX");
     }
-    return (size_t)spatial_node * (size_t)ndof + (size_t)q;
+    return value;
 }
 
 void STSB_validate_configuration(
@@ -917,22 +962,21 @@ void STSB_extract_slab_right_trace(
     const double* window_solution,
     double* nodal_trace)
 {
-    if(te == NULL || window_solution == NULL || nodal_trace == NULL ||
-       num_space_nodes <= 0 || slab < 0 || slab >= num_window_slabs) {
+    ST_FOM_WINDOW_LAYOUT layout;
+
+    if(window_solution == NULL || nodal_trace == NULL ||
+       STSB_initialize_common_layout(
+           &layout, te, num_window_slabs, num_space_nodes)
+           != ST_FOM_SUCCESS ||
+       slab < 0 || slab >= num_window_slabs)
+    {
         STSB_fail("invalid argument in right-trace extraction");
     }
 
-    const int ndof = STSB_get_num_dofs_per_node(te, num_window_slabs);
-
-    for(int node=0; node<num_space_nodes; node++) {
-        double value = 0.0;
-        for(int alpha=0; alpha<te->n_dof; alpha++) {
-            const int q = STSB_get_block_dof(slab, alpha, te);
-            value += te->e_plus[alpha] * window_solution[
-                (size_t)node * (size_t)ndof + (size_t)q
-            ];
-        }
-        nodal_trace[node] = value;
+    if(ST_fom_extract_slab_right_trace(
+        &layout, slab, window_solution, nodal_trace) != ST_FOM_SUCCESS)
+    {
+        STSB_fail("common right-trace extraction failed");
     }
 }
 
@@ -1155,24 +1199,32 @@ void STSB_initialize_reference_fom(
         const int imported_matrix_n = sys->monolis.mat.N;
         const int communication_owned =
             sys->monolis_com.n_internal_vertex;
+        const int communicator_size = monolis_mpi_get_global_comm_size();
         const int local_nodes = sys->fe.total_num_nodes;
+        int resolved_owned = 0;
 
-        *num_internal_space_nodes = communication_owned;
-
-        if(*num_internal_space_nodes <= 0 ||
-           *num_internal_space_nodes > local_nodes) {
+        if(ST_fom_resolve_owned_space_points(
+            local_nodes,
+            communicator_size,
+            communication_owned,
+            &resolved_owned) != ST_FOM_SUCCESS)
+        {
             STSB_fail(
-                "invalid owned-node count from the MONOLIS communication table");
+                "invalid owned-node count for serial/MPI ST-FOM execution");
         }
+
+        *num_internal_space_nodes = resolved_owned;
 
         fprintf(
             stdout,
-            "STSB node ownership [rank %d]: local=%d owned=%d halo=%d "
-            "imported_mat_N=%d\n",
+            "STSB node ownership [rank %d]: comm_size=%d local=%d owned=%d "
+            "halo=%d communication_owned=%d imported_mat_N=%d\n",
             monolis_mpi_get_global_my_rank(),
+            communicator_size,
             local_nodes,
             *num_internal_space_nodes,
             local_nodes - *num_internal_space_nodes,
+            communication_owned,
             imported_matrix_n);
         fflush(stdout);
     }

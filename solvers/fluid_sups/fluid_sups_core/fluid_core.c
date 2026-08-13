@@ -1,5 +1,9 @@
-
 #include "fluid_core.h"
+
+const char* CODENAME = "fluid >";
+
+const char* INPUT_FILENAME_NODE = "node.dat";
+const char* INPUT_FILENAME_ELEM = "elem.dat";
 
 
 const char* BBFE_fluid_get_directory_name(
@@ -136,22 +140,6 @@ void BBFE_fluid_sups_renew_pressure(
 	}
 }
 
-void BBFE_fluid_sups_update_vec(
-		double**  v,
-        double*  p,
-		double*   ans_vec,
-		const int total_num_nodes)
-{
-	for(int i=0; i<total_num_nodes; i++) {
-		for(int d=0; d<3; d++) {
-			ans_vec[ 4*i + d ] = v[i][d];
-		}
-	}
-
-	for(int i=0; i<total_num_nodes; i++) {
-		ans_vec[ 4*i + 3 ] = p[i];
-	}
-}
 
 void BBFE_fluid_finalize(
 		BBFE_DATA*   fe,
@@ -164,3 +152,182 @@ void BBFE_fluid_finalize(
 	BBFE_sys_memory_free_elem(fe, basis->num_integ_points, 3);
 }
 
+
+void BBFE_fluid_initialize_velocity_pressure(
+	double**    v,
+	double*     p,
+	const int   total_num_nodes)
+{
+    for (int i = 0; i < total_num_nodes; i++) {
+        for (int j = 0; j < 3; j++) {
+            v[i][j] = 0.0;
+        }
+    }
+
+    for (int i = 0; i < total_num_nodes; i++) {
+        p[i] = 0.0;
+    }
+}
+
+void BBFE_fluid_initialize_velocity_pressure_karman_vortex(
+	double**    v,
+    double**    v_old,
+	double*     p,
+	const int   total_num_nodes)
+{
+    for (int i = 0; i < total_num_nodes; i++) {
+        v[i][0] = 1.0;
+        v_old[i][0] = 1.0;
+    }
+
+    for (int i = 0; i < total_num_nodes; i++) {
+        p[i] = 0.0;
+    }
+}
+
+void BBFE_fluid_sups_add_velocity_pressure(
+                double**  v,
+                double*   p,
+                double*   sol_vec,
+                const int total_num_nodes)
+{
+    for(int i=0; i<total_num_nodes; i++) {
+            for(int d=0; d<3; d++) {
+                    sol_vec[ 4*i + d ] = v[i][d];
+            }
+            sol_vec[ 4*i + 3 ] = p[i];
+    }
+}
+
+void BBFE_fluid_add_Dbc(
+    double*         ansvec,
+    BBFE_BC*      	bc,
+    const int 		total_num_nodes,
+    const int       dof)
+{
+    for(int i = 0; i < total_num_nodes * dof; i++) {
+        if( bc->D_bc_exists[i] ) {
+            ansvec[i] = bc->imposed_D_val[i];
+        }
+    }
+}
+
+void BBFE_fluid_update_velocity_pressure_NR(
+        double**    v,
+        double**    delta_v,
+        double*     p,
+        double*     delta_p,
+        const int   total_num_nodes)
+{
+    for (int i = 0; i < total_num_nodes; i++) {
+        for (int j = 0; j < 3; j++) {
+            v[i][j] += delta_v[i][j];
+        }
+    }
+
+    for (int i = 0; i < total_num_nodes; i++) {
+        p[i] += delta_p[i];
+    }
+}
+
+double BBFE_fluid_calc_internal_norm_2d(
+        double**  in,       //input
+        const int num1,
+        const int num2)
+{
+    double norm = 0.0;
+
+    for (int i = 0; i < num1; i++) {
+        for(int j = 0; j < num2; j++){
+            norm += in[i][j] * in[i][j];
+        }
+    }
+
+    return norm;
+}
+
+double BBFE_fluid_calc_internal_norm_1d(
+        double*  in,       //input
+        const int num1,
+        const int num2)
+{
+    double norm = 0.0;
+
+    for (int i = 0; i < num1; i++) {    
+        norm += in[i] * in[i];
+    }
+
+    return norm;
+}
+
+void BBFE_fluid_vec_copy_2d(
+        double**  in,   //input
+        double**  out,  //output
+        const int num1,
+        const int num2)
+{
+    for (int i = 0; i < num1; i++) {
+        for(int j = 0; j < num2; j++){
+            out[i][j] = in[i][j];
+        }
+    }
+}
+
+void BBFE_fluid_vec_copy_1d(
+    double* dst,
+    const double* src,
+    int size)
+{
+    for (int i = 0; i < size; i++) {
+        dst[i] = src[i];
+    }
+}
+
+
+double BBFE_fluid_calc_internal_norm_total(
+    const double* rvec,
+    int n_internal_vertex)
+{
+    double norm = 0.0;
+
+    for (int i = 0; i < n_internal_vertex; i++) {
+        for (int d = 0; d < 4; d++) {
+            const int index = 4 * i + d;
+            norm += rvec[index] * rvec[index];
+        }
+    }
+
+    return norm;
+}
+
+
+double BBFE_fluid_calc_internal_norm_momentum(
+    const double* rvec,
+    int n_internal_vertex)
+{
+    double norm = 0.0;
+
+    for (int i = 0; i < n_internal_vertex; i++) {
+        for (int d = 0; d < 3; d++) {
+            const int index = 4 * i + d;
+            norm += rvec[index] * rvec[index];
+        }
+    }
+
+    return norm;
+}
+
+
+double BBFE_fluid_calc_internal_norm_mass(
+    const double* rvec,
+    int n_internal_vertex)
+{
+    double norm = 0.0;
+
+    for (int i = 0; i < n_internal_vertex; i++) {
+        const int index = 4 * i + 3;
+        norm += rvec[index] * rvec[index];
+    }
+
+    return norm;
+}
