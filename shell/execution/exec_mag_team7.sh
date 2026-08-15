@@ -25,12 +25,12 @@ do
     	do
     
         #. shell/mag/meshgen_team7.sh $e $ep $nm $nd $np $pa
-        . shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
+        #. shell/mag/execution.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/graphgen_team7.sh $e $ep $nm $nd $np $pa
         #python3 ./shell/mag/merge_graph.py result_mag/$nm-$np-$nd --elem graph_elem.dat --nedelec graph_nedelec_elem.dat --out graph.dat
         #. shell/mag/partitioner.sh $e $ep $nm $nd $np $pa $st
         
-        #. shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
+        . shell/mag/execution_threephase.sh $e $ep $nm $nd $np $pa $st
         #. shell/mag/execution_threephase_online.sh $e $ep $nm $nd $np $pa $st
         
         done

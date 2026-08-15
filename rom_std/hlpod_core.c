@@ -1032,7 +1032,7 @@ void ROM_std_hlpod_calc_reduced_mat(
     }
 
     double t = monolis_get_time_global_sync();
-    exit(1);
+    //exit(1);
 }
 
 
