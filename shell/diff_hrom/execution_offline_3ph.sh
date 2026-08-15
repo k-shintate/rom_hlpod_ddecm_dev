@@ -48,7 +48,7 @@ mpirun -np $np  ./hlpod_diff_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline_ROM
 
-./hrom_stage3_serial ./ $np  10000 1.0e-8
+./hrom_stage3_serial ./ $np  2000 1.0e-12 1.0e-8 1.0e-8  200 100.0 1.0e-10 1.0e-6  1 0
 #./hrom_stage3_to_parallel ./ 3 parted.1 metagraph_parted.0
 
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_online_HROM

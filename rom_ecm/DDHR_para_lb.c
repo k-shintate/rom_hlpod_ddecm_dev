@@ -2809,12 +2809,33 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd(
 	double t = monolis_get_time_global_sync();
 }
 
+/*
+ * CLEAN REPLACEMENT BLOCK - Stage 3 global-row-key + exact-route version 4
+ *
+ * Keep exactly one copy of this block in DDHR_para_lb.c.
+ * Remove older HROM_stage3_* helper definitions and the older
+ * HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical()
+ * before inserting this block.
+ *
+ * Stage-3 MPI-side output policy:
+ *   - Do NOT use elem.dat.n_internal.{rank}.
+ *   - Read only parted.0/elem.dat.id.{rank}.
+ *   - Save this rank's Stage-2 selected ORIGINAL-global IDs/weights.
+ *   - Save this rank's raw RHS contribution.
+ *   - Save raw contribution columns for ALL rank-local elements.
+ *
+ * The later serial Stage-3 program forms the union of Stage-2 selected
+ * original-global element IDs and then resolves duplicate physical-element
+ * copies across rank files.  No direct MPI_* routine is used here.
+ */
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstdint>
+#include <cstring>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -2941,6 +2962,973 @@ static bool HROM_stage3_read_rank_element_ids(
     }
 
     return true;
+}
+
+
+struct HROMStage3InterfaceKey {
+    int source_global_id;
+    int target_global_id;
+
+    bool operator==(const HROMStage3InterfaceKey& other) const {
+        return source_global_id == other.source_global_id &&
+               target_global_id == other.target_global_id;
+    }
+};
+
+struct HROMStage3InterfaceKeyHash {
+    size_t operator()(const HROMStage3InterfaceKey& k) const {
+        size_t h = std::hash<int>()(k.source_global_id);
+        h ^= std::hash<int>()(k.target_global_id)
+            + 0x9e3779b9u + (h << 6) + (h >> 2);
+        return h;
+    }
+};
+
+/*
+ * Write directed interface -> eligible original-global element IDs.
+ *
+ * An element is regarded as eligible for (source,target) when its Stage-1
+ * contribution column has a nonzero entry in at least one target-neighbor
+ * mode row over the training snapshots.  The file is used by the serial
+ * Stage-3 constrained NNLS to build C x >= epsilon.
+ */
+/*
+ * ============================================================
+ * PHYSICAL INTERFACE GROUPS FROM GLOBAL MESH CONNECTIVITY
+ *
+ * A fine-subdomain adjacency can exist even when the two partitions do not
+ * contain a common element copy.  Therefore element-ID intersection is not a
+ * sufficient definition of an interface.
+ *
+ * For a fine subdomain k, let E_int(k) be its owned/internal elements and
+ * let N(k) be the set of ORIGINAL-GLOBAL mesh nodes incident to E_int(k).
+ *
+ * For a physical neighboring pair {k,l}, define
+ *
+ *     N_kl = N(k) intersect N(l)
+ *
+ * and
+ *
+ *     I_kl = { e in E_int(k) union E_int(l)
+ *              | nodes(e) intersect N_kl is non-empty }.
+ *
+ * Thus every eligible element is physically incident to at least one shared
+ * finite-element node of the two subdomains.  This detects face-, edge-, and
+ * corner-contact interfaces and is independent of POD/NNLS training values.
+ *
+ * The serial Stage-3 v12 reader merges (k,l) and (l,k), so both directed
+ * records written here intentionally carry the same physical member set.
+ * ============================================================
+ */
+
+struct HROMStage3GlobalMesh {
+    int num_elem;
+    int nodes_per_elem;
+
+    /*
+     * Row-major connectivity in ORIGINAL-GLOBAL node numbering.
+     */
+    std::vector<int> conn;
+
+    /*
+     * Optional original-global element-ID -> elem.dat row mapping.
+     * If root elem.dat.id exists, it is used.  Otherwise sequential
+     * 0-based (and as a fallback 1-based) IDs are accepted.
+     */
+    std::unordered_map<int, int> elem_id_to_row;
+
+    HROMStage3GlobalMesh()
+        : num_elem(0),
+          nodes_per_elem(0)
+    {}
+};
+
+
+static std::string HROM_stage3_join_path(
+    const char* directory,
+    const char* relative_name)
+{
+    if (directory == NULL ||
+        directory[0] == '\0' ||
+        (directory[0] == '.' && directory[1] == '\0')) {
+
+        return std::string(relative_name);
+    }
+
+    std::string p(directory);
+
+    if (!p.empty() &&
+        p[p.size() - 1] != '/') {
+
+        p += "/";
+    }
+
+    p += relative_name;
+
+    return p;
+}
+
+
+static HROMStage3GlobalMesh
+HROM_stage3_read_global_mesh(
+    const char* directory)
+{
+    HROMStage3GlobalMesh mesh;
+
+    /*
+     * Original/global mesh connectivity.
+     *
+     * Expected BBFE element format:
+     *   <num_elem> <nodes_per_elem>
+     *   <node ids of element 0>
+     *   ...
+     */
+    FILE* fp = NULL;
+
+    fp = ROM_BB_read_fopen(
+        fp,
+        "elem.dat",
+        directory);
+
+    if (fp == NULL) {
+        HROM_stage3_fail(
+            "cannot open original global elem.dat",
+            monolis_mpi_get_global_my_rank());
+    }
+
+    if (fscanf(
+            fp,
+            "%d %d",
+            &mesh.num_elem,
+            &mesh.nodes_per_elem) != 2 ||
+        mesh.num_elem <= 0 ||
+        mesh.nodes_per_elem <= 0) {
+
+        fclose(fp);
+        HROM_stage3_fail(
+            "invalid original global elem.dat header",
+            monolis_mpi_get_global_my_rank());
+    }
+
+    mesh.conn.resize(
+        (size_t)mesh.num_elem *
+        (size_t)mesh.nodes_per_elem);
+
+    for (int e = 0;
+         e < mesh.num_elem;
+         ++e) {
+
+        for (int a = 0;
+             a < mesh.nodes_per_elem;
+             ++a) {
+
+            if (fscanf(
+                    fp,
+                    "%d",
+                    &mesh.conn[
+                        (size_t)e *
+                        (size_t)mesh.nodes_per_elem +
+                        (size_t)a]) != 1) {
+
+                fclose(fp);
+
+                HROM_stage3_fail(
+                    "failed to read original global elem.dat connectivity",
+                    monolis_mpi_get_global_my_rank());
+            }
+        }
+    }
+
+    fclose(fp);
+
+    /*
+     * Prefer an explicit original elem.dat.id when available.
+     * The partitioned elem.dat.id.* files use the same physical ID
+     * namespace, so this removes any assumption about 0/1-based numbering.
+     */
+    const std::string id_path =
+        HROM_stage3_join_path(
+            directory,
+            "elem.dat.id");
+
+    FILE* idfp =
+        fopen(
+            id_path.c_str(),
+            "r");
+
+    if (idfp != NULL) {
+        char label[BUFFER_SIZE];
+
+        int n_id = -1;
+        int tmp = 0;
+
+        bool id_ok = true;
+
+        if (fscanf(
+                idfp,
+                "%s",
+                label) != 1 ||
+            fscanf(
+                idfp,
+                "%d %d",
+                &n_id,
+                &tmp) != 2 ||
+            n_id != mesh.num_elem) {
+
+            id_ok = false;
+        }
+
+        if (id_ok) {
+            mesh.elem_id_to_row.reserve(
+                (size_t)mesh.num_elem * 2 + 1);
+
+            for (int e = 0;
+                 e < mesh.num_elem;
+                 ++e) {
+
+                int gid = -1;
+
+                if (fscanf(
+                        idfp,
+                        "%d",
+                        &gid) != 1) {
+
+                    id_ok = false;
+                    break;
+                }
+
+                const auto ins =
+                    mesh.elem_id_to_row.emplace(
+                        gid,
+                        e);
+
+                if (!ins.second) {
+                    id_ok = false;
+                    break;
+                }
+            }
+        }
+
+        fclose(idfp);
+
+        if (!id_ok) {
+            fprintf(
+                stderr,
+                "WARNING: root elem.dat.id exists but could not be used; "
+                "falling back to sequential element IDs\n");
+
+            mesh.elem_id_to_row.clear();
+        }
+    }
+
+    printf(
+        "[STAGE3-GLOBAL-MESH] elements=%d nodes_per_elem=%d "
+        "explicit_elem_ids=%zu\n",
+        mesh.num_elem,
+        mesh.nodes_per_elem,
+        mesh.elem_id_to_row.size());
+
+    return mesh;
+}
+
+
+static int
+HROM_stage3_global_elem_row(
+    const HROMStage3GlobalMesh& mesh,
+    const int original_global_elem_id)
+{
+    if (!mesh.elem_id_to_row.empty()) {
+        const auto it =
+            mesh.elem_id_to_row.find(
+                original_global_elem_id);
+
+        if (it == mesh.elem_id_to_row.end()) {
+            fprintf(
+                stderr,
+                "ERROR: original global element ID %d is absent "
+                "from root elem.dat.id\n",
+                original_global_elem_id);
+
+            exit(EXIT_FAILURE);
+        }
+
+        return it->second;
+    }
+
+    /*
+     * Existing DDHR code normally uses 0-based original element IDs.
+     */
+    if (original_global_elem_id >= 0 &&
+        original_global_elem_id < mesh.num_elem) {
+
+        return original_global_elem_id;
+    }
+
+    /*
+     * Conservative compatibility fallback for a 1-based original ID file.
+     */
+    if (original_global_elem_id >= 1 &&
+        original_global_elem_id <= mesh.num_elem) {
+
+        return original_global_elem_id - 1;
+    }
+
+    fprintf(
+        stderr,
+        "ERROR: cannot map original global element ID %d "
+        "to elem.dat row; num_elem=%d\n",
+        original_global_elem_id,
+        mesh.num_elem);
+
+    exit(EXIT_FAILURE);
+}
+
+
+struct HROMStage3FineOwnedMesh {
+    /*
+     * All local physical elements in parted.1:
+     * owned/internal first, followed by overlap/ghost elements.
+     */
+    std::vector<int> all_elem;
+    std::vector<int> owned_elem;
+
+    /*
+     * Original-global mesh nodes incident to owned elements and to all local
+     * elements respectively.
+     */
+    std::unordered_set<int> node_set;
+    std::unordered_set<int> all_node_set;
+
+    /*
+     * Node -> incident element IDs.
+     */
+    std::unordered_map<
+        int,
+        std::vector<int>> node_to_owned_elem;
+
+    std::unordered_map<
+        int,
+        std::vector<int>> node_to_all_elem;
+};
+
+
+static HROMStage3FineOwnedMesh
+HROM_stage3_read_fine_owned_mesh(
+    const int fine_subdomain_id,
+    const HROMStage3GlobalMesh& global_mesh,
+    const char* directory)
+{
+    HROMStage3FineOwnedMesh s;
+
+    char fname[BUFFER_SIZE];
+    char label[BUFFER_SIZE];
+
+    FILE* fp = NULL;
+
+    int n_elem = -1;
+    int tmp = 0;
+
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "parted.1/elem.dat.id.%d",
+        fine_subdomain_id);
+
+    fp = ROM_BB_read_fopen(
+        fp,
+        fname,
+        directory);
+
+    if (fp == NULL) {
+        fprintf(
+            stderr,
+            "ERROR: cannot open %s\n",
+            fname);
+
+        exit(EXIT_FAILURE);
+    }
+
+    if (fscanf(
+            fp,
+            "%s",
+            label) != 1 ||
+        fscanf(
+            fp,
+            "%d %d",
+            &n_elem,
+            &tmp) != 2 ||
+        n_elem < 0) {
+
+        fclose(fp);
+
+        fprintf(
+            stderr,
+            "ERROR: invalid fine elem.dat.id header: %s\n",
+            fname);
+
+        exit(EXIT_FAILURE);
+    }
+
+    std::vector<int> all_elem(
+        (size_t)n_elem,
+        -1);
+
+    for (int i = 0;
+         i < n_elem;
+         ++i) {
+
+        if (fscanf(
+                fp,
+                "%d",
+                &all_elem[(size_t)i]) != 1) {
+
+            fclose(fp);
+
+            fprintf(
+                stderr,
+                "ERROR: failed reading element %d/%d from %s\n",
+                i,
+                n_elem,
+                fname);
+
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    fclose(fp);
+
+    int n_internal = -1;
+
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "parted.1/elem.dat.n_internal.%d",
+        fine_subdomain_id);
+
+    fp = ROM_BB_read_fopen(
+        fp,
+        fname,
+        directory);
+
+    if (fp == NULL) {
+        fprintf(
+            stderr,
+            "ERROR: cannot open %s\n",
+            fname);
+
+        exit(EXIT_FAILURE);
+    }
+
+    if (fscanf(
+            fp,
+            "%s %d",
+            label,
+            &tmp) != 2 ||
+        fscanf(
+            fp,
+            "%d",
+            &n_internal) != 1 ||
+        n_internal < 0 ||
+        n_internal > n_elem) {
+
+        fclose(fp);
+
+        fprintf(
+            stderr,
+            "ERROR: invalid n_internal in %s: "
+            "n_internal=%d total=%d\n",
+            fname,
+            n_internal,
+            n_elem);
+
+        exit(EXIT_FAILURE);
+    }
+
+    fclose(fp);
+
+    s.all_elem = all_elem;
+
+    s.owned_elem.assign(
+        all_elem.begin(),
+        all_elem.begin() + n_internal);
+
+    s.node_set.reserve(
+        (size_t)n_internal *
+        (size_t)global_mesh.nodes_per_elem *
+        2 + 1);
+
+    s.all_node_set.reserve(
+        (size_t)n_elem *
+        (size_t)global_mesh.nodes_per_elem *
+        2 + 1);
+
+    /*
+     * Build all-local incidence first.  This includes overlap/ghost copies
+     * and is used only as a fallback for metagraph edges whose owned regions
+     * do not share a global FE node directly.
+     */
+    for (const int gid :
+         s.all_elem) {
+
+        const int row =
+            HROM_stage3_global_elem_row(
+                global_mesh,
+                gid);
+
+        for (int a = 0;
+             a < global_mesh.nodes_per_elem;
+             ++a) {
+
+            const int node =
+                global_mesh.conn[
+                    (size_t)row *
+                    (size_t)global_mesh.nodes_per_elem +
+                    (size_t)a];
+
+            s.all_node_set.insert(node);
+
+            s.node_to_all_elem[node]
+                .push_back(gid);
+        }
+    }
+
+    for (const int gid :
+         s.owned_elem) {
+
+        const int row =
+            HROM_stage3_global_elem_row(
+                global_mesh,
+                gid);
+
+        for (int a = 0;
+             a < global_mesh.nodes_per_elem;
+             ++a) {
+
+            const int node =
+                global_mesh.conn[
+                    (size_t)row *
+                    (size_t)global_mesh.nodes_per_elem +
+                    (size_t)a];
+
+            s.node_set.insert(node);
+
+            s.node_to_owned_elem[node]
+                .push_back(gid);
+        }
+    }
+
+    return s;
+}
+
+
+static void HROM_stage3_write_interface_groups(
+    MONOLIS_COM* monolis_com,
+    HLPOD_VALUES* hlpod_vals,
+    HLPOD_DDHR* hlpod_ddhr,
+    HLPOD_META* hlpod_meta,
+    const int total_num_snapshot,
+    const int num_subdomains,
+    const int* subdomain_id,
+    const std::vector<int>& original_global_elem_id,
+    const char* directory)
+{
+    const int myrank =
+        monolis_mpi_get_global_my_rank();
+
+    /*
+     * Kept for API compatibility with the previous writer.
+     */
+    (void)hlpod_vals;
+    (void)hlpod_ddhr;
+    (void)total_num_snapshot;
+    (void)original_global_elem_id;
+
+    const HROMStage3GlobalMesh global_mesh =
+        HROM_stage3_read_global_mesh(
+            directory);
+
+    std::unordered_map<
+        int,
+        HROMStage3FineOwnedMesh> fine_cache;
+
+    fine_cache.reserve(
+        (size_t)(
+            num_subdomains +
+            hlpod_meta->n_internal_sum +
+            monolis_com->n_internal_vertex)
+        * 2 + 1);
+
+    auto get_fine =
+        [&] (const int sid)
+            -> HROMStage3FineOwnedMesh& {
+
+            auto it =
+                fine_cache.find(sid);
+
+            if (it ==
+                fine_cache.end()) {
+
+                HROMStage3FineOwnedMesh s =
+                    HROM_stage3_read_fine_owned_mesh(
+                        sid,
+                        global_mesh,
+                        directory);
+
+                it =
+                    fine_cache.emplace(
+                        sid,
+                        std::move(s)).first;
+            }
+
+            return it->second;
+        };
+
+    std::unordered_map<
+        HROMStage3InterfaceKey,
+        std::unordered_set<int>,
+        HROMStage3InterfaceKeyHash> group_map;
+
+    size_t total_shared_nodes = 0;
+    size_t empty_group_count = 0;
+
+    for (int m = 0;
+         m < num_subdomains;
+         ++m) {
+
+        const int source_global_id =
+            subdomain_id[m];
+
+        HROMStage3FineOwnedMesh& src =
+            get_fine(
+                source_global_id);
+
+        const int edgeS =
+            hlpod_meta->index[m];
+
+        const int edgeE =
+            hlpod_meta->index[m + 1];
+
+        for (int edge = edgeS;
+             edge < edgeE;
+             ++edge) {
+
+            const int target_global_id =
+                hlpod_meta->my_global_id[
+                    hlpod_meta->item[edge]];
+
+            HROMStage3FineOwnedMesh& dst =
+                get_fine(
+                    target_global_id);
+
+            /*
+             * Primary definition:
+             * shared ORIGINAL-GLOBAL nodes of the two owned regions.
+             */
+            const std::unordered_set<int>* small =
+                &src.node_set;
+
+            const std::unordered_set<int>* large =
+                &dst.node_set;
+
+            if (small->size() >
+                large->size()) {
+
+                std::swap(
+                    small,
+                    large);
+            }
+
+            std::vector<int> shared_nodes;
+
+            shared_nodes.reserve(
+                std::min(
+                    src.node_set.size(),
+                    dst.node_set.size()));
+
+            for (const int node :
+                 *small) {
+
+                if (large->find(node) !=
+                    large->end()) {
+
+                    shared_nodes.push_back(
+                        node);
+                }
+            }
+
+            HROMStage3InterfaceKey key;
+
+            key.source_global_id =
+                source_global_id;
+
+            key.target_global_id =
+                target_global_id;
+
+            std::unordered_set<int>& members =
+                group_map[key];
+
+            for (const int node :
+                 shared_nodes) {
+
+                const auto its =
+                    src.node_to_owned_elem.find(
+                        node);
+
+                if (its !=
+                    src.node_to_owned_elem.end()) {
+
+                    for (const int gid :
+                         its->second) {
+
+                        members.insert(
+                            gid);
+                    }
+                }
+
+                const auto itd =
+                    dst.node_to_owned_elem.find(
+                        node);
+
+                if (itd !=
+                    dst.node_to_owned_elem.end()) {
+
+                    for (const int gid :
+                         itd->second) {
+
+                        members.insert(
+                            gid);
+                    }
+                }
+            }
+
+            bool used_overlap_fallback = false;
+            size_t fallback_shared_node_count = 0;
+
+            /*
+             * Fallback only for the exceptional metagraph edge for which the
+             * owned regions have no common FE node.
+             *
+             * Use the local OVERLAPPED meshes from parted.1.  This handles a
+             * hierarchy/overlap adjacency where k and l are neighbors in the
+             * metagraph even though their owned regions are separated by an
+             * overlap layer.
+             */
+            if (members.empty()) {
+                used_overlap_fallback = true;
+
+                const std::unordered_set<int>* small_all =
+                    &src.all_node_set;
+
+                const std::unordered_set<int>* large_all =
+                    &dst.all_node_set;
+
+                if (small_all->size() >
+                    large_all->size()) {
+
+                    std::swap(
+                        small_all,
+                        large_all);
+                }
+
+                for (const int node :
+                     *small_all) {
+
+                    if (large_all->find(node) ==
+                        large_all->end()) {
+
+                        continue;
+                    }
+
+                    fallback_shared_node_count++;
+
+                    const auto its =
+                        src.node_to_all_elem.find(
+                            node);
+
+                    if (its !=
+                        src.node_to_all_elem.end()) {
+
+                        for (const int gid :
+                             its->second) {
+
+                            members.insert(
+                                gid);
+                        }
+                    }
+
+                    const auto itd =
+                        dst.node_to_all_elem.find(
+                            node);
+
+                    if (itd !=
+                        dst.node_to_all_elem.end()) {
+
+                        for (const int gid :
+                             itd->second) {
+
+                            members.insert(
+                                gid);
+                        }
+                    }
+                }
+
+                if (!members.empty()) {
+                    printf(
+                        "[STAGE3-INTERFACE-FALLBACK] rank=%d "
+                        "edge=(%d,%d) shared_all_nodes=%zu "
+                        "members=%zu\n",
+                        myrank,
+                        source_global_id,
+                        target_global_id,
+                        fallback_shared_node_count,
+                        members.size());
+                }
+            }
+
+            total_shared_nodes +=
+                shared_nodes.size();
+
+            if (members.empty()) {
+                empty_group_count++;
+
+                fprintf(
+                    stderr,
+                    "WARNING: rank=%d physical interface "
+                    "(%d,%d) remains empty even after overlap fallback. "
+                    "src owned/all elem=%zu/%zu nodes=%zu/%zu; "
+                    "dst owned/all elem=%zu/%zu nodes=%zu/%zu\n",
+                    myrank,
+                    source_global_id,
+                    target_global_id,
+                    src.owned_elem.size(),
+                    src.all_elem.size(),
+                    src.node_set.size(),
+                    src.all_node_set.size(),
+                    dst.owned_elem.size(),
+                    dst.all_elem.size(),
+                    dst.node_set.size(),
+                    dst.all_node_set.size());
+            }
+        }
+    }
+
+    struct OutputGroup {
+        int source;
+        int target;
+        std::vector<int> member;
+    };
+
+    std::vector<OutputGroup> groups;
+
+    groups.reserve(
+        group_map.size());
+
+    for (const auto& kv :
+         group_map) {
+
+        OutputGroup g;
+
+        g.source =
+            kv.first.source_global_id;
+
+        g.target =
+            kv.first.target_global_id;
+
+        g.member.assign(
+            kv.second.begin(),
+            kv.second.end());
+
+        std::sort(
+            g.member.begin(),
+            g.member.end());
+
+        groups.push_back(
+            std::move(g));
+    }
+
+    std::sort(
+        groups.begin(),
+        groups.end(),
+        [](const OutputGroup& a,
+           const OutputGroup& b) {
+
+            if (a.source != b.source) {
+                return a.source <
+                       b.source;
+            }
+
+            return a.target <
+                   b.target;
+        });
+
+    char fname[BUFFER_SIZE];
+
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "DDECM/stage3_interface.%d.txt",
+        myrank);
+
+    FILE* fp =
+        ROM_BB_write_fopen(
+            fp,
+            fname,
+            directory);
+
+    fprintf(
+        fp,
+        "HROM_STAGE3_INTERFACE_V1\n");
+
+    fprintf(
+        fp,
+        "%d\n",
+        (int)groups.size());
+
+    size_t total_membership = 0;
+
+    for (const OutputGroup& g :
+         groups) {
+
+        fprintf(
+            fp,
+            "%d %d %d\n",
+            g.source,
+            g.target,
+            (int)g.member.size());
+
+        for (size_t k = 0;
+             k < g.member.size();
+             ++k) {
+
+            fprintf(
+                fp,
+                "%d%c",
+                g.member[k],
+                ((k + 1) % 8 == 0 ||
+                 k + 1 ==
+                    g.member.size())
+                    ? '\n'
+                    : ' ');
+        }
+
+        total_membership +=
+            g.member.size();
+    }
+
+    fclose(fp);
+
+    printf(
+        "[STAGE3-INTERFACE-NODE] rank=%d "
+        "directed_groups=%zu memberships=%zu "
+        "shared_node_occurrences=%zu empty_groups=%zu "
+        "cached_fine_domains=%zu file=%s\n",
+        myrank,
+        groups.size(),
+        total_membership,
+        total_shared_nodes,
+        empty_group_count,
+        fine_cache.size(),
+        fname);
 }
 
 static void HROM_stage3_write_rank_file_no_mpi(
@@ -3115,6 +4103,17 @@ static void HROM_stage3_write_rank_file_no_mpi(
         printf("[STAGE3-ROUTE-V2] rank=%d entries=%zu file=%s\n",
             myrank, routes.size(), route_name);
     }
+
+    HROM_stage3_write_interface_groups(
+        monolis_com,
+        hlpod_vals,
+        hlpod_ddhr,
+        hlpod_meta,
+        total_num_snapshot,
+        num_subdomains,
+        subdomain_id,
+        original_global_elem_id,
+        directory);
 
     /* This rank's Stage-2 selected elements in ORIGINAL-global IDs. */
     std::unordered_map<int, double> local_selected_weight_by_global;
@@ -5598,51 +6597,14 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical(
         end_time - start_time);
 }
 
+
 /*
- * HROM selected-element / BCSR block coverage diagnostic
+ * ============================================================
+ * HROM BCSR diagnostic helper definitions
  *
- * Drop-in replacement for HROM_ddecm_calc_block_mat_bcsr()
- * plus helper routines below.
- *
- * Purpose:
- *   - Read DDECM/selected_elem_internal.<rank>.txt
- *          DDECM/selected_elem_overlap.<rank>.txt
- *   - Check how many of those selected element IDs can be associated with
- *     each local first-level subdomain through hlpod_ddhr->elem_id_local /
- *     parallel_elems_id.
- *   - Diagnose every diagonal A_kk and off-diagonal A_kl block:
- *       Frobenius norm
- *       max abs entry
- *       number of nonzeros
- *       zero rows / zero columns
- *       minimum row / column norm
- *       metadata match count
- *   - Preserve the original BCSR assembly.
- *
- * Output:
- *   DDECM/hrom_block_coverage.<rank>.csv
- *
- * Notes:
- *   - selected_elem_internal/overlap file format is parsed defensively:
- *       first nonempty line with one integer is treated as a declared count;
- *       later nonempty lines are treated as records and their first integer
- *       as an element ID.
- *   - Because the shared source does not show the writer for these two files,
- *     both possible ID namespaces are tested when matching a selected ID:
- *       (A) local_elem_id
- *       (B) parallel_elems_id[local_elem_id]
- *     The CSV reports both match counts. The namespace that gives sensible
- *     coverage in your run is the one being used by the file.
- *
- * Required C++ headers:
- *   #include <algorithm>
- *   #include <cmath>
- *   #include <cstdio>
- *   #include <cstdlib>
- *   #include <cstring>
- *   #include <limits>
- *   #include <unordered_set>
- *   #include <vector>
+ * Required by HROM_ddecm_calc_block_mat_bcsr() below.
+ * Keep exactly one copy of this block, before that function.
+ * ============================================================
  */
 
 struct HROM_SelectedFileInfo {
@@ -5660,38 +6622,6 @@ struct HROM_SelectedFileInfo {
     {}
 };
 
-static bool HROM_diag_line_is_blank_or_comment(const char* s)
-{
-    if(s == NULL) return true;
-
-    while(*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n'){
-        ++s;
-    }
-
-    return (*s == '\0' || *s == '#' || *s == '!');
-}
-
-static int HROM_diag_count_tokens(const char* line)
-{
-    if(line == NULL) return 0;
-
-    int count = 0;
-    bool in_token = false;
-
-    for(const char* p = line; *p != '\0'; ++p){
-        const bool sep =
-            (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n');
-
-        if(sep){
-            in_token = false;
-        }else if(!in_token){
-            in_token = true;
-            count++;
-        }
-    }
-
-    return count;
-}
 
 static HROM_SelectedFileInfo HROM_diag_read_selected_file(
     const char* directory,
@@ -5699,66 +6629,161 @@ static HROM_SelectedFileInfo HROM_diag_read_selected_file(
 {
     HROM_SelectedFileInfo info;
 
-    FILE* fp = NULL;
-    fp = ROM_BB_read_fopen(fp, relative_name, directory);
+    char path[BUFFER_SIZE];
 
-    if(fp == NULL){
+    if (directory == NULL ||
+        directory[0] == '\0' ||
+        (directory[0] == '.' && directory[1] == '\0')) {
+
+        snprintf(
+            path,
+            BUFFER_SIZE,
+            "%s",
+            relative_name);
+    }
+    else {
+        snprintf(
+            path,
+            BUFFER_SIZE,
+            "%s/%s",
+            directory,
+            relative_name);
+    }
+
+    FILE* fp = fopen(path, "r");
+
+    if (fp == NULL) {
         return info;
     }
 
     info.exists = true;
 
-    char line[4096];
-    bool first_data_line = true;
+    /*
+     * Current selected-element file format:
+     *
+     *   <number of records>
+     *   <element id> <weight>
+     *   ...
+     */
+    if (fscanf(fp, "%d", &info.declared_count) != 1) {
+        info.malformed_lines++;
+        fclose(fp);
+        return info;
+    }
 
-    while(fgets(line, sizeof(line), fp) != NULL){
-        if(HROM_diag_line_is_blank_or_comment(line)){
+    while (true) {
+        int elem_id = -1;
+        double weight = 0.0;
+
+        const int nread =
+            fscanf(
+                fp,
+                "%d %lf",
+                &elem_id,
+                &weight);
+
+        if (nread == EOF) {
+            break;
+        }
+
+        if (nread != 2) {
+            /*
+             * Consume the remainder of the malformed line so that
+             * fscanf does not get stuck on the same input.
+             */
+            info.malformed_lines++;
+
+            int ch = 0;
+            do {
+                ch = fgetc(fp);
+            } while (ch != '\n' && ch != EOF);
+
+            if (ch == EOF) {
+                break;
+            }
+
             continue;
         }
 
-        const int ntok = HROM_diag_count_tokens(line);
+        (void)weight;
 
-        int first_int = 0;
-        char extra[16];
-        const int nscan = sscanf(line, "%d %15s", &first_int, extra);
-
-        if(first_data_line){
-            first_data_line = false;
-
-            /*
-             * Common format:
-             *   count
-             *   elem_id [weight ...]
-             *   ...
-             */
-            if(ntok == 1 && nscan >= 1){
-                info.declared_count = first_int;
-                continue;
-            }
-        }
-
-        if(nscan >= 1){
-            info.record_count++;
-            info.ids.insert(first_int);
-        }else{
-            info.malformed_lines++;
-        }
+        info.record_count++;
+        info.ids.insert(elem_id);
     }
 
     fclose(fp);
+
     return info;
 }
+
+
+static void HROM_diag_count_selected_support_for_subdomain(
+    HLPOD_DDHR* hlpod_ddhr,
+    const int subdomain,
+    const std::unordered_set<int>& selected_ids,
+    int* local_id_match,
+    int* parallel_id_match)
+{
+    if (local_id_match != NULL) {
+        *local_id_match = 0;
+    }
+
+    if (parallel_id_match != NULL) {
+        *parallel_id_match = 0;
+    }
+
+    if (hlpod_ddhr == NULL ||
+        subdomain < 0 ||
+        local_id_match == NULL ||
+        parallel_id_match == NULL) {
+
+        return;
+    }
+
+    const int num_local_elems =
+        hlpod_ddhr->num_elems[subdomain];
+
+    for (int i = 0; i < num_local_elems; ++i) {
+        const int local_elem_id =
+            hlpod_ddhr->elem_id_local[i][subdomain];
+
+        if (selected_ids.find(local_elem_id) !=
+            selected_ids.end()) {
+
+            (*local_id_match)++;
+        }
+
+        if (local_elem_id < 0) {
+            continue;
+        }
+
+        const int parallel_elem_id =
+            hlpod_ddhr->parallel_elems_id[local_elem_id];
+
+        if (selected_ids.find(parallel_elem_id) !=
+            selected_ids.end()) {
+
+            (*parallel_id_match)++;
+        }
+    }
+}
+
 
 struct HROM_BlockStats {
     int nrow;
     int ncol;
+
     double frob;
     double maxabs;
+
     long long nnz;
+
     int zero_rows;
     int zero_cols;
+
     double min_row_norm;
     double min_col_norm;
+
     int nonfinite;
 
     HROM_BlockStats()
@@ -5775,124 +6800,113 @@ struct HROM_BlockStats {
     {}
 };
 
+
 static HROM_BlockStats HROM_diag_calc_block_stats(
-    double** reduced_mat,
-    int rowS,
-    int rowE,
-    int colS,
-    int colE,
-    double zero_tol)
+    double** matrix,
+    const int row_begin,
+    const int row_end,
+    const int col_begin,
+    const int col_end,
+    const double zero_tol)
 {
     HROM_BlockStats s;
 
-    s.nrow = rowE - rowS;
-    s.ncol = colE - colS;
+    s.nrow = row_end - row_begin;
+    s.ncol = col_end - col_begin;
 
-    if(s.nrow <= 0 || s.ncol <= 0){
+    if (matrix == NULL ||
+        s.nrow <= 0 ||
+        s.ncol <= 0) {
+
         return s;
     }
 
-    std::vector<double> row_sq((size_t)s.nrow, 0.0);
-    std::vector<double> col_sq((size_t)s.ncol, 0.0);
+    std::vector<double> row_norm_sq(
+        (size_t)s.nrow,
+        0.0);
+
+    std::vector<double> col_norm_sq(
+        (size_t)s.ncol,
+        0.0);
 
     double frob_sq = 0.0;
 
-    for(int ir = 0; ir < s.nrow; ++ir){
-        const int m = rowS + ir;
+    for (int ir = 0; ir < s.nrow; ++ir) {
+        for (int ic = 0; ic < s.ncol; ++ic) {
+            const double value =
+                matrix[row_begin + ir][col_begin + ic];
 
-        for(int ic = 0; ic < s.ncol; ++ic){
-            const int n = colS + ic;
-            const double v = reduced_mat[m][n];
-
-            if(!std::isfinite(v)){
+            if (!std::isfinite(value)) {
                 s.nonfinite++;
                 continue;
             }
 
-            const double vv = v * v;
-            frob_sq += vv;
-            row_sq[(size_t)ir] += vv;
-            col_sq[(size_t)ic] += vv;
-            s.maxabs = std::max(s.maxabs, std::fabs(v));
+            const double abs_value =
+                std::fabs(value);
 
-            if(std::fabs(v) > zero_tol){
+            const double vv =
+                value * value;
+
+            frob_sq += vv;
+
+            row_norm_sq[(size_t)ir] += vv;
+            col_norm_sq[(size_t)ic] += vv;
+
+            if (abs_value > s.maxabs) {
+                s.maxabs = abs_value;
+            }
+
+            if (abs_value > zero_tol) {
                 s.nnz++;
             }
         }
     }
 
-    s.frob = std::sqrt(frob_sq);
+    s.frob =
+        std::sqrt(frob_sq);
 
-    s.min_row_norm = std::numeric_limits<double>::infinity();
-    for(size_t i = 0; i < row_sq.size(); ++i){
-        const double nr = std::sqrt(row_sq[i]);
-        s.min_row_norm = std::min(s.min_row_norm, nr);
-        if(nr <= zero_tol){
+    s.min_row_norm = DBL_MAX;
+
+    for (int ir = 0; ir < s.nrow; ++ir) {
+        const double norm =
+            std::sqrt(row_norm_sq[(size_t)ir]);
+
+        if (norm < s.min_row_norm) {
+            s.min_row_norm = norm;
+        }
+
+        if (norm <= zero_tol) {
             s.zero_rows++;
         }
     }
 
-    s.min_col_norm = std::numeric_limits<double>::infinity();
-    for(size_t i = 0; i < col_sq.size(); ++i){
-        const double nc = std::sqrt(col_sq[i]);
-        s.min_col_norm = std::min(s.min_col_norm, nc);
-        if(nc <= zero_tol){
+    s.min_col_norm = DBL_MAX;
+
+    for (int ic = 0; ic < s.ncol; ++ic) {
+        const double norm =
+            std::sqrt(col_norm_sq[(size_t)ic]);
+
+        if (norm < s.min_col_norm) {
+            s.min_col_norm = norm;
+        }
+
+        if (norm <= zero_tol) {
             s.zero_cols++;
         }
     }
 
-    if(!std::isfinite(s.min_row_norm)) s.min_row_norm = 0.0;
-    if(!std::isfinite(s.min_col_norm)) s.min_col_norm = 0.0;
+    if (s.min_row_norm == DBL_MAX) {
+        s.min_row_norm = 0.0;
+    }
+
+    if (s.min_col_norm == DBL_MAX) {
+        s.min_col_norm = 0.0;
+    }
 
     return s;
 }
 
-/*
- * Count selected IDs associated with first-level subdomain k.
- *
- * local_match:
- *   selected ID == local_elem_id
- *
- * parallel_match:
- *   selected ID == parallel_elems_id[local_elem_id]
- *
- * The two counts are kept separately because the exact file ID namespace
- * of selected_elem_internal/overlap was not present in the shared source.
- */
-static void HROM_diag_count_selected_support_for_subdomain(
-    HLPOD_DDHR* hlpod_ddhr,
-    int k,
-    const std::unordered_set<int>& selected_ids,
-    int* local_match,
-    int* parallel_match)
-{
-    *local_match = 0;
-    *parallel_match = 0;
 
-    std::unordered_set<int> counted_local;
-    std::unordered_set<int> counted_parallel;
-
-    const int ne = hlpod_ddhr->num_elems[k];
-
-    for(int i = 0; i < ne; ++i){
-        const int local_elem_id =
-            hlpod_ddhr->elem_id_local[i][k];
-
-        const int parallel_elem_id =
-            hlpod_ddhr->parallel_elems_id[local_elem_id];
-
-        if(selected_ids.find(local_elem_id) != selected_ids.end()){
-            counted_local.insert(local_elem_id);
-        }
-
-        if(selected_ids.find(parallel_elem_id) != selected_ids.end()){
-            counted_parallel.insert(parallel_elem_id);
-        }
-    }
-
-    *local_match = (int)counted_local.size();
-    *parallel_match = (int)counted_parallel.size();
-}
 
 void HROM_ddecm_calc_block_mat_bcsr(
     MONOLIS*        monolis,
