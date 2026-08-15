@@ -4,7 +4,9 @@
 
 # allow any
 !*.c
+!*.cpp
 !*.h
+!*.hpp
 !*.sh
 !*.py
 !*Makefile
