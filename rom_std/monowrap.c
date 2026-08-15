@@ -15,7 +15,6 @@ void ROM_monowrap_solve(
     monolis_set_maxiter  (monolis, num_max_iters);
     monolis_set_tolerance(monolis, epsilon);
     monolis_show_iterlog (monolis, true);
-    monolis_show_timelog(monolis, true);
 
     monolis_solve_R(
             monolis,

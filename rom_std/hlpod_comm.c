@@ -117,17 +117,13 @@ void ROM_std_hlpod_get_neib_vec_save_memory(
 {
     int n_neib_vec;
     int n_vec = num_modes;    //自領域のベクトル数
-
-    double t = monolis_get_time_global_sync();
-    printf("n_neib_vec = %d\n\n", num_modes);
-
+    
     monolis_mpi_get_n_neib_vector(
         monolis_com,
         n_vec,
         &n_neib_vec);       //出力：自領域と隣接領域の合計ベクトル数
 
     hlpod_vals->n_neib_vec = n_neib_vec;
-printf("n_neib_vec2 = %d\n\n", n_neib_vec);
 
 }
 

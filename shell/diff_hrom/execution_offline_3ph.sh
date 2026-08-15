@@ -25,6 +25,9 @@ cp -r hlpod_diff_offline_FOM ./../../$directory
 cp -r hlpod_diff_offline_ROM ./../../$directory
 cp -r hlpod_diff_online_HROM ./../../$directory
 
+cp -r hrom_stage3_serial ./../../$directory
+cp -r hrom_stage3_to_parallel ./../../$directory
+
 cd ./../../$directory
 
 mkdir -p {pod_modes_vtk,pod_modes,fem_solver_prm,hr_solver_prm,pod_solver_prm,calctime,DDECM,hr_prm}
@@ -42,7 +45,12 @@ echo "exit" >> $fname
 
 mpirun -np $np  ./hlpod_diff_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline_FOM
-mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline_ROM
+mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
+#mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline_ROM
+
+./hrom_stage3_serial ./ $np  10000 1.0e-8
+#./hrom_stage3_to_parallel ./ 3 parted.1 metagraph_parted.0
+
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_online_HROM
 #mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np $np  ./hlpod_diff_online_HROM ./ -nd $nd -nm $nm -pa $pa -st $st

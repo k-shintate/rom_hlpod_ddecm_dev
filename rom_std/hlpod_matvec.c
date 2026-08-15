@@ -1,5 +1,6 @@
 
 #include "hlpod_matvec.h"
+#include <cfloat>
     
 static const int BUFFER_SIZE = 10000;
 
@@ -314,7 +315,7 @@ void ROM_std_hlpod_set_reduced_mat(
 }
 
 
-void ROM_std_hlpod_set_reduced_mat_para(
+void ROM_std_hlpod_set_reduced_mat_para_test(
     MONOLIS*        monolis,
     MONOLIS_COM*    monolis_com,
     HLPOD_VALUES*   hlpod_vals,
@@ -436,10 +437,6 @@ void ROM_std_hlpod_set_reduced_mat_para(
 
     BB_std_free_2d_double(hlpod_mat->VTKV, total_num_bases, n_neib_vec);
     BB_std_free_2d_double(mat, M, M);
-
-
-    double t = monolis_get_time_global_sync();
-    //exit(1);
 }
 
 
@@ -562,9 +559,9 @@ void ROM_std_hlpod_reduced_rhs_to_monollis(
     for(int k = 0; k < num_2nd_subdomains; k++){
         for(int i = 0; i < hlpod_mat->num_modes_internal[k]; i++){
             monolis->mat.R.B[index + i] = hlpod_mat->VTf[index + i];
-            //if(monolis_mpi_get_global_my_rank()==0){
-                printf("rank = %d VTf[%d] = %e\n", monolis_mpi_get_global_my_rank(), index + i, hlpod_mat->VTf[index + i]);
-            //}
+            if(monolis_mpi_get_global_my_rank()==0){
+                printf("VTf[%d] = %e\n", index + i, hlpod_mat->VTf[index + i]);
+            }
         }
         index += hlpod_mat->num_modes_internal[k];
     }
@@ -726,4 +723,518 @@ void ROM_std_hlpod_calc_reduced_rhs(
 
     }
 
+}
+/*
+ * Diagnostic replacement for ROM_std_hlpod_set_reduced_mat_para()
+ *
+ * Outputs:
+ *   DDECM/rom_block_reference.<rank>.csv
+ *   DDECM/rom_block_entries.<rank>.csv
+ *
+ * Key points:
+ *   - preserves the original BCSR assembly
+ *   - checks how many j entries match each off-diagonal neighbor
+ *   - writes BOTH identifier namespaces:
+ *       subdomain_id[]
+ *       my_global_id[]
+ *   - writes each scalar entry VTKV[m][n] so it can be compared with HROM
+ *   - removes the unused MxM temporary "mat" buffer
+ *
+ * Required headers:
+ *   #include <stdio.h>
+ *   #include <stdlib.h>
+ *   #include <math.h>
+ *   #include <float.h>
+ *
+ * If hlpod_matvec.c already includes these through project headers,
+ * duplicate includes are harmless.
+ */
+
+typedef struct {
+    int nrow;
+    int ncol;
+    double frob;
+    double maxabs;
+    long long nnz;
+    int zero_rows;
+    int zero_cols;
+    double min_row_norm;
+    double min_col_norm;
+    int nonfinite;
+} HROM_ROM_BlockStat;
+
+static HROM_ROM_BlockStat ROM_diag_block_stats(
+    double** A,
+    int rowS,
+    int rowE,
+    int colS,
+    int colE,
+    double zero_tol)
+{
+    HROM_ROM_BlockStat s;
+
+    s.nrow = rowE - rowS;
+    s.ncol = colE - colS;
+    s.frob = 0.0;
+    s.maxabs = 0.0;
+    s.nnz = 0;
+    s.zero_rows = 0;
+    s.zero_cols = 0;
+    s.min_row_norm = 0.0;
+    s.min_col_norm = 0.0;
+    s.nonfinite = 0;
+
+    if(s.nrow <= 0 || s.ncol <= 0){
+        return s;
+    }
+
+    double* row_sq =
+        (double*)calloc((size_t)s.nrow, sizeof(double));
+
+    double* col_sq =
+        (double*)calloc((size_t)s.ncol, sizeof(double));
+
+    if(row_sq == NULL || col_sq == NULL){
+        fprintf(stderr,
+            "ERROR: ROM_diag_block_stats allocation failed "
+            "(nrow=%d ncol=%d)\n",
+            s.nrow, s.ncol);
+
+        free(row_sq);
+        free(col_sq);
+        exit(EXIT_FAILURE);
+    }
+
+    double frob_sq = 0.0;
+
+    for(int ir = 0; ir < s.nrow; ir++){
+        for(int ic = 0; ic < s.ncol; ic++){
+            const double v = A[rowS + ir][colS + ic];
+
+            if(!(v == v) || fabs(v) > DBL_MAX){
+                s.nonfinite++;
+                continue;
+            }
+
+            const double vv = v * v;
+
+            frob_sq += vv;
+            row_sq[ir] += vv;
+            col_sq[ic] += vv;
+
+            if(fabs(v) > s.maxabs){
+                s.maxabs = fabs(v);
+            }
+
+            if(fabs(v) > zero_tol){
+                s.nnz++;
+            }
+        }
+    }
+
+    s.frob = sqrt(frob_sq);
+
+    s.min_row_norm = DBL_MAX;
+
+    for(int ir = 0; ir < s.nrow; ir++){
+        const double nr = sqrt(row_sq[ir]);
+
+        if(nr < s.min_row_norm){
+            s.min_row_norm = nr;
+        }
+
+        if(nr <= zero_tol){
+            s.zero_rows++;
+        }
+    }
+
+    s.min_col_norm = DBL_MAX;
+
+    for(int ic = 0; ic < s.ncol; ic++){
+        const double nc = sqrt(col_sq[ic]);
+
+        if(nc < s.min_col_norm){
+            s.min_col_norm = nc;
+        }
+
+        if(nc <= zero_tol){
+            s.zero_cols++;
+        }
+    }
+
+    if(s.min_row_norm == DBL_MAX){
+        s.min_row_norm = 0.0;
+    }
+
+    if(s.min_col_norm == DBL_MAX){
+        s.min_col_norm = 0.0;
+    }
+
+    free(row_sq);
+    free(col_sq);
+
+    return s;
+}
+
+void ROM_std_hlpod_set_reduced_mat_para(
+    MONOLIS*        monolis,
+    MONOLIS_COM*    monolis_com,
+    HLPOD_VALUES*   hlpod_vals,
+    HLPOD_MAT*      hlpod_mat,
+    HLPOD_META*     hlpod_meta,
+    const int       max_num_bases,
+    const int       total_num_bases,
+    const int       num_2nddd)
+{
+    const int M = max_num_bases;
+    const int n_neib_vec = hlpod_vals->n_neib_vec;
+    const int rank = monolis_mpi_get_global_my_rank();
+    const double zero_tol = 1.0e-14;
+
+    (void)num_2nddd;
+
+    char fname_block[BUFFER_SIZE];
+    char fname_entry[BUFFER_SIZE];
+
+    snprintf(
+        fname_block,
+        BUFFER_SIZE,
+        "DDECM/rom_block_reference.%d.csv",
+        rank);
+
+    snprintf(
+        fname_entry,
+        BUFFER_SIZE,
+        "DDECM/rom_block_entries.%d.csv",
+        rank);
+
+    FILE* fp_block = NULL;
+    FILE* fp_entry = NULL;
+
+    fp_block = fopen(fname_block, "w");
+    fp_entry = fopen(fname_entry, "w");
+
+    if(fp_block == NULL || fp_entry == NULL){
+        fprintf(stderr,
+            "ERROR: rank=%d cannot open ROM diagnostic output "
+            "(%s, %s)\n",
+            rank, fname_block, fname_entry);
+
+        if(fp_block != NULL){
+            fclose(fp_block);
+        }
+        if(fp_entry != NULL){
+            fclose(fp_entry);
+        }
+
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(fp_block,
+        "rank,type,row_local,col_local,"
+        "row_subdomain_id,col_subdomain_id,"
+        "row_global_id,col_global_id,"
+        "matched_j,match_count,"
+        "nrow,ncol,frob,maxabs,nnz,"
+        "zero_rows,zero_cols,min_row_norm,min_col_norm,nonfinite\n");
+
+    fprintf(fp_entry,
+        "rank,type,row_local,col_local,"
+        "row_subdomain_id,col_subdomain_id,"
+        "row_global_id,col_global_id,"
+        "matched_j,ir,ic,m_global,n_global,value\n");
+
+    long long diag_blocks = 0;
+    long long offdiag_blocks = 0;
+    long long zero_diag = 0;
+    long long zero_offdiag = 0;
+    long long missing_map = 0;
+    long long multiple_map = 0;
+
+    /*
+     * ============================================================
+     * Diagonal blocks A_kk
+     * ============================================================
+     */
+    for(int k = 0; k < monolis_com->n_internal_vertex; ++k){
+        const int iS = hlpod_mat->num_modes_1stdd[k];
+        const int iE = hlpod_mat->num_modes_1stdd[k + 1];
+
+        const int nmode = iE - iS;
+
+        if(nmode < 0 || nmode > M){
+            fprintf(stderr,
+                "ERROR: rank=%d ROM diag k=%d mode count=%d M=%d\n",
+                rank, k, nmode, M);
+            exit(EXIT_FAILURE);
+        }
+
+        const HROM_ROM_BlockStat bs =
+            ROM_diag_block_stats(
+                hlpod_mat->VTKV,
+                iS, iE,
+                iS, iE,
+                zero_tol);
+
+        const int row_sid =
+            hlpod_meta->subdomain_id[k];
+
+        /*
+         * my_global_id is output only as a second namespace.
+         * If it is not valid for internal k in your HLPOD_META,
+         * remove these two references.
+         */
+        const int row_gid =
+            hlpod_meta->my_global_id[k];
+
+        fprintf(fp_block,
+            "%d,diag,%d,%d,%d,%d,%d,%d,-1,1,"
+            "%d,%d,%.17e,%.17e,%lld,%d,%d,%.17e,%.17e,%d\n",
+            rank,
+            k, k,
+            row_sid, row_sid,
+            row_gid, row_gid,
+            bs.nrow, bs.ncol,
+            bs.frob, bs.maxabs, bs.nnz,
+            bs.zero_rows, bs.zero_cols,
+            bs.min_row_norm, bs.min_col_norm,
+            bs.nonfinite);
+
+        for(int ir = 0; ir < nmode; ++ir){
+            for(int ic = 0; ic < nmode; ++ic){
+                const int m = iS + ir;
+                const int n = iS + ic;
+                const double val = hlpod_mat->VTKV[m][n];
+
+                fprintf(fp_entry,
+                    "%d,diag,%d,%d,%d,%d,%d,%d,-1,"
+                    "%d,%d,%d,%d,%.17e\n",
+                    rank,
+                    k, k,
+                    row_sid, row_sid,
+                    row_gid, row_gid,
+                    ir, ic,
+                    m, n,
+                    val);
+
+                monolis_add_scalar_to_sparse_matrix_R(
+                    monolis,
+                    k,
+                    k,
+                    ir,
+                    ic,
+                    val);
+            }
+        }
+
+        diag_blocks++;
+        if(bs.frob <= zero_tol || bs.nnz == 0){
+            zero_diag++;
+        }
+
+        printf(
+            "[ROM-DIAG] rank=%d k=%d sid=%d gid=%d "
+            "block=%dx%d frob=%.6e nnz=%lld\n",
+            rank, k, row_sid, row_gid,
+            bs.nrow, bs.ncol, bs.frob, bs.nnz);
+    }
+
+    /*
+     * ============================================================
+     * Off-diagonal blocks A_kl
+     * ============================================================
+     */
+    const int search_count =
+        hlpod_meta->n_internal_sum
+        + monolis_com->n_internal_vertex;
+
+    for(int k = 0; k < monolis_com->n_internal_vertex; ++k){
+        const int edgeS = hlpod_meta->index[k];
+        const int edgeE = hlpod_meta->index[k + 1];
+
+        for(int i = edgeS; i < edgeE; ++i){
+            const int col = hlpod_meta->item[i];
+
+            const int row_sid =
+                hlpod_meta->subdomain_id[k];
+
+            const int col_sid =
+                hlpod_meta->subdomain_id[col];
+
+            const int row_gid =
+                hlpod_meta->my_global_id[k];
+
+            const int col_gid =
+                hlpod_meta->my_global_id[col];
+
+            int match_count = 0;
+
+            for(int j = 0; j < search_count; ++j){
+                if(col_sid == hlpod_meta->subdomain_id_neib[j]){
+                    match_count++;
+                }
+            }
+
+            if(match_count == 0){
+                missing_map++;
+
+                fprintf(fp_block,
+                    "%d,offdiag,%d,%d,%d,%d,%d,%d,-1,0,"
+                    "0,0,0,0,0,0,0,0,0,0\n",
+                    rank,
+                    k, col,
+                    row_sid, col_sid,
+                    row_gid, col_gid);
+
+                fprintf(stderr,
+                    "WARNING: rank=%d ROM offdiag row=%d col=%d "
+                    "col_sid=%d has no subdomain_id_neib match\n",
+                    rank, k, col, col_sid);
+
+                continue;
+            }
+
+            if(match_count > 1){
+                multiple_map++;
+
+                fprintf(stderr,
+                    "WARNING: rank=%d ROM offdiag row=%d col=%d "
+                    "col_sid=%d has %d matching j entries\n",
+                    rank, k, col, col_sid, match_count);
+            }
+
+            /*
+             * Preserve original behavior:
+             * every matching j contributes.
+             */
+            for(int j = 0; j < search_count; ++j){
+                if(col_sid != hlpod_meta->subdomain_id_neib[j]){
+                    continue;
+                }
+
+                const int IS =
+                    hlpod_mat->num_modes_1stdd[k];
+                const int IE =
+                    hlpod_mat->num_modes_1stdd[k + 1];
+
+                const int IIS =
+                    hlpod_mat->num_modes_1stdd[j];
+                const int IIE =
+                    hlpod_mat->num_modes_1stdd[j + 1];
+
+                const int nr = IE - IS;
+                const int nc = IIE - IIS;
+
+                if(nr < 0 || nc < 0 || nr > M || nc > M){
+                    fprintf(stderr,
+                        "ERROR: rank=%d ROM offdiag "
+                        "row=%d col=%d j=%d block=%dx%d M=%d\n",
+                        rank, k, col, j, nr, nc, M);
+                    exit(EXIT_FAILURE);
+                }
+
+                const HROM_ROM_BlockStat bs =
+                    ROM_diag_block_stats(
+                        hlpod_mat->VTKV,
+                        IS, IE,
+                        IIS, IIE,
+                        zero_tol);
+
+                fprintf(fp_block,
+                    "%d,offdiag,%d,%d,%d,%d,%d,%d,%d,%d,"
+                    "%d,%d,%.17e,%.17e,%lld,%d,%d,%.17e,%.17e,%d\n",
+                    rank,
+                    k, col,
+                    row_sid, col_sid,
+                    row_gid, col_gid,
+                    j, match_count,
+                    bs.nrow, bs.ncol,
+                    bs.frob, bs.maxabs, bs.nnz,
+                    bs.zero_rows, bs.zero_cols,
+                    bs.min_row_norm, bs.min_col_norm,
+                    bs.nonfinite);
+
+                for(int ir = 0; ir < nr; ++ir){
+                    for(int ic = 0; ic < nc; ++ic){
+                        const int m = IS + ir;
+                        const int n = IIS + ic;
+                        const double val =
+                            hlpod_mat->VTKV[m][n];
+
+                        fprintf(fp_entry,
+                            "%d,offdiag,%d,%d,%d,%d,%d,%d,%d,"
+                            "%d,%d,%d,%d,%.17e\n",
+                            rank,
+                            k, col,
+                            row_sid, col_sid,
+                            row_gid, col_gid,
+                            j,
+                            ir, ic,
+                            m, n,
+                            val);
+
+                        monolis_add_scalar_to_sparse_matrix_R(
+                            monolis,
+                            k,
+                            col,
+                            ir,
+                            ic,
+                            val);
+                    }
+                }
+
+                offdiag_blocks++;
+                if(bs.frob <= zero_tol || bs.nnz == 0){
+                    zero_offdiag++;
+                }
+
+                printf(
+                    "[ROM-OFFDIAG] rank=%d row=%d col=%d "
+                    "sid=(%d,%d) gid=(%d,%d) "
+                    "j=%d matches=%d block=%dx%d "
+                    "frob=%.6e nnz=%lld\n",
+                    rank,
+                    k, col,
+                    row_sid, col_sid,
+                    row_gid, col_gid,
+                    j, match_count,
+                    bs.nrow, bs.ncol,
+                    bs.frob, bs.nnz);
+            }
+        }
+    }
+
+    fclose(fp_block);
+    fclose(fp_entry);
+
+    printf("\n"
+           "============================================================\n"
+           "[ROM block reference summary]\n"
+           "rank                       = %d\n"
+           "diag blocks                = %lld\n"
+           "zero diag blocks           = %lld\n"
+           "offdiag blocks             = %lld\n"
+           "zero offdiag blocks        = %lld\n"
+           "missing neighbor mappings  = %lld\n"
+           "multiple neighbor mappings = %lld\n"
+           "block CSV                  = %s\n"
+           "entry CSV                  = %s\n"
+           "============================================================\n\n",
+           rank,
+           diag_blocks,
+           zero_diag,
+           offdiag_blocks,
+           zero_offdiag,
+           missing_map,
+           multiple_map,
+           fname_block,
+           fname_entry);
+
+    /*
+     * Preserve original cleanup.
+     */
+    BB_std_free_2d_double(
+        hlpod_mat->VTKV,
+        total_num_bases,
+        n_neib_vec);
 }

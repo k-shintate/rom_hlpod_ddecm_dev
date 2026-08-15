@@ -181,3 +181,20 @@ void HROM_ddecm_get_neib_subdomain_id_2nddd(
 	MONOLIS_COM*  	monolis_com,
 	HLPOD_MAT* 	    hlpod_mat,
 	const int 		num_modes);
+
+void HROM_ddecm_write_selected_elems_para_arbit_subd_hierarchical(
+    MONOLIS_COM*  monolis_com,
+    BBFE_DATA*    fe,
+    BBFE_BC*      bc,
+    HLPOD_VALUES* hlpod_vals,
+    HLPOD_DDHR*   hlpod_ddhr,
+    HLPOD_MAT*    hlpod_mat,
+    HLPOD_META*   hlpod_meta,
+    const int     total_num_elem,
+    const int     total_num_snapshot,
+    const int     total_num_modes,
+    const int     num_subdomains,
+    const int     max_iter,
+    const double  tol,
+    const int     dof,
+    const char*   directory);

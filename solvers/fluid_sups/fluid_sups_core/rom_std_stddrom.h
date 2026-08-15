@@ -25,7 +25,6 @@
 #include <stdint.h>
 
 #include "core_ROM.h"
-#include "core_FOM_ST.h"
 
 #ifdef __cplusplus
 extern "C" {

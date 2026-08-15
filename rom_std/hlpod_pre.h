@@ -6,12 +6,6 @@
 #include "read_BB.h"
 #include "read_std.h"
 
-void ROM_std_hlpod_get_meta_neib2(
-    MONOLIS_COM*        monolis_com,
-    HLPOD_META*         hlpod_meta,
-    const char*     metagraph,
-    const char*     directory);
-
 void ROM_std_hlpod_get_meta_neib(
     MONOLIS_COM*  	monolis_com,
     HLPOD_META*		hlpod_meta,

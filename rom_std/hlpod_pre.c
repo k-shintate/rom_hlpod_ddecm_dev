@@ -1,12 +1,12 @@
+
 #include "hlpod_pre.h"
-
+    
 static const int BUFFER_SIZE = 10000;
-//static const char* INPUT_FILENAME_NODE        = "node.dat"; //for mag
-static const char* INPUT_FILENAME_NODE        = "graph_nedelec_elem_test.dat"; //for mag
+static const char* INPUT_FILENAME_NODE        = "node.dat"; //for mag
 
-void ROM_std_hlpod_get_meta_neib2(
-    MONOLIS_COM*        monolis_com,
-    HLPOD_META*         hlpod_meta,
+void ROM_std_hlpod_get_meta_neib(
+    MONOLIS_COM*  	monolis_com,
+    HLPOD_META*		hlpod_meta,
     const char*     metagraph,
     const char*     directory)
 {
@@ -15,7 +15,7 @@ void ROM_std_hlpod_get_meta_neib2(
     char fname[BUFFER_SIZE];
     char id[BUFFER_SIZE];
     FILE* fp = NULL;
-
+    
     const int n_internal_vertex = monolis_com->n_internal_vertex;
     const int myrank = monolis_mpi_get_global_my_rank();
 
@@ -69,296 +69,10 @@ void ROM_std_hlpod_get_meta_neib2(
 
 }
 
-void ROM_std_hlpod_get_meta_neib(
-    MONOLIS_COM*    monolis_com,
-    HLPOD_META*     hlpod_meta,
-    const char*     metagraph,
-    const char*     directory)
-{
-    int num_meta_nodes;
-    int tmp;
-    char fname[BUFFER_SIZE];
-    char id[BUFFER_SIZE];
-    FILE* fp = NULL;
-
-    const int myrank = monolis_mpi_get_global_my_rank();
-
-    if(monolis_com == NULL){
-        printf("[ERROR][rank %d] monolis_com is NULL in ROM_std_hlpod_get_meta_neib\n",
-               myrank);
-        fflush(stdout);
-        exit(1);
-    }
-
-    if(hlpod_meta == NULL){
-        printf("[ERROR][rank %d] hlpod_meta is NULL in ROM_std_hlpod_get_meta_neib\n",
-               myrank);
-        fflush(stdout);
-        exit(1);
-    }
-
-    const int n_internal_vertex = monolis_com->n_internal_vertex;
-
-    printf("[DEBUG][rank %d] get_meta_neib START\n", myrank);
-    printf("[DEBUG][rank %d] n_internal_vertex = %d\n",
-           myrank, n_internal_vertex);
-    fflush(stdout);
-
-    if(n_internal_vertex < 0){
-        printf("[ERROR][rank %d] invalid n_internal_vertex = %d\n",
-               myrank, n_internal_vertex);
-        fflush(stdout);
-        exit(1);
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * recv file を読む
-     * ------------------------------------------------------------
-     */
-    int num_neib = 0;
-
-    snprintf(fname, BUFFER_SIZE, "%s.recv.%d", metagraph, myrank);
-
-    printf("[DEBUG][rank %d] open recv file: %s\n", myrank, fname);
-    fflush(stdout);
-
-    fp = ROM_BB_read_fopen(fp, fname, directory);
-
-    if(fp == NULL){
-        printf("[ERROR][rank %d] failed to open recv file: %s\n",
-               myrank, fname);
-        fflush(stdout);
-        exit(1);
-    }
-
-    if(fscanf(fp, "%d %d", &(num_neib), &tmp) != 2){
-        printf("[ERROR][rank %d] failed to read num_neib from file: %s\n",
-               myrank, fname);
-        fflush(stdout);
-        fclose(fp);
-        exit(1);
-    }
-
-    if(num_neib < 0){
-        printf("[ERROR][rank %d] invalid num_neib = %d from file: %s\n",
-               myrank, num_neib, fname);
-        fflush(stdout);
-        fclose(fp);
-        exit(1);
-    }
-
-    printf("[DEBUG][rank %d] num_neib = %d\n", myrank, num_neib);
-    fflush(stdout);
-
-    int* neib_id = NULL;
-    neib_id = BB_std_calloc_1d_int(neib_id, num_neib);
-
-    for(int i = 0; i < num_neib; i++){
-        if(fscanf(fp, "%d", &(neib_id[i])) != 1){
-            printf("[ERROR][rank %d] failed to read neib_id[%d] from file: %s\n",
-                   myrank, i, fname);
-            fflush(stdout);
-            fclose(fp);
-            exit(1);
-        }
-
-        printf("[DEBUG][rank %d] neib_id[%d] = %d\n",
-               myrank, i, neib_id[i]);
-        fflush(stdout);
-    }
-
-    fclose(fp);
-    fp = NULL;
-
-    /*
-     * ------------------------------------------------------------
-     * 各隣接rankの内部ノード数を読む
-     * ------------------------------------------------------------
-     */
-    int* n_internal = NULL;
-    n_internal = BB_std_calloc_1d_int(n_internal, num_neib);
-
-    hlpod_meta->n_internal_sum = 0;
-
-    for(int m = 0; m < num_neib; m++){
-
-        snprintf(fname, BUFFER_SIZE, "%s.n_internal.%d",
-                 metagraph, neib_id[m]);
-
-        printf("[DEBUG][rank %d] read n_internal file: %s\n",
-               myrank, fname);
-        fflush(stdout);
-
-        n_internal[m] =
-            ROM_std_hlpod_read_n_internal(fp, fname, directory);
-
-        if(n_internal[m] < 0){
-            printf("[ERROR][rank %d] invalid n_internal[%d] = %d from %s\n",
-                   myrank, m, n_internal[m], fname);
-            fflush(stdout);
-            exit(1);
-        }
-
-        hlpod_meta->n_internal_sum += n_internal[m];
-
-        printf("[DEBUG][rank %d] n_internal[%d] = %d, n_internal_sum = %d\n",
-               myrank, m, n_internal[m], hlpod_meta->n_internal_sum);
-        fflush(stdout);
-    }
-
-    /*
-     * ------------------------------------------------------------
-     * 自分 + 隣接rank分の領域を確保
-     * ------------------------------------------------------------
-     */
-    int total_neib_nodes =
-        hlpod_meta->n_internal_sum + n_internal_vertex;
-
-    printf("[DEBUG][rank %d] allocate subdomain_id_neib size = %d "
-           "(self %d + neib_sum %d)\n",
-           myrank,
-           total_neib_nodes,
-           n_internal_vertex,
-           hlpod_meta->n_internal_sum);
-    fflush(stdout);
-
-    if(total_neib_nodes < 0){
-        printf("[ERROR][rank %d] invalid total_neib_nodes = %d\n",
-               myrank, total_neib_nodes);
-        fflush(stdout);
-        exit(1);
-    }
-
-    hlpod_meta->subdomain_id_neib =
-        BB_std_calloc_1d_int(
-            hlpod_meta->subdomain_id_neib,
-            total_neib_nodes
-        );
-
-    /*
-     * ------------------------------------------------------------
-     * 自分自身の id ファイルを読む
-     * ------------------------------------------------------------
-     */
-    snprintf(fname, BUFFER_SIZE, "%s.id.%d", metagraph, myrank);
-
-    printf("[DEBUG][rank %d] read self id file: %s, n = %d\n",
-           myrank, fname, n_internal_vertex);
-    fflush(stdout);
-
-    ROM_std_hlpod_read_node_id(
-        fp,
-        hlpod_meta->subdomain_id_neib,
-        n_internal_vertex,
-        fname,
-        directory
-    );
-
-    int index_internal = n_internal_vertex;
-
-    /*
-     * ------------------------------------------------------------
-     * 隣接rankの id ファイルを読む
-     * ------------------------------------------------------------
-     */
-    for(int m = 0; m < num_neib; m++){
-
-        snprintf(fname, BUFFER_SIZE, "%s.id.%d",
-                 metagraph, neib_id[m]);
-
-        printf("[DEBUG][rank %d] open neib id file: %s, n_internal[%d] = %d\n",
-               myrank, fname, m, n_internal[m]);
-        fflush(stdout);
-
-        fp = ROM_BB_read_fopen(fp, fname, directory);
-
-        if(fp == NULL){
-            printf("[ERROR][rank %d] failed to open neib id file: %s\n",
-                   myrank, fname);
-            fflush(stdout);
-            exit(1);
-        }
-
-        if(fscanf(fp, "%s", id) != 1){
-            printf("[ERROR][rank %d] failed to read id header from file: %s\n",
-                   myrank, fname);
-            fflush(stdout);
-            fclose(fp);
-            exit(1);
-        }
-
-        if(fscanf(fp, "%d %d", &num_meta_nodes, &tmp) != 2){
-            printf("[ERROR][rank %d] failed to read num_meta_nodes from file: %s\n",
-                   myrank, fname);
-            fflush(stdout);
-            fclose(fp);
-            exit(1);
-        }
-
-        printf("[DEBUG][rank %d] file %s: id = %s, num_meta_nodes = %d, tmp = %d\n",
-               myrank, fname, id, num_meta_nodes, tmp);
-        fflush(stdout);
-
-        if(n_internal[m] > num_meta_nodes){
-            printf("[ERROR][rank %d] n_internal[%d] = %d > num_meta_nodes = %d in %s\n",
-                   myrank, m, n_internal[m], num_meta_nodes, fname);
-            fflush(stdout);
-            fclose(fp);
-            exit(1);
-        }
-
-        for(int i = 0; i < n_internal[m]; i++){
-
-            if(index_internal >= total_neib_nodes){
-                printf("[ERROR][rank %d] index_internal overflow: "
-                       "index_internal = %d, total_neib_nodes = %d, "
-                       "m = %d, i = %d\n",
-                       myrank, index_internal, total_neib_nodes, m, i);
-                fflush(stdout);
-                fclose(fp);
-                exit(1);
-            }
-
-            if(fscanf(fp, "%d",
-                      &(hlpod_meta->subdomain_id_neib[index_internal])) != 1){
-
-                printf("[ERROR][rank %d] failed to read node id: "
-                       "file = %s, m = %d, i = %d, index_internal = %d\n",
-                       myrank, fname, m, i, index_internal);
-                fflush(stdout);
-                fclose(fp);
-                exit(1);
-            }
-
-            index_internal++;
-        }
-
-        fclose(fp);
-        fp = NULL;
-
-        printf("[DEBUG][rank %d] finished neib id file: %s, index_internal = %d / %d\n",
-               myrank, fname, index_internal, total_neib_nodes);
-        fflush(stdout);
-    }
-
-    if(index_internal != total_neib_nodes){
-        printf("[WARNING][rank %d] index_internal != total_neib_nodes: %d != %d\n",
-               myrank, index_internal, total_neib_nodes);
-        fflush(stdout);
-    }
-
-    double tt = monolis_get_time_global_sync();
-    printf("[DEBUG][rank %d] get_meta_neib END\n", myrank);
-    fflush(stdout);
-
-    free(neib_id);
-    free(n_internal);
-}
 
 void ROM_std_hlpod_get_subdomain_id(
-    HLPOD_VALUES*       hlpod_vals,
-    HLPOD_META*         hlpod_meta,
+    HLPOD_VALUES* 	hlpod_vals,
+    HLPOD_META*		hlpod_meta,
     const int       num,
     const char*     metagraph,
     const char*     directory)
@@ -392,9 +106,9 @@ void ROM_std_hlpod_get_subdomain_id(
 
 void ROM_std_hlpod_read_node_id_pod_subd(
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*         hlpod_meta,
-    const int           total_num_nodes,
-    const int           num_2nd_subdomains,
+    HLPOD_META*		hlpod_meta,
+    const int		total_num_nodes,
+    const int		num_2nd_subdomains,
     const char*     label,
     const char*     directory)
 {
@@ -434,10 +148,10 @@ void ROM_std_hlpod_read_node_id_pod_subd(
 
 void ROM_std_hlpod_read_node_id_pod_subd_para(
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*         hlpod_meta,
-    const int           total_num_nodes,
-    const int           N_internal_vertex,
-    const int           num_2nd_subdomains,
+    HLPOD_META*		hlpod_meta,
+    const int		total_num_nodes,
+    const int 		N_internal_vertex,
+    const int		num_2nd_subdomains,
     const char*     label,
     const char*     directory)
 {
@@ -454,8 +168,6 @@ void ROM_std_hlpod_read_node_id_pod_subd_para(
         snprintf(fname, BUFFER_SIZE, "%s/%s.n_internal.%d", label, INPUT_FILENAME_NODE, hlpod_meta->subdomain_id[m]);
         n_internal_vertex = ROM_std_hlpod_read_n_internal(fp, fname, directory);
 
-printf("myrank = %d, m = %d subdomain id = %d n_internal_vertex = %d N_internal_vertex = %d",monolis_mpi_get_global_my_rank(), m, hlpod_meta->subdomain_id[m] , n_internal_vertex, N_internal_vertex);
-
         for(int i = 0; i < n_internal_vertex; i++){
             hlpod_mat->node_id[index] = index;
             index++;
@@ -468,9 +180,9 @@ printf("myrank = %d, m = %d subdomain id = %d n_internal_vertex = %d N_internal_
 
 /*solve as dense matrix*/
 void ROM_std_hlpod_set_nonzero_pattern(
-    MONOLIS*            monolis,
+    MONOLIS*     	monolis,
     HLPOD_MAT*      hlpod_mat,
-    const int           num_modes)
+    const int 		num_modes)
 {
     const int k = num_modes;
     int* index;
@@ -479,16 +191,16 @@ void ROM_std_hlpod_set_nonzero_pattern(
 
     index = BB_std_calloc_1d_int(index, 1);
     item = BB_std_calloc_1d_int(item, 1);
-
+    
     index[0] = 0;
     item[0] = 1;
 
     monolis_get_nonzero_pattern_by_nodal_graph_R(
         monolis,
-        1,                                      //nnode:節点数
-        k,                                      //ndof:節点あたりの自由度
-        index,                          //節点グラフを定義するindex配列
-        item);                          //設定グラフを定義するitem配列
+        1,					//nnode:節点数
+        k,					//ndof:節点あたりの自由度
+        index,				//節点グラフを定義するindex配列
+        item);				//設定グラフを定義するitem配列
 
     connectivity = BB_std_calloc_1d_int(connectivity, 1);
     connectivity[0] = 0;
@@ -499,12 +211,12 @@ void ROM_std_hlpod_set_nonzero_pattern(
 }
 
 void ROM_std_hlpod_set_nonzero_pattern_bcsr(
-    MONOLIS*            monolis,
+    MONOLIS*     	monolis,
     HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*         hlpod_meta,
-    const int           num_modes,
+    HLPOD_META*		hlpod_meta,
+    const int		num_modes,
     const char*     label,
-    const char*         directory)
+    const char*		directory)
 {
     const char* fname;
     FILE* fp;
@@ -552,7 +264,7 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr(
         }
         sum += num_adj_nodes;
         hlpod_meta->index[i + 1] = sum;
-    }
+    }	
     fclose(fp);
 
     monolis_get_nonzero_pattern_by_nodal_graph_V_R(
@@ -566,12 +278,12 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr(
 
 
 void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
-    MONOLIS*            monolis,
-    MONOLIS_COM*        monolis_com,
-    HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*         hlpod_meta,
+    MONOLIS*     	monolis,
+    MONOLIS_COM*  	monolis_com,
+    HLPOD_MAT* 	    hlpod_mat,
+    HLPOD_META*		hlpod_meta,
     const char*     metagraph,
-    const char*         directory)
+    const char*		directory)
 {
     char fname[BUFFER_SIZE];
     FILE* fp;
@@ -619,7 +331,7 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
         }
         sum += num_adj_nodes;
         hlpod_meta->index[i + 1] = sum;
-    }
+    }	
     fclose(fp);
 
     hlpod_meta->num_meta_nodes = num_nodes;
@@ -627,10 +339,10 @@ void ROM_std_hlpod_set_nonzero_pattern_bcsr_para(
 
 //for arbit_dof_monolis_solver
 void ROM_std_hlpod_get_n_dof_list(
-    MONOLIS_COM*        monolis_com,
-    HLPOD_MAT*      hlpod_mat,
-    HLPOD_META*         hlpod_meta,
-    const int           max_num_bases)
+    MONOLIS_COM*  	monolis_com,
+    HLPOD_MAT* 	    hlpod_mat,
+    HLPOD_META*		hlpod_meta,
+    const int 		max_num_bases)
 {
     const int M = max_num_bases;
     const int M_all = M * hlpod_meta->num_meta_nodes;
@@ -665,10 +377,10 @@ void ROM_std_hlpod_get_n_dof_list(
                     length1 = IE - IS;
                     index1 = 0;
 
-                    for(int m = IS; m < IE; m++){
+                    for(int m = IS; m < IE; m++){					
                         length2 = IIE - IIS;
                         index2 = 0;
-                        for(int n = IIS; n < IIE; n++){
+                        for(int n = IIS; n < IIE; n++){		
                             index2++;
                         }
                         index1++;

@@ -49,7 +49,7 @@ double manusol_get_sol_without_time(
 	return val;
 }
 
-/*
+
 void manusol_get_conv_vel(
 		double v[3],
 		double x[3])
@@ -57,18 +57,6 @@ void manusol_get_conv_vel(
 	v[0] = 1.0 + x[0]*x[0];
 	v[1] = 1.0 + x[1]*x[1];
 	v[2] = 1.0 + x[2]*x[2];
-}
-*/
-
-void manusol_get_conv_vel(
-		double v[3],
-		double x[3])
-{
-	(void)x;
-
-	v[0] = 0.0;
-	v[1] = 0.0;
-	v[2] = 0.0;
 }
 
 
@@ -106,73 +94,25 @@ double manusol_get_source(
 */
 
 double manusol_get_source(
-		double x[3],
-		double t,
-		double a,
-		double v[3],
-		double k)
+                double x[3],
+                double t,
+                double a,
+                double v[3],
+                double k)
 {
-	const double xx = x[0];
-	const double yy = x[1];
-	const double zz = x[2];
+        double val = 0.0;
 
-	const double sx = sin(0.25 * xx);
-	const double cx = cos(0.25 * xx);
+        if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
+                val = 1000 * (1 + sin(t));
+        }
+        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 2.45 && x[1] < 2.55 &&x[2] > 2.45 && x[2] < 2.55){
+                val = 1000 * (1 + sin(t));
+        }
+        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
+                val = 1000 * (1 + sin(t));
+        }
 
-	const double sy = sin(0.5 * yy);
-	const double cy = cos(0.5 * yy);
-
-	const double sz = sin(zz);
-	const double cz = cos(zz);
-
-	const double st = sin(t);
-	const double ct = cos(t);
-
-	const double u =
-		sx * sy * sz * st;
-
-	const double du_dt =
-		sx * sy * sz * ct;
-
-	const double du_dx =
-		0.25 * cx * sy * sz * st;
-
-	const double du_dy =
-		0.5 * sx * cy * sz * st;
-
-	const double du_dz =
-		sx * sy * cz * st;
-
-	/*
-	 * k = 1 + x*y*z
-	 *
-	 * grad(k) = (y*z, x*z, x*y)
-	 */
-	const double grad_k_dot_grad_u =
-		yy * zz * du_dx
-		+
-		xx * zz * du_dy
-		+
-		xx * yy * du_dz;
-
-	/*
-	 * Laplacian(u) = -(21/16) u
-	 *
-	 * f = a du/dt - div(k grad(u))
-	 *   = a du/dt
-	 *     - grad(k) . grad(u)
-	 *     - k Laplacian(u)
-	 */
-	const double f =
-		a * du_dt
-		-
-		grad_k_dot_grad_u
-		+
-		k * (21.0 / 16.0) * u;
-
-	(void)v;
-
-	return f;
+        return val;
 }
 
 double manusol_get_source_without_time(
@@ -391,93 +331,42 @@ void read_calc_conditions(
 
 
 void output_result_file_vtk(
-        BBFE_DATA* fe,
-        VALUES*    vals,
-        const char* filename,
-        const char* directory,
-        double      t)
+		BBFE_DATA*       fe,
+		VALUES*        vals,
+		const char*    filename,
+		const char*    directory,
+		double         t)
 {
-    FILE* fp =
-        BBFE_sys_write_fopen(
-                fp,
-                filename,
-                directory);
+	FILE* fp;
+	fp = BBFE_sys_write_fopen(fp, filename, directory);
 
-    switch(fe->local_num_nodes) {
-    case 4:
-        BBFE_sys_write_vtk_shape(
-                fp,
-                fe,
-                TYPE_VTK_TETRA);
-        break;
+	switch( fe->local_num_nodes ) {
+		case 4:
+			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+			break;
 
-    case 8:
-        BBFE_sys_write_vtk_shape(
-                fp,
-                fe,
-                TYPE_VTK_HEXAHEDRON);
-        break;
-    }
+		case 8:
+			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+			break;
+	}
 
-    fprintf(
-            fp,
-            "POINT_DATA %d\n",
-            fe->total_num_nodes);
+	fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+	BB_vtk_write_point_vals_scalar(fp, vals->T, fe->total_num_nodes, "temperature");
 
-    BB_vtk_write_point_vals_scalar(
-            fp,
-            vals->T,
-            fe->total_num_nodes,
-            "temperature");
+	// for manufactured solution
+	BBFE_manusol_calc_nodal_error_scalar(
+			fe, vals->error, vals->theo_sol, vals->T);
+	BB_vtk_write_point_vals_scalar(fp, vals->error   , fe->total_num_nodes, "abs_error");
+	BB_vtk_write_point_vals_scalar(fp, vals->theo_sol, fe->total_num_nodes, "theoretical");
 
-    /*
-     * 重要:
-     * 出力対象時刻 t の理論解を必ず再計算する。
-     */
-    manusol_set_theo_sol(
-            fe,
-            vals->theo_sol,
-            t);
+	double* source;
+	source = BB_std_calloc_1d_double(source, fe->total_num_nodes);
+	manusol_set_source(fe, source, t);
+	BB_vtk_write_point_vals_scalar(fp, source, fe->total_num_nodes, "source");
+	BB_std_free_1d_double(source, fe->total_num_nodes);
 
-    BBFE_manusol_calc_nodal_error_scalar(
-            fe,
-            vals->error,
-            vals->theo_sol,
-            vals->T);
+	fclose(fp);
 
-    BB_vtk_write_point_vals_scalar(
-            fp,
-            vals->error,
-            fe->total_num_nodes,
-            "abs_error");
-
-    BB_vtk_write_point_vals_scalar(
-            fp,
-            vals->theo_sol,
-            fe->total_num_nodes,
-            "theoretical");
-
-    double* source =
-        BB_std_calloc_1d_double(
-                source,
-                fe->total_num_nodes);
-
-    manusol_set_source(
-            fe,
-            source,
-            t);
-
-    BB_vtk_write_point_vals_scalar(
-            fp,
-            source,
-            fe->total_num_nodes,
-            "source");
-
-    BB_std_free_1d_double(
-            source,
-            fe->total_num_nodes);
-
-    fclose(fp);
 }
 
 
