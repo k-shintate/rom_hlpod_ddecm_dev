@@ -12,6 +12,7 @@
  * DDECM/lb_selected_elem*.txt files used by the parallel online calculation.
  */
 #include <algorithm>
+#include <chrono>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -25,6 +26,15 @@
 #include <vector>
 
 #include "monolis_nnls_c.h"
+
+using HROMClock = std::chrono::steady_clock;
+
+static double HROM_elapsed_sec(
+    const HROMClock::time_point& a,
+    const HROMClock::time_point& b)
+{
+    return std::chrono::duration<double>(b - a).count();
+}
 
 struct RowKey {
     int32_t snapshot = 0;
@@ -752,6 +762,8 @@ static double** allocate_matrix(int m,int n,double** block_out)
 
 int main(int argc,char** argv)
 {
+    const auto timer_total_begin = HROMClock::now();
+
     if (argc < 3) {
         fprintf(
             stderr,
@@ -760,10 +772,12 @@ int main(int argc,char** argv)
             "[weight_tol=1e-8] [coverage_tau=weight_tol] "
             "[admm_max_iter=100] [rho=1.0] "
             "[admm_abs_tol=1e-10] [admm_rel_tol=1e-6] "
-            "[verbose=1] [coverage_mode=2]\n"
+            "[verbose=1] [coverage_mode=2] "
+            "[operator_clusters=2] [operator_signature_rtol=1e-8]\n"
             "  coverage_mode=0 : baseline Stage-3 (Stage-2 candidates only, no coverage)\n"
             "  coverage_mode=1 : coverage candidate expansion only, no hard constraint\n"
-            "  coverage_mode=2 : proposed method (candidate expansion + hard coverage)\n",
+            "  coverage_mode=2 : physical hard interface coverage\n"
+            "  coverage_mode=3 : operator-aware hard interface coverage (physical + signature clusters)\n",
             argv[0]);
         return EXIT_FAILURE;
     }
@@ -776,7 +790,7 @@ int main(int argc,char** argv)
 
     const int max_iter =
         (requested_iter > 0)
-        ? std::min(requested_iter, 1000)
+        ? requested_iter
         : 1000;
 
     const double tol =
@@ -813,18 +827,37 @@ int main(int argc,char** argv)
      *       add one eligible candidate to an interface that has no Stage-2
      *       candidate, but solve the original unconstrained NNLS.
      *
-     *   2 = proposed method:
-     *       candidate expansion + Cx >= epsilon via coverage ADMM.
+     *   2 = physical hard coverage:
+     *       candidate expansion + Cx >= epsilon.
+     *
+     *   3 = operator-aware hard coverage:
+     *       physical coverage + additional operator-signature subgroups.
+     *       Each signature is the normalized Stage-3 element column restricted
+     *       to rows owned by either side of the physical interface.  Greedy
+     *       cosine-distance clustering forces representation of distinct
+     *       interface operator directions while retaining linear 0/1 hard
+     *       constraints compatible with the primal-feasible solver.
      */
     const int coverage_mode =
         (argc > 12) ? atoi(argv[12]) : 2;
+
+    const int operator_clusters =
+        (argc > 13) ? atoi(argv[13]) : 2;
+
+    const double operator_signature_rtol =
+        (argc > 14) ? atof(argv[14]) : 1.0e-8;
 
     if (num_ranks <= 0) {
         die("num_rank_files must be positive");
     }
 
-    if (coverage_mode < 0 || coverage_mode > 2) {
-        die("coverage_mode must be 0, 1, or 2");
+    if (coverage_mode < 0 || coverage_mode > 3) {
+        die("coverage_mode must be 0, 1, 2, or 3");
+    }
+
+    if (operator_clusters <= 0 || operator_clusters > 8 ||
+        operator_signature_rtol <= 0.0 || operator_signature_rtol >= 1.0) {
+        die("invalid operator-aware coverage option");
     }
 
     if (coverage_tau <= 0.0 ||
@@ -834,6 +867,19 @@ int main(int argc,char** argv)
         admm_rel_tol <= 0.0) {
         die("invalid interface-coverage ADMM option");
     }
+
+    double time_read_rank = 0.0;
+    double time_interface = 0.0;
+    double time_candidate_expand = 0.0;
+    double time_index_group = 0.0;
+    double time_matrix_assembly = 0.0;
+    double time_normalize_anchor = 0.0;
+    double time_solver = 0.0;
+    double time_postprocess = 0.0;
+    double time_route_stats = 0.0;
+    double time_legacy_write = 0.0;
+
+    const auto timer_read_begin = HROMClock::now();
 
     std::vector<Stage3RankData> data;
     data.reserve((size_t)num_ranks);
@@ -853,6 +899,9 @@ int main(int argc,char** argv)
         data.push_back(std::move(d));
     }
 
+    time_read_rank =
+        HROM_elapsed_sec(timer_read_begin, HROMClock::now());
+
     std::vector<RowKey> rows(row_set.begin(),row_set.end());
     std::sort(rows.begin(),rows.end(),[](const RowKey&a,const RowKey&b){
         if (a.snapshot!=b.snapshot) return a.snapshot<b.snapshot;
@@ -869,6 +918,8 @@ int main(int argc,char** argv)
      * coverage_mode=0 is the true pre-coverage comparison baseline.
      * Do not even read/use the interface files in this mode.
      */
+    const auto timer_interface_begin = HROMClock::now();
+
     if (coverage_mode > 0) {
         interface_groups =
             read_all_interface_groups(
@@ -880,6 +931,9 @@ int main(int argc,char** argv)
         }
     }
 
+    time_interface =
+        HROM_elapsed_sec(timer_interface_begin, HROMClock::now());
+
     std::unordered_set<int64_t> coverage_added_element;
     int empty_interface_before_expansion = 0;
 
@@ -887,6 +941,8 @@ int main(int argc,char** argv)
      * Candidate expansion belongs to modes 1 and 2 only.
      * In mode 0 the candidate pool remains exactly the Stage-2 union.
      */
+    const auto timer_candidate_begin = HROMClock::now();
+
     if (coverage_mode > 0) {
         /*
          * Compute a global column norm for every available physical element.
@@ -917,53 +973,74 @@ int main(int argc,char** argv)
         }
 
         for (const InterfaceGroup& g : interface_groups) {
-            bool covered = false;
+            int current_count = 0;
+            for (int64_t elem : g.member_original_id) {
+                if (candidate_seed_weight.find(elem) !=
+                    candidate_seed_weight.end()) {
+                    current_count++;
+                }
+            }
+
+            if (current_count == 0) {
+                empty_interface_before_expansion++;
+            }
+
+            const int target_count =
+                (coverage_mode == 3)
+                ? std::min(operator_clusters, (int)g.member_original_id.size())
+                : 1;
+
+            if (current_count >= target_count) {
+                continue;
+            }
+
+            std::vector<std::pair<double,int64_t>> ranked;
+            ranked.reserve(g.member_original_id.size());
 
             for (int64_t elem : g.member_original_id) {
                 if (candidate_seed_weight.find(elem) !=
                     candidate_seed_weight.end()) {
-                    covered = true;
-                    break;
-                }
-            }
-
-            if (covered) {
-                continue;
-            }
-
-            empty_interface_before_expansion++;
-
-            int64_t best_elem = -1;
-            double best_norm = -1.0;
-
-            for (int64_t elem : g.member_original_id) {
-                const auto it =
-                    all_column_norm_sq.find(elem);
-
-                if (it == all_column_norm_sq.end()) {
                     continue;
                 }
 
-                if (it->second > best_norm) {
-                    best_norm = it->second;
-                    best_elem = elem;
-                }
+                const auto it = all_column_norm_sq.find(elem);
+                if (it == all_column_norm_sq.end()) continue;
+                ranked.emplace_back(it->second, elem);
             }
 
-            if (best_elem < 0) {
+            std::sort(
+                ranked.begin(), ranked.end(),
+                [](const std::pair<double,int64_t>& a,
+                   const std::pair<double,int64_t>& b) {
+                    if (a.first != b.first) return a.first > b.first;
+                    return a.second < b.second;
+                });
+
+            for (const auto& ne : ranked) {
+                if (current_count >= target_count) break;
+                candidate_seed_weight.emplace(ne.second, 0.0);
+                coverage_added_element.insert(ne.second);
+                current_count++;
+            }
+
+            if (current_count < target_count) {
                 fprintf(
                     stderr,
-                    "ERROR: physical interface {%lld,%lld} has no "
-                    "available Stage-3 element column\n",
+                    "ERROR: physical interface {%lld,%lld} has only %d/%d "
+                    "available Stage-3 candidate columns\n",
                     (long long)g.key.source_global_id,
-                    (long long)g.key.target_global_id);
+                    (long long)g.key.target_global_id,
+                    current_count,
+                    target_count);
                 exit(EXIT_FAILURE);
             }
-
-            candidate_seed_weight.emplace(best_elem, 0.0);
-            coverage_added_element.insert(best_elem);
         }
     }
+
+    time_candidate_expand =
+        HROM_elapsed_sec(timer_candidate_begin, HROMClock::now());
+
+    const auto timer_index_begin = HROMClock::now();
 
     std::vector<int64_t> candidates;
     candidates.reserve(candidate_seed_weight.size());
@@ -1041,6 +1118,11 @@ int main(int argc,char** argv)
     const int num_interface_group =
         (int)group_epsilon.size();
 
+    time_index_group =
+        HROM_elapsed_sec(timer_index_begin, HROMClock::now());
+
+    const auto timer_assembly_begin = HROMClock::now();
+
     double* Ablock=NULL;
     double** A=allocate_matrix(m,n,&Ablock);
     std::vector<double>b((size_t)m,0.0),x((size_t)n,0.0);
@@ -1070,6 +1152,11 @@ int main(int argc,char** argv)
         }
     }
 
+    time_matrix_assembly =
+        HROM_elapsed_sec(timer_assembly_begin, HROMClock::now());
+
+    const auto timer_norm_begin = HROMClock::now();
+
     /*
      * In mode 1 the added columns are merely available candidates; they are
      * NOT force-seeded into the active set.  This makes mode 1 a clean
@@ -1077,7 +1164,7 @@ int main(int argc,char** argv)
      *
      * Mode 2 uses them as warm-start columns for the constrained solve.
      */
-    if (coverage_mode == 2) {
+    if (coverage_mode >= 2) {
         for (int64_t elem : coverage_added_element) {
             const auto it = elem_index.find(elem);
 
@@ -1127,6 +1214,234 @@ int main(int argc,char** argv)
         }
     }
 
+
+    /*
+     * ------------------------------------------------------------
+     * Operator-aware interface coverage (coverage_mode=3)
+     *
+     * The physical groups above only state that some positive cubature
+     * weight remains on each interface.  For mode 3, augment them with
+     * subgroups obtained by clustering Stage-3 element operator signatures.
+     *
+     * For interface {p,q}, the signature of candidate c is
+     *
+     *     s_{g,c} = A(R_p union R_q, c),
+     *
+     * where R_p/R_q are rows whose owner_global_id is p/q.  Thus the
+     * signature contains all training snapshots and retained mode offsets
+     * associated with the two sides of the interface.  Greedy farthest-point
+     * selection in cosine distance chooses up to operator_clusters distinct
+     * directions, and every non-negligible member is assigned to its nearest
+     * anchor.  Each cluster receives the same pigeon-hole coverage rule
+     *
+     *     sum_{c in cluster} x_c >= 2*tau*|cluster|,
+     *
+     * so at least one output-weight element survives in every represented
+     * operator direction.  The original physical constraints are retained.
+     * ------------------------------------------------------------
+     */
+    std::vector<int> solver_group_ptr = group_ptr;
+    std::vector<int> solver_group_item = group_item;
+    std::vector<double> solver_group_epsilon = group_epsilon;
+    std::vector<int> operator_group_parent;
+    std::vector<int> operator_group_cluster;
+    std::vector<int> operator_group_anchor;
+    std::vector<double> operator_group_anchor_norm;
+
+    if (coverage_mode == 3) {
+        std::unordered_map<int64_t,std::vector<int>> owner_rows;
+        owner_rows.reserve(rows.size()/4 + 1);
+        for (int r = 0; r < m; ++r) {
+            owner_rows[rows[(size_t)r].owner_global_id].push_back(r);
+        }
+
+        int physical_with_operator_rows = 0;
+        int physical_without_operator_rows = 0;
+        int physical_zero_signature = 0;
+        int total_operator_clusters = 0;
+
+        for (int g = 0; g < num_interface_group; ++g) {
+            const InterfaceGroup& ig = interface_groups[(size_t)g];
+            std::vector<int> op_rows;
+
+            const auto rp = owner_rows.find(ig.key.source_global_id);
+            if (rp != owner_rows.end()) {
+                op_rows.insert(op_rows.end(), rp->second.begin(), rp->second.end());
+            }
+            const auto rq = owner_rows.find(ig.key.target_global_id);
+            if (rq != owner_rows.end()) {
+                op_rows.insert(op_rows.end(), rq->second.begin(), rq->second.end());
+            }
+
+            std::sort(op_rows.begin(), op_rows.end());
+            op_rows.erase(std::unique(op_rows.begin(), op_rows.end()), op_rows.end());
+
+            if (op_rows.empty()) {
+                physical_without_operator_rows++;
+                if (admm_verbose > 0) {
+                    printf(
+                        "[OPERATOR-COVERAGE-SKIP] g=%d interface={%lld,%lld} reason=no_owner_rows\n",
+                        g,
+                        (long long)ig.key.source_global_id,
+                        (long long)ig.key.target_global_id);
+                }
+                continue;
+            }
+            physical_with_operator_rows++;
+
+            const int kS = group_ptr[(size_t)g];
+            const int kE = group_ptr[(size_t)g + 1];
+            const int nm = kE - kS;
+            std::vector<double> sig_norm((size_t)nm, 0.0);
+            double max_sig_norm = 0.0;
+
+            for (int j = 0; j < nm; ++j) {
+                const int c = group_item[(size_t)(kS + j)];
+                long double n2 = 0.0L;
+                for (int rr : op_rows) {
+                    const long double v = (long double)A[rr][c];
+                    n2 += v*v;
+                }
+                sig_norm[(size_t)j] = std::sqrt((double)n2);
+                max_sig_norm = std::max(max_sig_norm, sig_norm[(size_t)j]);
+            }
+
+            if (max_sig_norm <= DBL_MIN) {
+                physical_zero_signature++;
+                if (admm_verbose > 0) {
+                    printf(
+                        "[OPERATOR-COVERAGE-SKIP] g=%d interface={%lld,%lld} reason=zero_signature members=%d rows=%zu\n",
+                        g,
+                        (long long)ig.key.source_global_id,
+                        (long long)ig.key.target_global_id,
+                        nm,
+                        op_rows.size());
+                }
+                continue;
+            }
+
+            std::vector<int> eligible;
+            for (int j = 0; j < nm; ++j) {
+                if (sig_norm[(size_t)j] >=
+                    operator_signature_rtol * max_sig_norm) {
+                    eligible.push_back(j);
+                }
+            }
+            if (eligible.empty()) {
+                physical_zero_signature++;
+                continue;
+            }
+
+            auto cosine = [&](int ja, int jb) -> double {
+                const int ca = group_item[(size_t)(kS + ja)];
+                const int cb = group_item[(size_t)(kS + jb)];
+                long double dot = 0.0L;
+                for (int rr : op_rows) {
+                    dot += (long double)A[rr][ca] * (long double)A[rr][cb];
+                }
+                const double den = sig_norm[(size_t)ja] * sig_norm[(size_t)jb];
+                if (den <= DBL_MIN) return 1.0;
+                double cs = (double)(dot / (long double)den);
+                return std::max(-1.0, std::min(1.0, cs));
+            };
+
+            std::vector<int> anchors;
+            int first = eligible.front();
+            for (int j : eligible) {
+                if (sig_norm[(size_t)j] > sig_norm[(size_t)first]) first = j;
+            }
+            anchors.push_back(first);
+
+            const int requested = std::min(operator_clusters, (int)eligible.size());
+            const double diversity_floor = 1.0e-4;
+
+            while ((int)anchors.size() < requested) {
+                int best = -1;
+                double best_score = -1.0;
+                for (int j : eligible) {
+                    if (std::find(anchors.begin(), anchors.end(), j) != anchors.end()) continue;
+                    double min_distance = 2.0;
+                    for (int a : anchors) {
+                        min_distance = std::min(min_distance, 1.0 - cosine(j,a));
+                    }
+                    const double importance = sig_norm[(size_t)j] / max_sig_norm;
+                    const double score = importance * min_distance;
+                    if (score > best_score) {
+                        best_score = score;
+                        best = j;
+                    }
+                }
+                if (best < 0 || best_score < diversity_floor) break;
+                anchors.push_back(best);
+            }
+
+            std::vector<std::vector<int>> clusters(anchors.size());
+            for (int j : eligible) {
+                int best_a = 0;
+                double best_cos = -2.0;
+                for (int aidx = 0; aidx < (int)anchors.size(); ++aidx) {
+                    const double cs = cosine(j, anchors[(size_t)aidx]);
+                    if (cs > best_cos) {
+                        best_cos = cs;
+                        best_a = aidx;
+                    }
+                }
+                clusters[(size_t)best_a].push_back(
+                    group_item[(size_t)(kS + j)]);
+            }
+
+            for (int aidx = 0; aidx < (int)anchors.size(); ++aidx) {
+                std::vector<int>& cl = clusters[(size_t)aidx];
+                if (cl.empty()) continue;
+                std::sort(cl.begin(), cl.end());
+                cl.erase(std::unique(cl.begin(), cl.end()), cl.end());
+
+                solver_group_item.insert(
+                    solver_group_item.end(), cl.begin(), cl.end());
+                solver_group_ptr.push_back((int)solver_group_item.size());
+                solver_group_epsilon.push_back(
+                    2.0 * coverage_tau * (double)cl.size());
+
+                const int aj = anchors[(size_t)aidx];
+                const int anchor_col = group_item[(size_t)(kS + aj)];
+                operator_group_parent.push_back(g);
+                operator_group_cluster.push_back(aidx);
+                operator_group_anchor.push_back(anchor_col);
+                operator_group_anchor_norm.push_back(sig_norm[(size_t)aj]);
+                total_operator_clusters++;
+
+                if (admm_verbose > 0) {
+                    printf(
+                        "[OPERATOR-COVERAGE-GROUP] physical_g=%d interface={%lld,%lld} cluster=%d/%zu members=%zu anchor_col=%d anchor_elem=%lld anchor_norm=%.6e rows=%zu epsilon=%.6e\n",
+                        g,
+                        (long long)ig.key.source_global_id,
+                        (long long)ig.key.target_global_id,
+                        aidx + 1,
+                        anchors.size(),
+                        cl.size(),
+                        anchor_col,
+                        (long long)candidates[(size_t)anchor_col],
+                        sig_norm[(size_t)aj],
+                        op_rows.size(),
+                        solver_group_epsilon.back());
+                }
+            }
+        }
+
+        printf(
+            "[OPERATOR-COVERAGE-SUMMARY] physical=%d with_owner_rows=%d no_owner_rows=%d zero_signature=%d operator_subgroups=%d total_constraints=%zu clusters_requested=%d signature_rtol=%.3e\n",
+            num_interface_group,
+            physical_with_operator_rows,
+            physical_without_operator_rows,
+            physical_zero_signature,
+            total_operator_clusters,
+            solver_group_epsilon.size(),
+            operator_clusters,
+            operator_signature_rtol);
+    }
+
+    const int num_solver_group = (int)solver_group_epsilon.size();
+
     std::vector<int> coverage_anchor(
         (size_t)num_interface_group,
         -1);
@@ -1137,7 +1452,7 @@ int main(int argc,char** argv)
 
     int singleton_interface_groups = 0;
 
-    if (coverage_mode == 2) {
+    if (coverage_mode >= 2) {
         for (int g = 0; g < num_interface_group; ++g) {
             const int kS = group_ptr[(size_t)g];
             const int kE = group_ptr[(size_t)g + 1];
@@ -1186,6 +1501,16 @@ int main(int argc,char** argv)
         }
     }
 
+
+    if (coverage_mode == 3) {
+        for (int c : operator_group_anchor) {
+            if (c >= 0 && c < n) {
+                active[(size_t)c] = 1;
+                unique_coverage_anchor.insert(c);
+            }
+        }
+    }
+
     int nactive=0;
     for(int v:active) if(v)++nactive;
 
@@ -1194,7 +1519,9 @@ int main(int argc,char** argv)
         ? "baseline: Stage-2 candidates only, unconstrained NNLS"
         : (coverage_mode == 1)
           ? "candidate-expanded ablation, unconstrained NNLS"
-          : "proposed: candidate expansion + hard interface coverage";
+        : (coverage_mode == 2)
+          ? "physical hard interface coverage"
+          : "operator-aware hard coverage: physical + signature clusters";
 
     printf("============================================================\n");
     printf("[Stage 3 v14 selectable coverage mode]\n");
@@ -1207,8 +1534,16 @@ int main(int argc,char** argv)
     printf("coverage-added candidate elements  = %zu\n",
         coverage_added_element.size());
     printf("Stage-3 candidate pool             = %d\n", n);
-    printf("directed interface constraints     = %d\n",
+    printf("physical interface constraints     = %d\n",
         num_interface_group);
+    printf("operator-aware subconstraints      = %d\n",
+        num_solver_group - num_interface_group);
+    printf("total solver coverage constraints  = %d\n",
+        num_solver_group);
+    if (coverage_mode == 3) {
+        printf("operator clusters requested        = %d\n", operator_clusters);
+        printf("operator signature relative floor  = %.6e\n", operator_signature_rtol);
+    }
     printf("interfaces empty before expansion  = %d\n",
         empty_interface_before_expansion);
     printf("initial active elements            = %d\n", nactive);
@@ -1228,12 +1563,17 @@ int main(int argc,char** argv)
         scale);
     printf("============================================================\n");
 
+    time_normalize_anchor =
+        HROM_elapsed_sec(timer_norm_begin, HROMClock::now());
+
+    const auto timer_solver_begin = HROMClock::now();
+
     double residual = 0.0;
     double max_coverage_violation = 0.0;
     int admm_outer_iter = 0;
     int coverage_status = 0;
 
-    if (coverage_mode == 2) {
+    if (coverage_mode >= 2) {
         coverage_status =
             monolis_optimize_nnls_R_with_sparse_solution_interface_coverage_admm(
                 A,
@@ -1244,11 +1584,11 @@ int main(int argc,char** argv)
                 max_iter,
                 tol,
                 active.data(),
-                num_interface_group,
-                group_ptr.data(),
-                group_item.data(),
-                (int)group_item.size(),
-                group_epsilon.data(),
+                num_solver_group,
+                solver_group_ptr.data(),
+                solver_group_item.data(),
+                (int)solver_group_item.size(),
+                solver_group_epsilon.data(),
                 admm_max_iter,
                 admm_rho,
                 admm_abs_tol,
@@ -1271,6 +1611,11 @@ int main(int argc,char** argv)
             &residual);
     }
 
+    time_solver =
+        HROM_elapsed_sec(timer_solver_begin, HROMClock::now());
+
+    const auto timer_post_begin = HROMClock::now();
+
     int uncovered_after_solve = 0;
     double minimum_group_sum = 0.0;
     double minimum_group_margin = 0.0;
@@ -1278,7 +1623,7 @@ int main(int argc,char** argv)
     int minimum_margin_group = -1;
     int minimum_sum_group = -1;
 
-    if (coverage_mode == 2) {
+    if (coverage_mode >= 2) {
         minimum_group_sum = DBL_MAX;
         minimum_group_margin = DBL_MAX;
 
@@ -1416,6 +1761,41 @@ int main(int argc,char** argv)
                 minimum_group_margin);
         }
 
+
+        if (coverage_mode == 3) {
+            int operator_uncovered = 0;
+            double operator_min_margin = DBL_MAX;
+            int operator_worst_solver_g = -1;
+
+            for (int sg = num_interface_group; sg < num_solver_group; ++sg) {
+                double sum = 0.0;
+                bool selected_member = false;
+                for (int k = solver_group_ptr[(size_t)sg];
+                     k < solver_group_ptr[(size_t)sg + 1]; ++k) {
+                    const int c = solver_group_item[(size_t)k];
+                    sum += x[(size_t)c];
+                    if (x[(size_t)c] > weight_tol) selected_member = true;
+                }
+                const double margin = sum - solver_group_epsilon[(size_t)sg];
+                if (margin < operator_min_margin) {
+                    operator_min_margin = margin;
+                    operator_worst_solver_g = sg;
+                }
+                if (!selected_member) operator_uncovered++;
+            }
+
+            printf(
+                "[OPERATOR-COVERAGE-RESULT] subgroups=%d uncovered_after_threshold=%d min_margin=%.15e worst_solver_group=%d\\n",
+                num_solver_group - num_interface_group,
+                operator_uncovered,
+                (operator_min_margin == DBL_MAX) ? 0.0 : operator_min_margin,
+                operator_worst_solver_g);
+
+            if (operator_uncovered != 0) {
+                die("operator-aware interface coverage lost one or more signature clusters");
+            }
+        }
+
         if (coverage_status != 0 ||
             uncovered_after_solve != 0 ||
             max_coverage_violation >
@@ -1423,8 +1803,8 @@ int main(int argc,char** argv)
                     admm_abs_tol,
                     admm_rel_tol *
                         *std::max_element(
-                            group_epsilon.begin(),
-                            group_epsilon.end()))) {
+                            solver_group_epsilon.begin(),
+                            solver_group_epsilon.end()))) {
             die("interface-coverage constrained NNLS did not satisfy "
                 "the requested hard constraints");
         }
@@ -1435,6 +1815,11 @@ int main(int argc,char** argv)
             coverage_mode,
             coverage_mode_name);
     }
+
+    time_postprocess =
+        HROM_elapsed_sec(timer_post_begin, HROMClock::now());
+
+    const auto timer_route_begin = HROMClock::now();
 
     std::vector<std::pair<int64_t,double>> selected;
 
@@ -1931,7 +2316,45 @@ int main(int argc,char** argv)
         fclose(fp);
     }
 
+    time_route_stats =
+        HROM_elapsed_sec(timer_route_begin, HROMClock::now());
+
+    const auto timer_legacy_begin = HROMClock::now();
+
     write_parallel_legacy_files(directory,routes,selected);
+
+    time_legacy_write =
+        HROM_elapsed_sec(timer_legacy_begin, HROMClock::now());
+
+    const double time_total =
+        HROM_elapsed_sec(timer_total_begin, HROMClock::now());
+
+    printf("\n"
+           "============================================================\n"
+           "[STAGE3-TIMING]\n"
+           "read rank files                  = %12.6f s  %6.2f %%\n"
+           "read/build interface groups      = %12.6f s  %6.2f %%\n"
+           "coverage candidate expansion     = %12.6f s  %6.2f %%\n"
+           "candidate/group indexing         = %12.6f s  %6.2f %%\n"
+           "global A,b assembly              = %12.6f s  %6.2f %%\n"
+           "normalization + anchors          = %12.6f s  %6.2f %%\n"
+           "NNLS / coverage solver           = %12.6f s  %6.2f %%\n"
+           "coverage post-check              = %12.6f s  %6.2f %%\n"
+           "route/stats/report               = %12.6f s  %6.2f %%\n"
+           "legacy file write                = %12.6f s  %6.2f %%\n"
+           "TOTAL                            = %12.6f s\n"
+           "============================================================\n",
+           time_read_rank,               100.0*time_read_rank/std::max(time_total,1.0e-300),
+           time_interface,               100.0*time_interface/std::max(time_total,1.0e-300),
+           time_candidate_expand,        100.0*time_candidate_expand/std::max(time_total,1.0e-300),
+           time_index_group,             100.0*time_index_group/std::max(time_total,1.0e-300),
+           time_matrix_assembly,         100.0*time_matrix_assembly/std::max(time_total,1.0e-300),
+           time_normalize_anchor,        100.0*time_normalize_anchor/std::max(time_total,1.0e-300),
+           time_solver,                  100.0*time_solver/std::max(time_total,1.0e-300),
+           time_postprocess,             100.0*time_postprocess/std::max(time_total,1.0e-300),
+           time_route_stats,             100.0*time_route_stats/std::max(time_total,1.0e-300),
+           time_legacy_write,            100.0*time_legacy_write/std::max(time_total,1.0e-300),
+           time_total);
 
     free(Ablock);
     free(A);
