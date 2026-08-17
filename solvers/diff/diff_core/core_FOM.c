@@ -72,9 +72,9 @@ double manusol_get_mass_coef(
 double manusol_get_diff_coef(
 		double x[3])
 {
-	//double val = (2.0 + sin(1.0*x[0]) * sin(0.5*x[1]) * sin(0.25*x[2]));
+	double val = (2.0 + sin(1.0*x[0]) * sin(0.5*x[1]) * sin(0.25*x[2]));
 
-	double val = (1 + x[0] * x[1]* x[2]);
+	//double val = (1 + x[0] * x[1]* x[2]);
 
 	return val;
 }
@@ -101,7 +101,7 @@ double manusol_get_source(
                 double k)
 {
         double val = 0.0;
-
+/*
         if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
                 val = 1000 * (1 + sin(t));
         }
@@ -111,7 +111,7 @@ double manusol_get_source(
         else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
                 val = 1000 * (1 + sin(t));
         }
-
+*/
         return val;
 }
 
@@ -123,7 +123,7 @@ double manusol_get_source_without_time(
                 double k)
 {
         double val = 0.0;
-
+/*
         if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
                 val = 1000;
         }
@@ -133,7 +133,7 @@ double manusol_get_source_without_time(
         else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
                 val = 1000;
         }
-
+*/
         return val;
 }
 
@@ -1262,16 +1262,20 @@ void solver_fom_NR(
 
 
 //スナップショットの収集
-void solver_fom_collect_snapmat(
+void solver_fom_collect_snapmat_test(
     FE_SYSTEM sys,
     double t,
     const int step)
 {
+    double tt = monolis_get_time_global_sync();
     printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
 
     //monolis_copy_mat_R(&(sys.monolis0), &(sys.monolis));
     monolis_copy_mat_value_R(&(sys.monolis0), &(sys.monolis));
     monolis_clear_mat_value_rhs_R(&(sys.monolis));
+
+    double t4 = monolis_get_time_global_sync();
+    printf("now4");
 
     set_element_vec(
             &(sys.monolis),
@@ -1279,6 +1283,9 @@ void solver_fom_collect_snapmat(
             &(sys.basis),
             &(sys.vals),
             t);
+    
+    double t3 = monolis_get_time_global_sync();
+    printf("now3");
 
     manusol_set_theo_sol(&(sys.fe), sys.vals.theo_sol, t);
     BBFE_manusol_set_bc_scalar(
@@ -1286,7 +1293,8 @@ void solver_fom_collect_snapmat(
             &(sys.bc),
             sys.vals.theo_sol,
             t);
-
+    double t2 = monolis_get_time_global_sync();
+    printf("now2");
     BBFE_sys_monowrap_set_Dirichlet_bc(
             &(sys.monolis),
             sys.fe.total_num_nodes,
@@ -1294,13 +1302,16 @@ void solver_fom_collect_snapmat(
             &(sys.bc),
             sys.monolis.mat.R.B);
 
+    double t1 = monolis_get_time_global_sync();
+    printf("now1");
+
     BBFE_sys_monowrap_solve(
             &(sys.monolis),
             &(sys.monolis_com),
             sys.vals.T,
             MONOLIS_ITER_CG,
             MONOLIS_PREC_DIAG,
-            sys.vals.mat_max_iter,
+            10,
             sys.vals.mat_epsilon);
 
 
@@ -1330,4 +1341,156 @@ void solver_fom_collect_snapmat(
 
     }
 
+}
+
+
+void solver_fom_collect_snapmat(
+    FE_SYSTEM* sys,
+    double t,
+    const int step)
+{
+    int rank = monolis_mpi_get_global_my_rank();
+
+#define TRACE(msg) \
+    do { \
+        fprintf(stderr, "[rank %d step %d] %s\n", rank, step, msg); \
+        fflush(stderr); \
+    } while(0)
+
+    TRACE("ENTER solver_fom_collect_snapmat");
+
+    TRACE("before monolis_copy_mat_R");
+
+    monolis_copy_mat_R(
+        &(sys->monolis0),
+        &(sys->monolis));
+
+    TRACE("after monolis_copy_mat_R");
+
+
+    /*
+     * monolis_copy_mat_R() は現在の MONOLIS 実装では
+     * value もコピーするため、これは基本的に不要。
+     */
+    /*
+    monolis_copy_mat_value_R(
+        &(sys->monolis0),
+        &(sys->monolis));
+    */
+
+
+    TRACE("before monolis_clear_mat_value_rhs_R");
+
+    monolis_clear_mat_value_rhs_R(
+        &(sys->monolis));
+
+    TRACE("after monolis_clear_mat_value_rhs_R");
+
+
+    TRACE("before set_element_vec");
+
+    set_element_vec(
+        &(sys->monolis),
+        &(sys->fe),
+        &(sys->basis),
+        &(sys->vals),
+        t);
+
+    TRACE("after set_element_vec");
+
+
+    TRACE("before manusol_set_theo_sol");
+
+    manusol_set_theo_sol(
+        &(sys->fe),
+        sys->vals.theo_sol,
+        t);
+
+    TRACE("after manusol_set_theo_sol");
+
+
+    TRACE("before BBFE_manusol_set_bc_scalar");
+
+    BBFE_manusol_set_bc_scalar(
+        &(sys->fe),
+        &(sys->bc),
+        sys->vals.theo_sol,
+        t);
+
+    TRACE("after BBFE_manusol_set_bc_scalar");
+
+
+    TRACE("before Dirichlet BC");
+
+    BBFE_sys_monowrap_set_Dirichlet_bc(
+        &(sys->monolis),
+        sys->fe.total_num_nodes,
+        BLOCK_SIZE,
+        &(sys->bc),
+        sys->monolis.mat.R.B);
+
+    TRACE("after Dirichlet BC");
+
+
+    fprintf(
+        stderr,
+        "[rank %d step %d] "
+        "matrix N=%d NP=%d, internal=%d, total_nodes=%d\n",
+        rank,
+        step,
+        sys->monolis.mat.N,
+        sys->monolis.mat.NP,
+        sys->monolis_com.n_internal_vertex,
+        sys->fe.total_num_nodes);
+
+    fflush(stderr);
+
+
+    TRACE("BEFORE SOLVE");
+
+    BBFE_sys_monowrap_solve(
+        &(sys->monolis),
+        &(sys->monolis_com),
+        sys->vals.T,
+        MONOLIS_ITER_CG,
+        MONOLIS_PREC_DIAG,
+        sys->vals.mat_max_iter,
+        sys->vals.mat_epsilon);
+
+    TRACE("AFTER SOLVE");
+
+
+    if(step % sys->vals.snapshot_interval == 0) {
+
+        TRACE("before snapshot");
+
+        if(monolis_mpi_get_global_comm_size() == 1) {
+
+            ROM_sys_hlpod_fe_set_snap_mat_para(
+                sys->vals.T,
+                &(sys->rom.hlpod_mat),
+                &(sys->bc),
+                &(sys->rom.rom_bc),
+                sys->fe.total_num_nodes,
+                1,
+                step / sys->vals.snapshot_interval);
+        }
+        else {
+
+            ROM_sys_hlpod_fe_set_snap_mat_para(
+                sys->vals.T,
+                &(sys->rom.hlpod_mat),
+                &(sys->bc),
+                &(sys->rom.rom_bc),
+                sys->monolis_com.n_internal_vertex,
+                1,
+                step / sys->vals.snapshot_interval);
+        }
+
+        TRACE("after snapshot");
+    }
+
+    TRACE("LEAVE solver_fom_collect_snapmat");
+
+#undef TRACE
 }

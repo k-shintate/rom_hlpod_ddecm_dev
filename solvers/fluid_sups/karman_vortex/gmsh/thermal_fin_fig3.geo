@@ -29,10 +29,10 @@ h_fin  = mu2 * dper;
 depth  = 1.0 * dper;
 
 // Structured mesh resolution (number of points on each curve)
-nx_fin  = 13;
-nx_rest = 29;
-ny_base = 31;
-ny_fin  = 81;
+nx_fin  = 8;
+nx_rest = 19;
+ny_base = 21;
+ny_fin  = 41;
 nz      = 21;     // number of points through the depth
 
 // -------------------------

@@ -8,7 +8,7 @@ ep=$2
 np=$3
 
 # 実行ディレクトリ
-directory="result_diff/FOM_${e}-${ep}-${np}"
+directory="result_diff/${nm}-${np}-${nd}"
 
 cd solvers/fluid_sups/karman_vortex
 . shell/meshgen_thermal_fin.sh
@@ -19,12 +19,14 @@ mkdir -p $directory
 cd $directory
 
 mv ../../solvers/fluid_sups/karman_vortex/merged_mesh/parted.0 ./
+mv ../../solvers/fluid_sups/karman_vortex/merged_mesh/D_bc.dat ./
+
 
 # for parameteric study
 rm -r cond.dat
 ./../../../test_thermal/bin/cmd2cond "#snapshot_interval" int 1 1 "#rom_finish_time" double 1 4.0 "#rom_output_interval" int 1 1
 mv cond.dat rom_cond.dat
 
-./../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.01 "#output_interval" int 1 1  "#finish_time" double 1 1.0
+./../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.01 "#output_interval" int 1 1  "#finish_time" double 1 0.5
 
 cd ../..

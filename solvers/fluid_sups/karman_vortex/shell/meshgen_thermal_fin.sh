@@ -30,7 +30,8 @@ rm -rf merged_mesh
 python3 mesh_io/repeat_dat_mesh_with_bc.py \
     --geo gmsh/thermal_fin_fig3.geo \
     --physical-group-script mesh_io/save_physical_groups.py \
-    --copies 16 \
+    --copies 8 \
+    --depth-copies 4 \
     --axis x \
     --gap 0.0 \
     --symmetric \
@@ -63,7 +64,7 @@ cd merged_mesh
 mkdir -p parted.0
 
 "$MESH_PARTITIONER" \
-    -n "16" \
+    -n "32" \
     -in node.dat \
     -ie elem.dat \
     --given_subdomain given_subdomain.dat \
@@ -75,7 +76,7 @@ mkdir -p parted.0
 # --------------------------------------------------
 
 "$BC_PARTITIONER" \
-    -n "16" \
+    -n "32" \
     -i D_bc.dat \
     -ig node.dat
 

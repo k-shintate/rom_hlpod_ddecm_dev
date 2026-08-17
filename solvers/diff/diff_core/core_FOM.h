@@ -117,8 +117,13 @@ void solver_fom_NR(
     const int step);
 
 //スナップショットの収集
-void solver_fom_collect_snapmat(
+void solver_fom_collect_snapmat_test(
 		FE_SYSTEM sys,
+		double t,
+		const int step);
+
+void solver_fom_collect_snapmat(
+		FE_SYSTEM* sys,
 		double t,
 		const int step);
 

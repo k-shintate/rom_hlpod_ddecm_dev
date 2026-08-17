@@ -78,7 +78,7 @@ int main (
 		t += sys.vals.dt;
 		step += 1;
 	double calctime_fem_t1 = monolis_get_time_global_sync();
-        solver_fom(sys, t, step);
+        solver_fom(&sys, t, step);
 	double calctime_fem_t2 = monolis_get_time_global_sync();
 
 		if(step%sys.vals.output_interval == 0) {

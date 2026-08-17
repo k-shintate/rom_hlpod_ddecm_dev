@@ -48,10 +48,42 @@ mpirun -np $np  ./hlpod_diff_offline_FOM ./ -nd $nd -nm $nm -pa $pa -st $st
 mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_offline_ROM
 
-export MONOLIS_IADMM_NU0=0.10
-export MONOLIS_IADMM_POWER=1.0
+#export MONOLIS_IADMM_NU0=0.10
+#export MONOLIS_IADMM_POWER=1.0
 
-./hrom_stage3_serial ./ $np  10000 1.0e-8 1.0e-8 1.0e-8  200 100.0 1.0e-10 1.0e-6  1 3
+#./hrom_stage3_serial ./ $np  10000 1.0e-8 1.0e-8 1.0e-8  200 100.0 1.0e-10 1.0e-6  1 3
+
+# hrom_stage3_serial parameter sweep
+# {1}: 1.0e-8, 1.0e-9, 1.0e-10
+# {2}: 0, 3
+for prm1 in 1.0e-8 1.0e-9 1.0e-10
+do
+    for prm2 in 0 3
+    do
+        ./hrom_stage3_serial ./ $np  10000 ${prm1} 1.0e-8 1.0e-8 \
+            200 100.0 1.0e-10 1.0e-6  1 ${prm2}
+
+        save_dir="hrom_stage3_results/prm1_${prm1}_prm2_${prm2}"
+        mkdir -p "${save_dir}/DDECM"
+
+        # stage3で生成された結果を保存
+        cp DDECM/stage_reduction_summary.txt "${save_dir}/DDECM/"
+
+        # 前ケースのL2 errorを誤って使わないよう削除
+        rm -f l2_error_rom.txt l2_error_fem_hrom.txt
+
+        # online HROM
+        mpirun -np $np ./hlpod_diff_online_HROM ./ \
+            -nd $nd -nm $nm -pa $pa -st $st
+
+        # onlineで生成された結果を保存
+        cp l2_error_rom.txt "${save_dir}/"
+        cp l2_error_fem_hrom.txt "${save_dir}/"
+    done
+done
+
+
+
 #./hrom_stage3_to_parallel ./ 3 parted.1 metagraph_parted.0
 
 #mpirun -np ${np}  gdb --command=gdb_cmd ./hlpod_diff_online_HROM

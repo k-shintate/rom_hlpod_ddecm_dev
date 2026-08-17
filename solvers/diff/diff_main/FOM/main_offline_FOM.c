@@ -187,7 +187,7 @@ int main (
 		t += sys.vals.dt;
 		step += 1;
 
-        solver_fom_collect_snapmat(sys, t, step);
+        solver_fom_collect_snapmat(&sys, t, step);
 
 		if(step%sys.vals.output_interval == 0) {
 			output_files(&sys, file_num, t);
