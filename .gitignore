@@ -1,6 +1,7 @@
 # ignore all
 *
 !*/
+include/*
 
 # allow any
 !*.c
@@ -20,5 +21,3 @@
 
 # allow some
 !utils/load_balancing/include/
-
-
