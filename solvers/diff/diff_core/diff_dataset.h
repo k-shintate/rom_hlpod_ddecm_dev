@@ -45,6 +45,23 @@ typedef struct
     int     solver_type;
 } ROM_PRM;
 
+typedef struct {
+    double radius;
+    double D_out;
+    double D_in;
+    double T0;
+    double Q0;
+    double tau;
+} MANUSOL_PARAM;
+
+static MANUSOL_PARAM g_manusol_param = {
+    .radius = 0.75,
+    .D_out  = 1.0,
+    .D_in   = 1.0e-4,
+    .T0     = 1.0,
+    .Q0     = 1.0,
+    .tau    = 1.0
+};
 
 typedef struct
 {

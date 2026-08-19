@@ -122,6 +122,17 @@ int main (
 			sys.fe.total_num_elems,
 			sys.fe.conn);
 
+    MANUSOL_PARAM prm = {
+        .radius = 0.75,
+        .D_out  = 1.0,
+        .D_in   = 5.0e-4,   //prm
+        .T0     = 1.0,
+        .Q0     = 1.0,
+        .tau    = 1.0
+    };
+
+    manusol_set_param(&prm);
+
 	set_element_mat(
 			&(sys.monolis0),
 			&(sys.fe),

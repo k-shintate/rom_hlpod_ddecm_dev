@@ -172,7 +172,7 @@ int main (
             sys.vals.finish_time,
             sys.vals.dt,
             sys.vals.snapshot_interval,
-            1);
+            5); //num_case
     /******************/
 
 	/*for online phase*/
@@ -242,7 +242,7 @@ int main (
 
 
     monolis_copy_mat_R(&(sys.monolis0), &(sys.monolis));
-    ROM_BB_vec_copy(sys.vals.T, sys.vals_rom.T, sys.fe.total_num_nodes);    
+    //ROM_BB_vec_copy(sys.vals.T, sys.vals_rom.T, sys.fe.total_num_nodes);    
 
     ROM_std_hlpod_calc_reduced_mat(
             &(sys.monolis),
@@ -263,6 +263,99 @@ int main (
     int file_num = 0;
     int step = 0;
     double t = 0;
+
+
+    double train_Din[] = {
+        1.0e-3,
+        1.0e-4,
+        1.0e-5,
+        1.0e-6,
+        1.0e-7
+    };
+
+    int num_train_param = sizeof(train_Din) / sizeof(train_Din[0]);
+
+    for(int iparam = 0; iparam < num_train_param; iparam++)
+    {
+        MANUSOL_PARAM prm = {
+            .radius = 0.75,
+            .D_out  = 1.0,
+            .D_in   = train_Din[iparam],
+            .T0     = 1.0,
+            .Q0     = 1.0,
+            .tau    = 1.0
+        };
+
+        manusol_set_param(&prm);
+
+        /*
+        * D_IN が変化するので
+        * A(mu) を作り直す
+        */
+        monolis_clear_mat_value_R(
+            &(sys.monolis0));
+
+        set_element_mat(
+            &(sys.monolis0),
+            &(sys.fe),
+            &(sys.basis),
+            &(sys.vals));
+        
+        
+        monolis_copy_mat_R(&(sys.monolis0), &(sys.monolis));
+    
+        manusol_set_init_value(
+            &(sys.fe),
+            sys.vals.T);
+        
+        ROM_BB_vec_copy(sys.vals.T, sys.vals_rom.T, sys.fe.total_num_nodes);    
+
+        monolis_clear_mat_value_R(
+            &(sys.monolis_rom0));
+            
+        ROM_std_hlpod_calc_reduced_mat(
+            &(sys.monolis),
+            &(sys.monolis_rom0),
+            &(sys.monolis_com),
+            &(sys.mono_com0),
+            &(sys.mono_com_rom_solv),
+            &(sys.rom),
+            sys.fe.total_num_nodes,
+            1);
+
+        solver_rom_NR4(&(sys), 0, 0, 0);
+        double tt2 = monolis_get_time_global_sync();
+        printf("done solver ROM");
+        add_reduced_mat_linear(&(sys), 0, 0, 0);
+        double tt3 = monolis_get_time_global_sync();
+        
+
+        double t = 0.0;
+        //int step = 0;
+
+        while(t < sys.vals.finish_time) {
+
+            t += sys.vals.dt;
+            step++;
+
+            double calctime_fem_t1 = monolis_get_time();
+            solver_fom(sys, t, step);	
+            double calctime_fem_t2 = monolis_get_time();
+            double calctime_rom_t1 = monolis_get_time();
+            solver_rom(&(sys), step, t);        
+            double calctime_rom_t2 = monolis_get_time();
+
+            HROM_set_matvec(&(sys),&(sys.rom),&(sys.hrom),step,t);
+
+            if(step%sys.vals.output_interval == 0) {
+                ROM_output_files(&sys, file_num, t);
+                            
+                file_num += 1;
+            }
+        }
+    }
+
+/*
 	while (t < sys.vals.finish_time) {
 		t += sys.vals.dt;
 		step += 1;
@@ -271,13 +364,9 @@ int main (
         double calctime_fem_t1 = monolis_get_time();
         solver_fom(sys, t, step);	
         double calctime_fem_t2 = monolis_get_time();
-		/**********************************************/
-
-        /****************** ROM solver ****************/
         double calctime_rom_t1 = monolis_get_time();
-        solver_rom2(&(sys), step, t);        
+        solver_rom(&(sys), step, t);        
         double calctime_rom_t2 = monolis_get_time();
-		/**********************************************/
 
         HROM_set_matvec(&(sys),&(sys.rom),&(sys.hrom),step,t);
 
@@ -287,6 +376,7 @@ int main (
 			file_num += 1;
 		}
     }
+*/
 
    HROM_pre_offline2(&sys, &(sys.rom), &(sys.hrom));
 

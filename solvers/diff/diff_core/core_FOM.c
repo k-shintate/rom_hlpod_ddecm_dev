@@ -27,15 +27,150 @@ static const char* OUTPUT_FILENAME_ASCII_SOURCE = "source_%06d.dat";
 static const char* OUTPUT_FILENAME_VTK    = "result_%06d.vtk";
 
 
-double manusol_get_sol(
-		double x,
-		double y,
-		double z,
-		double t)
-{
-	double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z ) * sin( 1.0*t );
+/*
+ * Domain:
+ *   [0,5] x [0,5] x [0,5]
+ *
+ * Spherical inclusion:
+ *   center = (2.5, 2.5, 2.5)
+ *   radius = 0.75
+ *
+ * Diffusion contrast:
+ *   D_out / D_in = 1.0e4
+ */
 
-	return val;
+#define XC      2.5
+#define YC      2.5
+#define ZC      2.5
+
+#define RADIUS  0.75
+
+#define D_OUT   1.0
+#define D_IN    1.0e-4
+
+
+#define TAU     1.0
+
+void manusol_set_param(const MANUSOL_PARAM* prm)
+{
+    g_manusol_param = *prm;
+}
+
+
+static double manusol_phi(double r)
+{
+    const double R   = g_manusol_param.radius;
+    const double Di  = g_manusol_param.D_in;
+    const double Do  = g_manusol_param.D_out;
+    const double Q   = g_manusol_param.Q0;
+
+    if (r <= R) {
+        return
+            Q * R * R / (3.0 * Do)
+            +
+            Q * (R * R - r * r)
+            / (6.0 * Di);
+    }
+    else {
+        return
+            Q * R * R * R
+            / (3.0 * Do * r);
+    }
+}
+
+double manusol_get_sol(
+        double x,
+        double y,
+        double z,
+        double t)
+{
+    double dx = x - XC;
+    double dy = y - YC;
+    double dz = z - ZC;
+
+    double r =
+        sqrt(dx * dx +
+             dy * dy +
+             dz * dz);
+
+    double phi = manusol_phi(r);
+
+    double h =
+        1.0 - exp(-t / g_manusol_param.tau);
+
+    return g_manusol_param.T0 + h * phi;
+}
+double manusol_get_diff_coef(double x[3])
+{
+    double dx = x[0] - XC;
+    double dy = x[1] - YC;
+    double dz = x[2] - ZC;
+
+    double r2 =
+        dx * dx +
+        dy * dy +
+        dz * dz;
+
+    if (r2 <=
+        g_manusol_param.radius *
+        g_manusol_param.radius)
+    {
+        return g_manusol_param.D_in;
+    }
+
+    return g_manusol_param.D_out;
+}
+double manusol_get_source(
+        double x[3],
+        double t,
+        double a,
+        double v[3],
+        double k)
+{
+    (void)v;
+    (void)k;
+
+    double dx = x[0] - XC;
+    double dy = x[1] - YC;
+    double dz = x[2] - ZC;
+
+    double r2 =
+        dx * dx +
+        dy * dy +
+        dz * dz;
+
+    double r = sqrt(r2);
+
+    double phi = manusol_phi(r);
+
+    double tau = g_manusol_param.tau;
+    double R   = g_manusol_param.radius;
+    double Q   = g_manusol_param.Q0;
+
+    double e =
+        exp(-t / tau);
+
+    double h =
+        1.0 - e;
+
+    double dh =
+        e / tau;
+
+    double q;
+
+    if (r2 <= R * R)
+    {
+        q = Q;
+    }
+    else
+    {
+        q = 0.0;
+    }
+
+    return
+        a * dh * phi
+        +
+        h * q;
 }
 
 double manusol_get_sol_without_time(
@@ -68,7 +203,20 @@ double manusol_get_mass_coef(
 	return val;
 }
 
+/*
+double manusol_get_sol(
+		double x,
+		double y,
+		double z,
+		double t)
+{
+	double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z ) * sin( 1.0*t );
 
+	return val;
+}
+*/
+
+/*
 double manusol_get_diff_coef(
 		double x[3])
 {
@@ -78,6 +226,7 @@ double manusol_get_diff_coef(
 
 	return val;
 }
+*/
 
 /*
 double manusol_get_source(
@@ -93,6 +242,7 @@ double manusol_get_source(
 }
 */
 
+/*
 double manusol_get_source(
                 double x[3],
                 double t,
@@ -112,8 +262,10 @@ double manusol_get_source(
                 val = 1000 * (1 + sin(t));
         }
 */
+/*
         return val;
 }
+*/
 
 double manusol_get_source_without_time(
                 double x[3],
@@ -1343,51 +1495,28 @@ void solver_fom_collect_snapmat_test(
 
 }
 
-
 void solver_fom_collect_snapmat(
     FE_SYSTEM* sys,
     double t,
-    const int step)
+    const int step,
+    const int iparam)
 {
     int rank = monolis_mpi_get_global_my_rank();
 
 #define TRACE(msg) \
     do { \
-        fprintf(stderr, "[rank %d step %d] %s\n", rank, step, msg); \
+        fprintf(stderr, \
+            "[rank %d param %d step %d] %s\n", \
+            rank, iparam, step, msg); \
         fflush(stderr); \
     } while(0)
-
-    TRACE("ENTER solver_fom_collect_snapmat");
-
-    TRACE("before monolis_copy_mat_R");
 
     monolis_copy_mat_R(
         &(sys->monolis0),
         &(sys->monolis));
 
-    TRACE("after monolis_copy_mat_R");
-
-
-    /*
-     * monolis_copy_mat_R() は現在の MONOLIS 実装では
-     * value もコピーするため、これは基本的に不要。
-     */
-    /*
-    monolis_copy_mat_value_R(
-        &(sys->monolis0),
-        &(sys->monolis));
-    */
-
-
-    TRACE("before monolis_clear_mat_value_rhs_R");
-
     monolis_clear_mat_value_rhs_R(
         &(sys->monolis));
-
-    TRACE("after monolis_clear_mat_value_rhs_R");
-
-
-    TRACE("before set_element_vec");
 
     set_element_vec(
         &(sys->monolis),
@@ -1396,31 +1525,16 @@ void solver_fom_collect_snapmat(
         &(sys->vals),
         t);
 
-    TRACE("after set_element_vec");
-
-
-    TRACE("before manusol_set_theo_sol");
-
     manusol_set_theo_sol(
         &(sys->fe),
         sys->vals.theo_sol,
         t);
-
-    TRACE("after manusol_set_theo_sol");
-
-
-    TRACE("before BBFE_manusol_set_bc_scalar");
 
     BBFE_manusol_set_bc_scalar(
         &(sys->fe),
         &(sys->bc),
         sys->vals.theo_sol,
         t);
-
-    TRACE("after BBFE_manusol_set_bc_scalar");
-
-
-    TRACE("before Dirichlet BC");
 
     BBFE_sys_monowrap_set_Dirichlet_bc(
         &(sys->monolis),
@@ -1429,14 +1543,12 @@ void solver_fom_collect_snapmat(
         &(sys->bc),
         sys->monolis.mat.R.B);
 
-    TRACE("after Dirichlet BC");
-
-
     fprintf(
         stderr,
-        "[rank %d step %d] "
+        "[rank %d param %d step %d] "
         "matrix N=%d NP=%d, internal=%d, total_nodes=%d\n",
         rank,
+        iparam,
         step,
         sys->monolis.mat.N,
         sys->monolis.mat.NP,
@@ -1444,9 +1556,6 @@ void solver_fom_collect_snapmat(
         sys->fe.total_num_nodes);
 
     fflush(stderr);
-
-
-    TRACE("BEFORE SOLVE");
 
     BBFE_sys_monowrap_solve(
         &(sys->monolis),
@@ -1457,12 +1566,61 @@ void solver_fom_collect_snapmat(
         sys->vals.mat_max_iter,
         sys->vals.mat_epsilon);
 
-    TRACE("AFTER SOLVE");
-
-
+    /*
+     * Snapshot
+     */
     if(step % sys->vals.snapshot_interval == 0) {
 
         TRACE("before snapshot");
+
+        /*
+         * 1 parameter あたりの time snapshot 数
+         */
+        int num_time_steps =
+            (int)round(
+                sys->vals.finish_time /
+                sys->vals.dt);
+
+        int num_snap_per_param =
+            num_time_steps /
+            sys->vals.snapshot_interval;
+
+        /*
+         * time方向の snapshot番号
+         *
+         * 1, 2, 3, ...
+         */
+        int time_snap_id =
+            step /
+            sys->vals.snapshot_interval;
+
+        /*
+         * parameter方向も含めた global snapshot番号
+         *
+         * iparam = 0:
+         *   1, 2, ..., Ns
+         *
+         * iparam = 1:
+         *   Ns+1, ..., 2Ns
+         *
+         * ...
+         */
+        int global_snap_id =
+            iparam * num_snap_per_param
+            + time_snap_id;
+
+        fprintf(
+            stderr,
+            "[rank %d] "
+            "param=%d step=%d "
+            "time_snap=%d global_snap=%d\n",
+            rank,
+            iparam,
+            step,
+            time_snap_id,
+            global_snap_id);
+
+        fflush(stderr);
 
         if(monolis_mpi_get_global_comm_size() == 1) {
 
@@ -1473,7 +1631,7 @@ void solver_fom_collect_snapmat(
                 &(sys->rom.rom_bc),
                 sys->fe.total_num_nodes,
                 1,
-                step / sys->vals.snapshot_interval);
+                global_snap_id);
         }
         else {
 
@@ -1484,7 +1642,7 @@ void solver_fom_collect_snapmat(
                 &(sys->rom.rom_bc),
                 sys->monolis_com.n_internal_vertex,
                 1,
-                step / sys->vals.snapshot_interval);
+                global_snap_id);
         }
 
         TRACE("after snapshot");

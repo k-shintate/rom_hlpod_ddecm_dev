@@ -101,6 +101,69 @@ struct InterfaceGroup {
     std::vector<int64_t> member_original_id;
 };
 
+/*
+ * Mode-4 internal operator group.
+ *
+ * member_original_id contains strictly internal owned elements of one fine
+ * subdomain.  Elements that belong to any physical interface group are removed
+ * so that an internal operator constraint cannot be satisfied only by an
+ * interface-supporting element.
+ */
+struct InternalOperatorGroup {
+    int fine_subdomain = -1;
+    std::vector<int64_t> member_original_id;
+};
+
+/*
+ * Mode-5 adaptive enrichment diagnostics.
+ *
+ * Mode 5 starts from the exact mode-0 Stage-3 candidate set (the Stage-2
+ * selected union), solves an unconstrained sparse NNLS with a deliberately
+ * coarse seed tolerance, measures operator directions that are not represented
+ * by the current output support, and reintroduces only the highest-priority
+ * missing columns.  Hard singleton coverage is optional and is used only as a
+ * final fallback when candidate enrichment alone cannot retain a required
+ * direction.
+ */
+struct Mode5AdaptiveResult {
+    int rounds = 0;
+    int added_candidates = 0;
+    int deficient_groups_final = 0;
+    double final_max_defect = 0.0;
+    std::vector<int64_t> added_element;
+    std::vector<int64_t> hard_anchor_element;
+};
+
+struct Mode5System {
+    int m = 0;
+    int n = 0;
+    std::vector<int64_t> candidates;
+    std::vector<double> A; /* row-major, normalized */
+    std::vector<double> b; /* normalized */
+    std::vector<double> x;
+    double scale = 1.0;
+    double residual = 0.0;
+};
+
+struct Mode5OperatorGroupDesc {
+    int kind = 0; /* 0=interface, 1=internal */
+    int64_t owner_a = -1;
+    int64_t owner_b = -1;
+    std::vector<int> rows;
+    std::vector<int64_t> members;
+};
+
+struct Mode5DefectCandidate {
+    double defect = 0.0;
+    double priority = 0.0;
+    double importance = 0.0;
+    double novelty = 0.0;
+    double residual_alignment = 0.0;
+    int group_index = -1;
+    int64_t elem = -1;
+    bool already_candidate = false;
+};
+
 
 struct Stage1SubdomainStats {
     int rank = -1;
@@ -517,6 +580,61 @@ static std::vector<InterfaceGroup> read_all_interface_groups(
 }
 
 
+/*
+ * Build strictly-internal fine-subdomain element groups for coverage_mode=4.
+ *
+ * stage3_route.* contains exact routes for the owned/internal elements of each
+ * fine subdomain.  Remove every element that appears in any physical interface
+ * group; the remaining members are the true interior set used for internal
+ * operator-signature coverage.
+ */
+static std::vector<InternalOperatorGroup> build_internal_operator_groups(
+    const std::vector<RouteEntry>& routes,
+    const std::vector<InterfaceGroup>& interface_groups)
+{
+    std::unordered_set<int64_t> interface_member;
+    for (const InterfaceGroup& g : interface_groups) {
+        for (int64_t elem : g.member_original_id) {
+            interface_member.insert(elem);
+        }
+    }
+
+    std::unordered_map<int,std::unordered_set<int64_t>> by_subdomain;
+    for (const RouteEntry& e : routes) {
+        if (interface_member.find(e.original_global_id) != interface_member.end()) {
+            continue;
+        }
+        by_subdomain[e.fine_subdomain].insert(e.original_global_id);
+    }
+
+    std::vector<InternalOperatorGroup> groups;
+    groups.reserve(by_subdomain.size());
+
+    size_t total_membership = 0;
+    for (const auto& kv : by_subdomain) {
+        InternalOperatorGroup g;
+        g.fine_subdomain = kv.first;
+        g.member_original_id.assign(kv.second.begin(),kv.second.end());
+        std::sort(g.member_original_id.begin(),g.member_original_id.end());
+        total_membership += g.member_original_id.size();
+        groups.push_back(std::move(g));
+    }
+
+    std::sort(
+        groups.begin(),groups.end(),
+        [](const InternalOperatorGroup& a,const InternalOperatorGroup& b) {
+            return a.fine_subdomain < b.fine_subdomain;
+        });
+
+    printf(
+        "[internal-groups] fine_subdomains=%zu strictly_internal_memberships=%zu "
+        "excluded_interface_elements=%zu\n",
+        groups.size(),total_membership,interface_member.size());
+
+    return groups;
+}
+
+
 static std::vector<Stage1SubdomainStats> read_all_stage1_stats(
     const char* directory,
     int num_ranks)
@@ -760,6 +878,900 @@ static double** allocate_matrix(int m,int n,double** block_out)
     return A;
 }
 
+
+struct ThresholdRefitResult {
+    int enabled = 0;
+    int passes = 0;
+    int initial_support = 0;
+    int final_support = 0;
+    int stable = 1;
+    double residual_before = 0.0;
+    double residual_after_initial_cut = 0.0;
+    double residual_final = 0.0;
+    int coverage_status = 0;
+    double max_coverage_violation = 0.0;
+    int coverage_outer_iter = 0;
+};
+
+static double compute_stage3_residual(
+    double** A,
+    const std::vector<double>& b,
+    const std::vector<double>& x,
+    int m,
+    int n)
+{
+    long double r2 = 0.0L;
+    for (int r = 0; r < m; ++r) {
+        long double ax = 0.0L;
+        for (int c = 0; c < n; ++c) {
+            ax += (long double)A[r][c] * (long double)x[(size_t)c];
+        }
+        const long double d = ax - (long double)b[(size_t)r];
+        r2 += d*d;
+    }
+    return std::sqrt((double)r2);
+}
+
+static std::vector<int> threshold_support(
+    std::vector<double>& x,
+    double weight_tol)
+{
+    std::vector<int> support;
+    support.reserve(x.size());
+    for (int c = 0; c < (int)x.size(); ++c) {
+        if (x[(size_t)c] > weight_tol) {
+            support.push_back(c);
+        }
+        else {
+            x[(size_t)c] = 0.0;
+        }
+    }
+    return support;
+}
+
+/*
+ * Threshold-consistent restricted refit.
+ *
+ * Keep the continuous NNLS itself unchanged.  The online output threshold
+ * first defines S={c | x_c>weight_tol}; then the same least-squares problem
+ * is solved again on columns S only.  In coverage modes, every physical and
+ * operator-aware coverage row is restricted to S and enforced again with the
+ * original epsilon.  If refitting creates new coefficients <=weight_tol,
+ * those columns are removed and the restricted problem is solved again.
+ * Since columns can only disappear, the support shrinks monotonically.
+ *
+ * The final residual is therefore evaluated for exactly the coefficient
+ * vector written to the online HROM files, without replacing the convex NNLS
+ * by an implicit nonconvex condition x_i=0 or x_i>weight_tol.
+ */
+static ThresholdRefitResult threshold_consistent_refit(
+    double** A,
+    const std::vector<double>& b,
+    std::vector<double>& x,
+    int m,
+    int n,
+    int max_iter,
+    double tol,
+    double weight_tol,
+    int coverage_mode,
+    const std::vector<int>& solver_group_ptr,
+    const std::vector<int>& solver_group_item,
+    const std::vector<double>& solver_group_epsilon,
+    int admm_max_iter,
+    double admm_rho,
+    double admm_abs_tol,
+    double admm_rel_tol,
+    int admm_verbose,
+    int max_pass)
+{
+    ThresholdRefitResult out;
+    out.enabled = 1;
+    out.residual_before = compute_stage3_residual(A,b,x,m,n);
+
+    std::vector<int> support = threshold_support(x,weight_tol);
+    out.initial_support = (int)support.size();
+    out.residual_after_initial_cut = compute_stage3_residual(A,b,x,m,n);
+
+    printf(
+        "[THRESHOLD-REFIT-START] weight_tol=%.15e support=%d/%d "
+        "residual_before=%.15e residual_after_cut=%.15e cut_delta=%.15e\n",
+        weight_tol,
+        out.initial_support,
+        n,
+        out.residual_before,
+        out.residual_after_initial_cut,
+        out.residual_after_initial_cut - out.residual_before);
+
+    if (support.empty()) {
+        die("threshold refit removed every Stage-3 candidate");
+    }
+
+    if (max_pass <= 0) max_pass = n;
+    out.stable = 0;
+
+    for (int pass = 1; pass <= max_pass; ++pass) {
+        const int ns = (int)support.size();
+        double* Asub_block = NULL;
+        double** Asub = allocate_matrix(m,ns,&Asub_block);
+        std::vector<double> xsub((size_t)ns,0.0);
+        std::vector<int> active_sub((size_t)ns,1);
+        std::vector<int> old_to_sub((size_t)n,-1);
+
+        for (int j = 0; j < ns; ++j) {
+            old_to_sub[(size_t)support[(size_t)j]] = j;
+        }
+        for (int r = 0; r < m; ++r) {
+            for (int j = 0; j < ns; ++j) {
+                Asub[r][j] = A[r][support[(size_t)j]];
+            }
+        }
+
+        double refit_residual = 0.0;
+        int refit_status = 0;
+        double refit_max_violation = 0.0;
+        int refit_outer_iter = 0;
+
+        if (coverage_mode >= 2) {
+            const int ng = (int)solver_group_epsilon.size();
+            std::vector<int> sub_group_ptr;
+            std::vector<int> sub_group_item;
+            std::vector<double> sub_group_epsilon = solver_group_epsilon;
+            sub_group_ptr.reserve((size_t)ng + 1);
+            sub_group_ptr.push_back(0);
+
+            for (int g = 0; g < ng; ++g) {
+                std::vector<int> local;
+                for (int k = solver_group_ptr[(size_t)g];
+                     k < solver_group_ptr[(size_t)g + 1]; ++k) {
+                    const int old_col = solver_group_item[(size_t)k];
+                    const int sub_col = old_to_sub[(size_t)old_col];
+                    if (sub_col >= 0) local.push_back(sub_col);
+                }
+                std::sort(local.begin(),local.end());
+                local.erase(std::unique(local.begin(),local.end()),local.end());
+                if (local.empty()) {
+                    fprintf(
+                        stderr,
+                        "ERROR: threshold refit emptied coverage group %d at pass %d; "
+                        "weight_tol=%.15e\n",
+                        g,pass,weight_tol);
+                    free(Asub);
+                    free(Asub_block);
+                    exit(EXIT_FAILURE);
+                }
+                sub_group_item.insert(
+                    sub_group_item.end(),local.begin(),local.end());
+                sub_group_ptr.push_back((int)sub_group_item.size());
+            }
+
+            refit_status =
+                monolis_optimize_nnls_R_with_sparse_solution_interface_coverage_admm(
+                    Asub,
+                    b.data(),
+                    xsub.data(),
+                    m,
+                    ns,
+                    max_iter,
+                    tol,
+                    active_sub.data(),
+                    ng,
+                    sub_group_ptr.data(),
+                    sub_group_item.data(),
+                    (int)sub_group_item.size(),
+                    sub_group_epsilon.data(),
+                    admm_max_iter,
+                    admm_rho,
+                    admm_abs_tol,
+                    admm_rel_tol,
+                    admm_verbose,
+                    &refit_residual,
+                    &refit_max_violation,
+                    &refit_outer_iter);
+
+            if (refit_status != 0) {
+                fprintf(
+                    stderr,
+                    "ERROR: threshold-restricted coverage refit failed: "
+                    "pass=%d status=%d max_violation=%.15e\n",
+                    pass,refit_status,refit_max_violation);
+                free(Asub);
+                free(Asub_block);
+                exit(EXIT_FAILURE);
+            }
+        }
+        else {
+            monolis_optimize_nnls_R_with_sparse_solution_initial_set(
+                Asub,
+                const_cast<double*>(b.data()),
+                xsub.data(),
+                m,
+                ns,
+                max_iter,
+                tol,
+                active_sub.data(),
+                &refit_residual);
+        }
+
+        std::fill(x.begin(),x.end(),0.0);
+        for (int j = 0; j < ns; ++j) {
+            x[(size_t)support[(size_t)j]] = xsub[(size_t)j];
+        }
+
+        std::vector<int> new_support = threshold_support(x,weight_tol);
+        const double residual_after_cut = compute_stage3_residual(A,b,x,m,n);
+        const int removed = ns - (int)new_support.size();
+
+        printf(
+            "[THRESHOLD-REFIT-PASS] pass=%d restricted_cols=%d kept=%zu "
+            "removed=%d solver_residual=%.15e residual_after_cut=%.15e "
+            "coverage_status=%d max_violation=%.15e\n",
+            pass,
+            ns,
+            new_support.size(),
+            removed,
+            refit_residual,
+            residual_after_cut,
+            refit_status,
+            refit_max_violation);
+
+        out.passes = pass;
+        out.coverage_status = refit_status;
+        out.max_coverage_violation = refit_max_violation;
+        out.coverage_outer_iter = refit_outer_iter;
+
+        free(Asub);
+        free(Asub_block);
+
+        if (new_support.size() == support.size()) {
+            out.stable = 1;
+            support.swap(new_support);
+            break;
+        }
+
+        if (new_support.empty()) {
+            die("threshold refit produced an empty support");
+        }
+        support.swap(new_support);
+    }
+
+    if (!out.stable) {
+        die("threshold refit support did not stabilize; increase threshold_refit_max_pass");
+    }
+
+    out.final_support = (int)support.size();
+    out.residual_final = compute_stage3_residual(A,b,x,m,n);
+
+    int small_positive = 0;
+    for (double v : x) {
+        if (v > 0.0 && v <= weight_tol) small_positive++;
+    }
+    if (small_positive != 0) {
+        die("threshold refit ended with positive coefficients below weight_tol");
+    }
+
+    printf(
+        "[THRESHOLD-REFIT-DONE] passes=%d support=%d/%d stable=%d "
+        "residual_before=%.15e residual_final=%.15e small_positive=%d\n",
+        out.passes,
+        out.final_support,
+        n,
+        out.stable,
+        out.residual_before,
+        out.residual_final,
+        small_positive);
+
+    return out;
+}
+
+
+static Mode5System mode5_solve_unconstrained_system(
+    const std::vector<Stage3RankData>& data,
+    const std::vector<RowKey>& rows,
+    const std::unordered_map<int64_t,double>& candidate_seed_weight,
+    int max_iter,
+    double solve_tol)
+{
+    Mode5System sys;
+    sys.m = (int)rows.size();
+    sys.candidates.reserve(candidate_seed_weight.size());
+    for (const auto& kv : candidate_seed_weight) {
+        sys.candidates.push_back(kv.first);
+    }
+    std::sort(sys.candidates.begin(),sys.candidates.end());
+    sys.n = (int)sys.candidates.size();
+
+    if (sys.m <= 0 || sys.n <= 0) {
+        die("mode-5 temporary system is empty");
+    }
+
+    std::unordered_map<RowKey,int,RowKeyHash> row_index;
+    row_index.reserve(rows.size()*2 + 1);
+    for (int r = 0; r < sys.m; ++r) {
+        row_index.emplace(rows[(size_t)r],r);
+    }
+
+    std::unordered_map<int64_t,int> elem_index;
+    elem_index.reserve(sys.candidates.size()*2 + 1);
+    for (int c = 0; c < sys.n; ++c) {
+        elem_index.emplace(sys.candidates[(size_t)c],c);
+    }
+
+    sys.A.assign((size_t)sys.m*(size_t)sys.n,0.0);
+    sys.b.assign((size_t)sys.m,0.0);
+    sys.x.assign((size_t)sys.n,0.0);
+    std::vector<int> active((size_t)sys.n,0);
+
+    for (const Stage3RankData& d : data) {
+        const int nr = (int)d.row_key.size();
+        const int nl = (int)d.local_elem_id.size();
+
+        for (int r = 0; r < nr; ++r) {
+            const int gr = row_index.at(d.row_key[(size_t)r]);
+            sys.b[(size_t)gr] += d.rhs[(size_t)r];
+
+            for (int lc = 0; lc < nl; ++lc) {
+                const auto ei = elem_index.find(d.local_elem_id[(size_t)lc]);
+                if (ei == elem_index.end()) continue;
+                sys.A[(size_t)gr*(size_t)sys.n + (size_t)ei->second] +=
+                    d.local_matrix[(size_t)r*(size_t)nl + (size_t)lc];
+            }
+        }
+
+        int best = -1;
+        double bestw = -1.0;
+        for (int k = 0; k < (int)d.selected_elem_id.size(); ++k) {
+            if (d.selected_weight[(size_t)k] > bestw) {
+                bestw = d.selected_weight[(size_t)k];
+                best = k;
+            }
+        }
+        if (best >= 0) {
+            const auto ei = elem_index.find(d.selected_elem_id[(size_t)best]);
+            if (ei != elem_index.end()) active[(size_t)ei->second] = 1;
+        }
+    }
+
+    long double scale_sq = 0.0L;
+    for (double v : sys.A) scale_sq += (long double)v*(long double)v;
+    sys.scale = std::sqrt((double)scale_sq);
+    if (sys.scale <= DBL_MIN) sys.scale = 1.0;
+
+    for (double& v : sys.A) v /= sys.scale;
+    for (double& v : sys.b) v /= sys.scale;
+
+    std::vector<double*> Arow((size_t)sys.m,NULL);
+    for (int r = 0; r < sys.m; ++r) {
+        Arow[(size_t)r] =
+            sys.A.data() + (size_t)r*(size_t)sys.n;
+    }
+
+    monolis_optimize_nnls_R_with_sparse_solution_initial_set(
+        Arow.data(),
+        sys.b.data(),
+        sys.x.data(),
+        sys.m,
+        sys.n,
+        max_iter,
+        solve_tol,
+        active.data(),
+        &sys.residual);
+
+    return sys;
+}
+
+
+static void mode5_add_basis_vector(
+    std::vector<std::vector<double>>& basis,
+    const std::vector<double>& input)
+{
+    std::vector<double> v = input;
+    for (const std::vector<double>& q : basis) {
+        long double dot = 0.0L;
+        for (size_t i = 0; i < v.size(); ++i) {
+            dot += (long double)q[i]*(long double)v[i];
+        }
+        for (size_t i = 0; i < v.size(); ++i) {
+            v[i] -= (double)dot*q[i];
+        }
+    }
+
+    long double n2 = 0.0L;
+    for (double a : v) n2 += (long double)a*(long double)a;
+    const double nrm = std::sqrt((double)n2);
+    if (nrm <= 1.0e-12) return;
+    for (double& a : v) a /= nrm;
+    basis.push_back(std::move(v));
+}
+
+
+static double mode5_signature_norm(const std::vector<double>& s)
+{
+    long double n2 = 0.0L;
+    for (double v : s) n2 += (long double)v*(long double)v;
+    return std::sqrt((double)n2);
+}
+
+
+static std::vector<double> mode5_assemble_signature(
+    const std::vector<Stage3RankData>& data,
+    const std::unordered_map<int64_t,std::vector<std::pair<int,int>>>& elem_locations,
+    const std::unordered_map<RowKey,int,RowKeyHash>& row_index,
+    int global_m,
+    int64_t elem,
+    const std::vector<int>& group_rows)
+{
+    std::vector<double> sig(group_rows.size(),0.0);
+    if (group_rows.empty()) return sig;
+
+    std::vector<int> row_to_local((size_t)global_m,-1);
+    for (int j = 0; j < (int)group_rows.size(); ++j) {
+        const int gr = group_rows[(size_t)j];
+        if (gr >= 0 && gr < global_m) row_to_local[(size_t)gr] = j;
+    }
+
+    const auto loc_it = elem_locations.find(elem);
+    if (loc_it == elem_locations.end()) return sig;
+
+    for (const auto& loc : loc_it->second) {
+        const int di = loc.first;
+        const int lc = loc.second;
+        const Stage3RankData& d = data[(size_t)di];
+        const int nr = (int)d.row_key.size();
+        const int nl = (int)d.local_elem_id.size();
+
+        for (int r = 0; r < nr; ++r) {
+            const auto ri = row_index.find(d.row_key[(size_t)r]);
+            if (ri == row_index.end()) continue;
+            const int gr = ri->second;
+            if (gr < 0 || gr >= global_m) continue;
+            const int j = row_to_local[(size_t)gr];
+            if (j < 0) continue;
+            sig[(size_t)j] +=
+                d.local_matrix[(size_t)r*(size_t)nl + (size_t)lc];
+        }
+    }
+
+    return sig;
+}
+
+
+static std::vector<Mode5OperatorGroupDesc> mode5_build_operator_groups(
+    const std::vector<RowKey>& rows,
+    const std::vector<InterfaceGroup>& interface_groups,
+    const std::vector<InternalOperatorGroup>& internal_groups)
+{
+    std::unordered_map<int64_t,std::vector<int>> owner_rows;
+    owner_rows.reserve(rows.size()/4 + 1);
+    for (int r = 0; r < (int)rows.size(); ++r) {
+        owner_rows[rows[(size_t)r].owner_global_id].push_back(r);
+    }
+
+    std::vector<Mode5OperatorGroupDesc> out;
+    out.reserve(interface_groups.size() + internal_groups.size());
+
+    for (const InterfaceGroup& ig : interface_groups) {
+        Mode5OperatorGroupDesc g;
+        g.kind = 0;
+        g.owner_a = ig.key.source_global_id;
+        g.owner_b = ig.key.target_global_id;
+        g.members = ig.member_original_id;
+
+        const auto a = owner_rows.find(g.owner_a);
+        if (a != owner_rows.end()) {
+            g.rows.insert(g.rows.end(),a->second.begin(),a->second.end());
+        }
+        const auto b = owner_rows.find(g.owner_b);
+        if (b != owner_rows.end()) {
+            g.rows.insert(g.rows.end(),b->second.begin(),b->second.end());
+        }
+        std::sort(g.rows.begin(),g.rows.end());
+        g.rows.erase(std::unique(g.rows.begin(),g.rows.end()),g.rows.end());
+
+        if (!g.rows.empty() && !g.members.empty()) out.push_back(std::move(g));
+    }
+
+    for (const InternalOperatorGroup& ig : internal_groups) {
+        Mode5OperatorGroupDesc g;
+        g.kind = 1;
+        g.owner_a = (int64_t)ig.fine_subdomain;
+        g.owner_b = -1;
+        g.members = ig.member_original_id;
+        const auto a = owner_rows.find(g.owner_a);
+        if (a != owner_rows.end()) g.rows = a->second;
+        if (!g.rows.empty() && !g.members.empty()) out.push_back(std::move(g));
+    }
+
+    return out;
+}
+
+
+static std::vector<Mode5DefectCandidate> mode5_evaluate_operator_defects(
+    const Mode5System& sys,
+    const std::vector<Mode5OperatorGroupDesc>& groups,
+    const std::vector<std::vector<std::vector<double>>>& signatures,
+    const std::vector<std::vector<double>>& signature_norm,
+    double weight_tol,
+    double signature_rtol,
+    double defect_tol,
+    bool return_new_only,
+    int* deficient_group_count,
+    double* max_defect_out)
+{
+    std::unordered_map<int64_t,int> cand_index;
+    cand_index.reserve(sys.candidates.size()*2 + 1);
+    for (int c = 0; c < sys.n; ++c) {
+        cand_index.emplace(sys.candidates[(size_t)c],c);
+    }
+
+    std::vector<Mode5DefectCandidate> group_best;
+    group_best.reserve(groups.size());
+
+    int deficient = 0;
+    double global_max_defect = 0.0;
+
+    for (int gi = 0; gi < (int)groups.size(); ++gi) {
+        const Mode5OperatorGroupDesc& g = groups[(size_t)gi];
+        if (g.members.empty() || g.rows.empty()) continue;
+
+        double max_norm = 0.0;
+        for (double v : signature_norm[(size_t)gi]) {
+            max_norm = std::max(max_norm,v);
+        }
+        if (max_norm <= DBL_MIN) continue;
+
+        std::vector<std::vector<double>> basis;
+        for (int j = 0; j < (int)g.members.size(); ++j) {
+            const auto ci = cand_index.find(g.members[(size_t)j]);
+            if (ci == cand_index.end()) continue;
+            if (sys.x[(size_t)ci->second] <= weight_tol) continue;
+            if (signature_norm[(size_t)gi][(size_t)j] <
+                signature_rtol*max_norm) {
+                continue;
+            }
+            mode5_add_basis_vector(
+                basis,
+                signatures[(size_t)gi][(size_t)j]);
+        }
+
+        std::vector<double> local_residual(g.rows.size(),0.0);
+        long double local_r2 = 0.0L;
+        for (int rr = 0; rr < (int)g.rows.size(); ++rr) {
+            const int gr = g.rows[(size_t)rr];
+            long double ax = 0.0L;
+            for (int c = 0; c < sys.n; ++c) {
+                ax += (long double)sys.A[
+                    (size_t)gr*(size_t)sys.n + (size_t)c]
+                    * (long double)sys.x[(size_t)c];
+            }
+            local_residual[(size_t)rr] =
+                sys.b[(size_t)gr] - (double)ax;
+            local_r2 +=
+                (long double)local_residual[(size_t)rr]
+                * (long double)local_residual[(size_t)rr];
+        }
+        const double local_rnorm = std::sqrt((double)local_r2);
+
+        Mode5DefectCandidate best_any;
+        best_any.group_index = gi;
+        best_any.defect = -1.0;
+        best_any.priority = -1.0;
+
+        Mode5DefectCandidate best_new;
+        best_new.group_index = gi;
+        best_new.defect = -1.0;
+        best_new.priority = -1.0;
+
+        for (int j = 0; j < (int)g.members.size(); ++j) {
+            const double sn = signature_norm[(size_t)gi][(size_t)j];
+            if (sn < signature_rtol*max_norm || sn <= DBL_MIN) continue;
+
+            const std::vector<double>& sig =
+                signatures[(size_t)gi][(size_t)j];
+
+            std::vector<double> v = sig;
+            for (const std::vector<double>& q : basis) {
+                long double dot = 0.0L;
+                for (size_t k = 0; k < v.size(); ++k) {
+                    dot += (long double)q[k]*(long double)v[k];
+                }
+                for (size_t k = 0; k < v.size(); ++k) {
+                    v[k] -= (double)dot*q[k];
+                }
+            }
+
+            const double novelty =
+                mode5_signature_norm(v) / std::max(sn,DBL_MIN);
+            const double importance = sn / max_norm;
+            const double defect = importance*novelty;
+
+            double alignment = 0.0;
+            if (local_rnorm > DBL_MIN) {
+                long double dot = 0.0L;
+                for (size_t k = 0; k < sig.size(); ++k) {
+                    dot += (long double)sig[k]
+                         * (long double)local_residual[k];
+                }
+                alignment = std::max(
+                    0.0,
+                    std::min(
+                        1.0,
+                        (double)(dot /
+                            ((long double)sn*(long double)local_rnorm))));
+            }
+
+            /*
+             * Defect determines whether a direction is missing.  Residual
+             * alignment only ranks equally important missing directions; it
+             * cannot hide a geometrically missing operator direction.
+             */
+            const double priority =
+                defect*(0.5 + 0.5*alignment);
+
+            Mode5DefectCandidate cur;
+            cur.defect = defect;
+            cur.priority = priority;
+            cur.importance = importance;
+            cur.novelty = novelty;
+            cur.residual_alignment = alignment;
+            cur.group_index = gi;
+            cur.elem = g.members[(size_t)j];
+            cur.already_candidate =
+                (cand_index.find(cur.elem) != cand_index.end());
+
+            if (cur.defect > best_any.defect ||
+                (cur.defect == best_any.defect &&
+                 cur.priority > best_any.priority)) {
+                best_any = cur;
+            }
+
+            if (!cur.already_candidate &&
+                (cur.defect > best_new.defect ||
+                 (cur.defect == best_new.defect &&
+                  cur.priority > best_new.priority))) {
+                best_new = cur;
+            }
+        }
+
+        if (best_any.elem >= 0) {
+            global_max_defect =
+                std::max(global_max_defect,best_any.defect);
+            if (best_any.defect > defect_tol) {
+                deficient++;
+                if (return_new_only) {
+                    if (best_new.elem >= 0) group_best.push_back(best_new);
+                }
+                else {
+                    group_best.push_back(best_any);
+                }
+            }
+        }
+    }
+
+    if (deficient_group_count != NULL) *deficient_group_count = deficient;
+    if (max_defect_out != NULL) *max_defect_out = global_max_defect;
+    return group_best;
+}
+
+
+static Mode5AdaptiveResult mode5_adaptive_enrichment(
+    const std::vector<Stage3RankData>& data,
+    const std::vector<RowKey>& rows,
+    const std::vector<InterfaceGroup>& interface_groups,
+    const std::vector<InternalOperatorGroup>& internal_groups,
+    std::unordered_map<int64_t,double>& candidate_seed_weight,
+    int max_iter,
+    double seed_tol,
+    double weight_tol,
+    double signature_rtol,
+    double defect_tol,
+    int max_round,
+    int add_per_round,
+    int hard_fallback,
+    int verbose)
+{
+    Mode5AdaptiveResult out;
+
+    std::vector<Mode5OperatorGroupDesc> groups =
+        mode5_build_operator_groups(rows,interface_groups,internal_groups);
+
+    if (groups.empty()) {
+        fprintf(stderr,
+            "WARNING: mode 5 found no operator groups; using mode-0 candidate set\n");
+        return out;
+    }
+
+    std::unordered_map<RowKey,int,RowKeyHash> row_index;
+    row_index.reserve(rows.size()*2 + 1);
+    for (int r = 0; r < (int)rows.size(); ++r) {
+        row_index.emplace(rows[(size_t)r],r);
+    }
+
+    std::unordered_map<int64_t,std::vector<std::pair<int,int>>> elem_locations;
+    for (int di = 0; di < (int)data.size(); ++di) {
+        const Stage3RankData& d = data[(size_t)di];
+        for (int lc = 0; lc < (int)d.local_elem_id.size(); ++lc) {
+            elem_locations[d.local_elem_id[(size_t)lc]].push_back(
+                std::make_pair(di,lc));
+        }
+    }
+
+    std::vector<std::vector<std::vector<double>>> signatures(groups.size());
+    std::vector<std::vector<double>> signature_norm(groups.size());
+    for (int gi = 0; gi < (int)groups.size(); ++gi) {
+        const Mode5OperatorGroupDesc& g = groups[(size_t)gi];
+        signatures[(size_t)gi].resize(g.members.size());
+        signature_norm[(size_t)gi].resize(g.members.size(),0.0);
+        for (int j = 0; j < (int)g.members.size(); ++j) {
+            signatures[(size_t)gi][(size_t)j] =
+                mode5_assemble_signature(
+                    data,
+                    elem_locations,
+                    row_index,
+                    (int)rows.size(),
+                    g.members[(size_t)j],
+                    g.rows);
+            signature_norm[(size_t)gi][(size_t)j] =
+                mode5_signature_norm(signatures[(size_t)gi][(size_t)j]);
+        }
+    }
+
+    printf(
+        "[MODE5-START] seed_candidates=%zu groups=%zu seed_tol=%.6e "
+        "defect_tol=%.6e max_round=%d add_per_round=%d hard_fallback=%d\n",
+        candidate_seed_weight.size(),
+        groups.size(),
+        seed_tol,
+        defect_tol,
+        max_round,
+        add_per_round,
+        hard_fallback);
+
+    for (int round = 0; round < max_round; ++round) {
+        Mode5System sys =
+            mode5_solve_unconstrained_system(
+                data,rows,candidate_seed_weight,max_iter,seed_tol);
+
+        int deficient = 0;
+        double max_defect = 0.0;
+        std::vector<Mode5DefectCandidate> best =
+            mode5_evaluate_operator_defects(
+                sys,
+                groups,
+                signatures,
+                signature_norm,
+                weight_tol,
+                signature_rtol,
+                defect_tol,
+                true,
+                &deficient,
+                &max_defect);
+
+        int support = 0;
+        for (double v : sys.x) if (v > weight_tol) support++;
+
+        printf(
+            "[MODE5-ROUND] round=%d candidates=%d support=%d residual=%.15e "
+            "deficient_groups=%d max_defect=%.6e\n",
+            round,
+            sys.n,
+            support,
+            sys.residual,
+            deficient,
+            max_defect);
+
+        out.rounds = round + 1;
+        out.final_max_defect = max_defect;
+        out.deficient_groups_final = deficient;
+
+        if (deficient == 0 || max_defect <= defect_tol) break;
+
+        std::vector<Mode5DefectCandidate> addable;
+        for (const Mode5DefectCandidate& c : best) {
+            if (!c.already_candidate && c.elem >= 0) addable.push_back(c);
+        }
+
+        std::sort(
+            addable.begin(),addable.end(),
+            [](const Mode5DefectCandidate& a,const Mode5DefectCandidate& b) {
+                if (a.priority != b.priority) return a.priority > b.priority;
+                if (a.defect != b.defect) return a.defect > b.defect;
+                return a.elem < b.elem;
+            });
+
+        int added_this_round = 0;
+        std::unordered_set<int64_t> added_now;
+        for (const Mode5DefectCandidate& c : addable) {
+            if (added_this_round >= add_per_round) break;
+            if (!added_now.insert(c.elem).second) continue;
+            if (candidate_seed_weight.find(c.elem) != candidate_seed_weight.end()) {
+                continue;
+            }
+
+            candidate_seed_weight.emplace(c.elem,0.0);
+            out.added_element.push_back(c.elem);
+            out.added_candidates++;
+            added_this_round++;
+
+            if (verbose > 0) {
+                const Mode5OperatorGroupDesc& g = groups[(size_t)c.group_index];
+                printf(
+                    "[MODE5-ADD] round=%d kind=%s owner={%lld,%lld} elem=%lld "
+                    "defect=%.6e importance=%.6e novelty=%.6e alignment=%.6e\n",
+                    round,
+                    (g.kind == 0) ? "interface" : "internal",
+                    (long long)g.owner_a,
+                    (long long)g.owner_b,
+                    (long long)c.elem,
+                    c.defect,
+                    c.importance,
+                    c.novelty,
+                    c.residual_alignment);
+            }
+        }
+
+        if (added_this_round == 0) {
+            printf(
+                "[MODE5-STALL] round=%d no new column can be added; "
+                "remaining deficient groups=%d\n",
+                round,
+                deficient);
+            break;
+        }
+    }
+
+    /* Final unconstrained diagnostic on the enriched pool. */
+    Mode5System final_sys =
+        mode5_solve_unconstrained_system(
+            data,rows,candidate_seed_weight,max_iter,seed_tol);
+
+    int final_deficient = 0;
+    double final_max_defect = 0.0;
+    std::vector<Mode5DefectCandidate> final_best =
+        mode5_evaluate_operator_defects(
+            final_sys,
+            groups,
+            signatures,
+            signature_norm,
+            weight_tol,
+            signature_rtol,
+            defect_tol,
+            false,
+            &final_deficient,
+            &final_max_defect);
+
+    out.deficient_groups_final = final_deficient;
+    out.final_max_defect = final_max_defect;
+
+    if (hard_fallback != 0 && final_deficient > 0) {
+        std::unordered_set<int64_t> hard_seen;
+        for (const Mode5DefectCandidate& c : final_best) {
+            if (c.elem < 0 || c.defect <= defect_tol) continue;
+
+            if (candidate_seed_weight.find(c.elem) == candidate_seed_weight.end()) {
+                candidate_seed_weight.emplace(c.elem,0.0);
+                out.added_element.push_back(c.elem);
+                out.added_candidates++;
+            }
+
+            if (hard_seen.insert(c.elem).second) {
+                out.hard_anchor_element.push_back(c.elem);
+            }
+        }
+    }
+
+    printf(
+        "[MODE5-DONE] rounds=%d added_candidates=%d final_candidates=%zu "
+        "deficient_groups=%d max_defect=%.6e hard_anchors=%zu\n",
+        out.rounds,
+        out.added_candidates,
+        candidate_seed_weight.size(),
+        out.deficient_groups_final,
+        out.final_max_defect,
+        out.hard_anchor_element.size());
+
+    return out;
+}
+
 int main(int argc,char** argv)
 {
     const auto timer_total_begin = HROMClock::now();
@@ -773,11 +1785,16 @@ int main(int argc,char** argv)
             "[admm_max_iter=100] [rho=1.0] "
             "[admm_abs_tol=1e-10] [admm_rel_tol=1e-6] "
             "[verbose=1] [coverage_mode=2] "
-            "[operator_clusters=2] [operator_signature_rtol=1e-8]\n"
+            "[operator_clusters=2] [operator_signature_rtol=1e-8] "
+            "[threshold_refit=1] [threshold_refit_max_pass=32] "
+            "[mode5_seed_tol=max(inner_tol,1e-4)] [mode5_defect_tol=0.10] "
+            "[mode5_max_round=32] [mode5_add_per_round=1] [mode5_hard_fallback=0]\n"
             "  coverage_mode=0 : baseline Stage-3 (Stage-2 candidates only, no coverage)\n"
             "  coverage_mode=1 : coverage candidate expansion only, no hard constraint\n"
             "  coverage_mode=2 : physical hard interface coverage\n"
-            "  coverage_mode=3 : operator-aware hard interface coverage (physical + signature clusters)\n",
+            "  coverage_mode=3 : operator-aware hard interface coverage (physical + signature clusters)\n"
+            "  coverage_mode=4 : domain-wide operator-aware coverage (interface + internal signatures)\n"
+            "  coverage_mode=5 : mode-0-seeded adaptive operator enrichment (interface + internal defects)\n",
             argv[0]);
         return EXIT_FAILURE;
     }
@@ -830,13 +1847,20 @@ int main(int argc,char** argv)
      *   2 = physical hard coverage:
      *       candidate expansion + Cx >= epsilon.
      *
-     *   3 = operator-aware hard coverage:
-     *       physical coverage + additional operator-signature subgroups.
-     *       Each signature is the normalized Stage-3 element column restricted
-     *       to rows owned by either side of the physical interface.  Greedy
-     *       cosine-distance clustering forces representation of distinct
-     *       interface operator directions while retaining linear 0/1 hard
-     *       constraints compatible with the primal-feasible solver.
+     *   3 = operator-aware hard interface coverage:
+     *       physical coverage + interface operator-signature subgroups.
+     *
+     *   4 = domain-wide operator-aware hard coverage:
+     *       mode 3 + internal operator-signature subgroups for every fine
+     *       subdomain.  Internal signatures use A(R_s,c), where R_s are rows
+     *       owned by fine subdomain s and c is a strictly internal element.
+     *       Interface-supporting elements are excluded from the internal sets.
+     *
+     *   5 = mode-0-seeded adaptive operator enrichment:
+     *       start from the Stage-2 selected union with an unconstrained sparse
+     *       NNLS, detect missing interface/internal operator directions, add
+     *       only the highest-priority missing columns, and repeat.  Optional
+     *       singleton hard constraints are applied only as a final fallback.
      */
     const int coverage_mode =
         (argc > 12) ? atoi(argv[12]) : 2;
@@ -847,17 +1871,57 @@ int main(int argc,char** argv)
     const double operator_signature_rtol =
         (argc > 14) ? atof(argv[14]) : 1.0e-8;
 
+    const int threshold_refit =
+        (argc > 15) ? atoi(argv[15]) : 1;
+
+    const int threshold_refit_max_pass =
+        (argc > 16) ? atoi(argv[16]) : 32;
+
+    const double mode5_seed_tol =
+        (argc > 17) ? atof(argv[17]) : std::max(tol,1.0e-4);
+
+    const double mode5_defect_tol =
+        (argc > 18) ? atof(argv[18]) : 1.0e-1;
+
+    const int mode5_max_round =
+        (argc > 19) ? atoi(argv[19]) : 32;
+
+    const int mode5_add_per_round =
+        (argc > 20) ? atoi(argv[20]) : 1;
+
+    const int mode5_hard_fallback =
+        (argc > 21) ? atoi(argv[21]) : 0;
+
     if (num_ranks <= 0) {
         die("num_rank_files must be positive");
     }
 
-    if (coverage_mode < 0 || coverage_mode > 3) {
-        die("coverage_mode must be 0, 1, 2, or 3");
+    if (coverage_mode < 0 || coverage_mode > 5) {
+        die("coverage_mode must be 0, 1, 2, 3, 4, or 5");
     }
 
     if (operator_clusters <= 0 || operator_clusters > 8 ||
         operator_signature_rtol <= 0.0 || operator_signature_rtol >= 1.0) {
         die("invalid operator-aware coverage option");
+    }
+
+    if (mode5_seed_tol <= 0.0 || mode5_defect_tol <= 0.0 ||
+        mode5_defect_tol >= 1.0 || mode5_max_round <= 0 ||
+        mode5_add_per_round <= 0 ||
+        (mode5_hard_fallback != 0 && mode5_hard_fallback != 1)) {
+        die("invalid mode-5 adaptive-enrichment option");
+    }
+
+    if ((threshold_refit != 0 && threshold_refit != 1) ||
+        threshold_refit_max_pass <= 0 || weight_tol < 0.0) {
+        die("invalid threshold-refit option");
+    }
+
+    if (threshold_refit != 0 &&
+        ((coverage_mode >= 2 && coverage_mode <= 4) ||
+         (coverage_mode == 5 && mode5_hard_fallback != 0)) &&
+        !(2.0 * coverage_tau > weight_tol)) {
+        die("threshold refit requires 2*coverage_tau > weight_tol so every coverage group is guaranteed to retain an output-weight member");
     }
 
     if (coverage_tau <= 0.0 ||
@@ -913,6 +1977,9 @@ int main(int argc,char** argv)
         (int)candidate_seed_weight.size();
 
     std::vector<InterfaceGroup> interface_groups;
+    std::vector<RouteEntry> routes;
+    std::vector<InternalOperatorGroup> internal_operator_groups;
+    Mode5AdaptiveResult mode5_result;
 
     /*
      * coverage_mode=0 is the true pre-coverage comparison baseline.
@@ -931,19 +1998,64 @@ int main(int argc,char** argv)
         }
     }
 
+    /*
+     * Mode 4 needs the exact owned-element routes before candidate expansion
+     * so that strictly-internal operator groups can reintroduce candidates.
+     * The same route table is reused later for the legacy output/report.
+     */
+    if (coverage_mode == 4 || coverage_mode == 5) {
+        routes = read_all_routes(directory,num_ranks);
+        internal_operator_groups =
+            build_internal_operator_groups(routes,interface_groups);
+
+        if (internal_operator_groups.empty()) {
+            fprintf(
+                stderr,
+                "WARNING: mode 4/5 found no strictly-internal fine-subdomain groups; "
+                "the calculation reduces to mode-3 interface coverage\n");
+        }
+    }
+
     time_interface =
         HROM_elapsed_sec(timer_interface_begin, HROMClock::now());
 
+    if (coverage_mode == 5) {
+        mode5_result = mode5_adaptive_enrichment(
+            data,
+            rows,
+            interface_groups,
+            internal_operator_groups,
+            candidate_seed_weight,
+            max_iter,
+            mode5_seed_tol,
+            weight_tol,
+            operator_signature_rtol,
+            mode5_defect_tol,
+            mode5_max_round,
+            mode5_add_per_round,
+            mode5_hard_fallback,
+            admm_verbose);
+    }
+
     std::unordered_set<int64_t> coverage_added_element;
+    std::unordered_set<int64_t> internal_coverage_added_element;
+    if (coverage_mode == 5) {
+        for (int64_t elem : mode5_result.added_element) {
+            coverage_added_element.insert(elem);
+        }
+    }
     int empty_interface_before_expansion = 0;
+    int empty_internal_before_expansion = 0;
 
     /*
-     * Candidate expansion belongs to modes 1 and 2 only.
-     * In mode 0 the candidate pool remains exactly the Stage-2 union.
+     * Candidate expansion is disabled only in mode 0.
+     * Modes 1/2 guarantee physical interface availability; modes 3/4 make
+     * enough interface candidates available for operator clustering; mode 4
+     * additionally does the same for strictly-internal fine-subdomain groups.
      */
     const auto timer_candidate_begin = HROMClock::now();
 
-    if (coverage_mode > 0) {
+    if (coverage_mode > 0 && coverage_mode != 5) {
         /*
          * Compute a global column norm for every available physical element.
          * If Stage 2 removed every candidate from one interface, reintroduce
@@ -986,7 +2098,7 @@ int main(int argc,char** argv)
             }
 
             const int target_count =
-                (coverage_mode == 3)
+                (coverage_mode >= 3)
                 ? std::min(operator_clusters, (int)g.member_original_id.size())
                 : 1;
 
@@ -1035,6 +2147,76 @@ int main(int argc,char** argv)
                 exit(EXIT_FAILURE);
             }
         }
+
+        /*
+         * Mode 4: provide at least operator_clusters candidates in every
+         * strictly-internal fine-subdomain group, mirroring the interface
+         * operator candidate expansion of mode 3.  The actual operator
+         * directions are determined after the normalized Stage-3 matrix A is
+         * assembled.
+         */
+        if (coverage_mode == 4) {
+            for (const InternalOperatorGroup& g : internal_operator_groups) {
+                if (g.member_original_id.empty()) continue;
+
+                int current_count = 0;
+                for (int64_t elem : g.member_original_id) {
+                    if (candidate_seed_weight.find(elem) !=
+                        candidate_seed_weight.end()) {
+                        current_count++;
+                    }
+                }
+
+                if (current_count == 0) {
+                    empty_internal_before_expansion++;
+                }
+
+                const int target_count =
+                    std::min(operator_clusters,
+                             (int)g.member_original_id.size());
+
+                if (current_count >= target_count) continue;
+
+                std::vector<std::pair<double,int64_t>> ranked;
+                ranked.reserve(g.member_original_id.size());
+
+                for (int64_t elem : g.member_original_id) {
+                    if (candidate_seed_weight.find(elem) !=
+                        candidate_seed_weight.end()) {
+                        continue;
+                    }
+
+                    const auto it = all_column_norm_sq.find(elem);
+                    if (it == all_column_norm_sq.end()) continue;
+                    ranked.emplace_back(it->second,elem);
+                }
+
+                std::sort(
+                    ranked.begin(),ranked.end(),
+                    [](const std::pair<double,int64_t>& a,
+                       const std::pair<double,int64_t>& b) {
+                        if (a.first != b.first) return a.first > b.first;
+                        return a.second < b.second;
+                    });
+
+                for (const auto& ne : ranked) {
+                    if (current_count >= target_count) break;
+                    candidate_seed_weight.emplace(ne.second,0.0);
+                    coverage_added_element.insert(ne.second);
+                    internal_coverage_added_element.insert(ne.second);
+                    current_count++;
+                }
+
+                if (current_count < target_count) {
+                    fprintf(
+                        stderr,
+                        "ERROR: internal subdomain %d has only %d/%d "
+                        "available Stage-3 candidate columns\n",
+                        g.fine_subdomain,current_count,target_count);
+                    exit(EXIT_FAILURE);
+                }
+            }
+        }
     }
 
     time_candidate_expand =
@@ -1073,7 +2255,7 @@ int main(int argc,char** argv)
     group_epsilon.reserve(interface_groups.size());
     group_ptr.push_back(0);
 
-    if (coverage_mode > 0) {
+    if (coverage_mode > 0 && coverage_mode != 5) {
         for (const InterfaceGroup& g : interface_groups) {
             std::vector<int> local_item;
 
@@ -1115,8 +2297,25 @@ int main(int argc,char** argv)
         }
     }
 
+    int num_mode5_hard_group = 0;
+    if (coverage_mode == 5 && !mode5_result.hard_anchor_element.empty()) {
+        for (int64_t elem : mode5_result.hard_anchor_element) {
+            const auto it = elem_index.find(elem);
+            if (it == elem_index.end()) {
+                fprintf(stderr,
+                    "ERROR: mode-5 hard anchor %lld is absent from final candidate pool\n",
+                    (long long)elem);
+                exit(EXIT_FAILURE);
+            }
+            group_item.push_back(it->second);
+            group_ptr.push_back((int)group_item.size());
+            group_epsilon.push_back(2.0*coverage_tau);
+            num_mode5_hard_group++;
+        }
+    }
+
     const int num_interface_group =
-        (int)group_epsilon.size();
+        (coverage_mode == 5) ? 0 : (int)group_epsilon.size();
 
     time_index_group =
         HROM_elapsed_sec(timer_index_begin, HROMClock::now());
@@ -1247,13 +2446,20 @@ int main(int argc,char** argv)
     std::vector<int> operator_group_cluster;
     std::vector<int> operator_group_anchor;
     std::vector<double> operator_group_anchor_norm;
+    std::vector<int> internal_operator_group_anchor;
 
-    if (coverage_mode == 3) {
-        std::unordered_map<int64_t,std::vector<int>> owner_rows;
+    int num_interface_operator_subgroups = 0;
+    int num_internal_operator_subgroups = 0;
+
+    std::unordered_map<int64_t,std::vector<int>> owner_rows;
+    if (coverage_mode == 3 || coverage_mode == 4) {
         owner_rows.reserve(rows.size()/4 + 1);
         for (int r = 0; r < m; ++r) {
             owner_rows[rows[(size_t)r].owner_global_id].push_back(r);
         }
+    }
+
+    if (coverage_mode == 3 || coverage_mode == 4) {
 
         int physical_with_operator_rows = 0;
         int physical_without_operator_rows = 0;
@@ -1438,9 +2644,232 @@ int main(int argc,char** argv)
             solver_group_epsilon.size(),
             operator_clusters,
             operator_signature_rtol);
+
+        num_interface_operator_subgroups = total_operator_clusters;
+    }
+
+    const int first_internal_solver_group =
+        num_interface_group + num_interface_operator_subgroups;
+
+    /*
+     * ------------------------------------------------------------
+     * Internal operator-aware coverage (coverage_mode=4)
+     *
+     * For fine subdomain s, use strictly-internal candidate elements only and
+     * define
+     *
+     *     s_{s,c} = A(R_s,c),
+     *
+     * where R_s contains all Stage-3 rows whose owner_global_id is s.  The
+     * same cosine-distance clustering used for interface signatures is applied
+     * to these internal signatures.  Every represented internal operator
+     * direction receives an independent hard coverage constraint.
+     * ------------------------------------------------------------
+     */
+    if (coverage_mode == 4) {
+        int internal_with_operator_rows = 0;
+        int internal_without_operator_rows = 0;
+        int internal_zero_signature = 0;
+        int total_internal_operator_clusters = 0;
+
+        for (const InternalOperatorGroup& ig : internal_operator_groups) {
+            const auto rr_it = owner_rows.find((int64_t)ig.fine_subdomain);
+            if (rr_it == owner_rows.end() || rr_it->second.empty()) {
+                internal_without_operator_rows++;
+                if (admm_verbose > 0) {
+                    printf(
+                        "[INTERNAL-OPERATOR-COVERAGE-SKIP] subdomain=%d reason=no_owner_rows\n",
+                        ig.fine_subdomain);
+                }
+                continue;
+            }
+
+            const std::vector<int>& op_rows = rr_it->second;
+            internal_with_operator_rows++;
+
+            std::vector<int> member_cols;
+            member_cols.reserve(ig.member_original_id.size());
+            for (int64_t elem : ig.member_original_id) {
+                const auto ei = elem_index.find(elem);
+                if (ei != elem_index.end()) member_cols.push_back(ei->second);
+            }
+            std::sort(member_cols.begin(),member_cols.end());
+            member_cols.erase(
+                std::unique(member_cols.begin(),member_cols.end()),
+                member_cols.end());
+
+            if (member_cols.empty()) {
+                fprintf(
+                    stderr,
+                    "ERROR: mode-4 internal subdomain %d has no candidate "
+                    "column after internal candidate expansion\n",
+                    ig.fine_subdomain);
+                exit(EXIT_FAILURE);
+            }
+
+            const int nm = (int)member_cols.size();
+            std::vector<double> sig_norm((size_t)nm,0.0);
+            double max_sig_norm = 0.0;
+
+            for (int j = 0; j < nm; ++j) {
+                const int c = member_cols[(size_t)j];
+                long double n2 = 0.0L;
+                for (int rr : op_rows) {
+                    const long double v = (long double)A[rr][c];
+                    n2 += v*v;
+                }
+                sig_norm[(size_t)j] = std::sqrt((double)n2);
+                max_sig_norm = std::max(max_sig_norm,sig_norm[(size_t)j]);
+            }
+
+            if (max_sig_norm <= DBL_MIN) {
+                internal_zero_signature++;
+                if (admm_verbose > 0) {
+                    printf(
+                        "[INTERNAL-OPERATOR-COVERAGE-SKIP] subdomain=%d "
+                        "reason=zero_signature members=%d rows=%zu\n",
+                        ig.fine_subdomain,nm,op_rows.size());
+                }
+                continue;
+            }
+
+            std::vector<int> eligible;
+            for (int j = 0; j < nm; ++j) {
+                if (sig_norm[(size_t)j] >=
+                    operator_signature_rtol * max_sig_norm) {
+                    eligible.push_back(j);
+                }
+            }
+            if (eligible.empty()) {
+                internal_zero_signature++;
+                continue;
+            }
+
+            auto cosine = [&](int ja,int jb) -> double {
+                const int ca = member_cols[(size_t)ja];
+                const int cb = member_cols[(size_t)jb];
+                long double dot = 0.0L;
+                for (int rr : op_rows) {
+                    dot += (long double)A[rr][ca] * (long double)A[rr][cb];
+                }
+                const double den =
+                    sig_norm[(size_t)ja] * sig_norm[(size_t)jb];
+                if (den <= DBL_MIN) return 1.0;
+                double cs = (double)(dot / (long double)den);
+                return std::max(-1.0,std::min(1.0,cs));
+            };
+
+            std::vector<int> anchors;
+            int first = eligible.front();
+            for (int j : eligible) {
+                if (sig_norm[(size_t)j] > sig_norm[(size_t)first]) first = j;
+            }
+            anchors.push_back(first);
+
+            const int requested =
+                std::min(operator_clusters,(int)eligible.size());
+            const double diversity_floor = 1.0e-4;
+
+            while ((int)anchors.size() < requested) {
+                int best = -1;
+                double best_score = -1.0;
+                for (int j : eligible) {
+                    if (std::find(anchors.begin(),anchors.end(),j) !=
+                        anchors.end()) {
+                        continue;
+                    }
+                    double min_distance = 2.0;
+                    for (int a : anchors) {
+                        min_distance =
+                            std::min(min_distance,1.0 - cosine(j,a));
+                    }
+                    const double importance =
+                        sig_norm[(size_t)j] / max_sig_norm;
+                    const double score = importance * min_distance;
+                    if (score > best_score) {
+                        best_score = score;
+                        best = j;
+                    }
+                }
+                if (best < 0 || best_score < diversity_floor) break;
+                anchors.push_back(best);
+            }
+
+            std::vector<std::vector<int>> clusters(anchors.size());
+            for (int j : eligible) {
+                int best_a = 0;
+                double best_cos = -2.0;
+                for (int aidx = 0;
+                     aidx < (int)anchors.size();
+                     ++aidx) {
+                    const double cs = cosine(j,anchors[(size_t)aidx]);
+                    if (cs > best_cos) {
+                        best_cos = cs;
+                        best_a = aidx;
+                    }
+                }
+                clusters[(size_t)best_a].push_back(
+                    member_cols[(size_t)j]);
+            }
+
+            for (int aidx = 0;
+                 aidx < (int)anchors.size();
+                 ++aidx) {
+                std::vector<int>& cl = clusters[(size_t)aidx];
+                if (cl.empty()) continue;
+                std::sort(cl.begin(),cl.end());
+                cl.erase(std::unique(cl.begin(),cl.end()),cl.end());
+
+                solver_group_item.insert(
+                    solver_group_item.end(),cl.begin(),cl.end());
+                solver_group_ptr.push_back((int)solver_group_item.size());
+                solver_group_epsilon.push_back(
+                    2.0 * coverage_tau * (double)cl.size());
+
+                const int aj = anchors[(size_t)aidx];
+                const int anchor_col = member_cols[(size_t)aj];
+                internal_operator_group_anchor.push_back(anchor_col);
+                total_internal_operator_clusters++;
+
+                if (admm_verbose > 0) {
+                    printf(
+                        "[INTERNAL-OPERATOR-COVERAGE-GROUP] subdomain=%d "
+                        "cluster=%d/%zu members=%zu anchor_col=%d "
+                        "anchor_elem=%lld anchor_norm=%.6e rows=%zu epsilon=%.6e\n",
+                        ig.fine_subdomain,
+                        aidx + 1,
+                        anchors.size(),
+                        cl.size(),
+                        anchor_col,
+                        (long long)candidates[(size_t)anchor_col],
+                        sig_norm[(size_t)aj],
+                        op_rows.size(),
+                        solver_group_epsilon.back());
+                }
+            }
+        }
+
+        num_internal_operator_subgroups = total_internal_operator_clusters;
+
+        printf(
+            "[INTERNAL-OPERATOR-COVERAGE-SUMMARY] groups=%zu "
+            "with_owner_rows=%d no_owner_rows=%d zero_signature=%d "
+            "operator_subgroups=%d total_constraints=%zu clusters_requested=%d "
+            "signature_rtol=%.3e\n",
+            internal_operator_groups.size(),
+            internal_with_operator_rows,
+            internal_without_operator_rows,
+            internal_zero_signature,
+            total_internal_operator_clusters,
+            solver_group_epsilon.size(),
+            operator_clusters,
+            operator_signature_rtol);
     }
 
     const int num_solver_group = (int)solver_group_epsilon.size();
+    const bool use_hard_coverage_solver =
+        ((coverage_mode >= 2 && coverage_mode <= 4) ||
+         (coverage_mode == 5 && num_solver_group > 0));
 
     std::vector<int> coverage_anchor(
         (size_t)num_interface_group,
@@ -1452,7 +2881,7 @@ int main(int argc,char** argv)
 
     int singleton_interface_groups = 0;
 
-    if (coverage_mode >= 2) {
+    if (coverage_mode >= 2 && coverage_mode <= 4) {
         for (int g = 0; g < num_interface_group; ++g) {
             const int kS = group_ptr[(size_t)g];
             const int kE = group_ptr[(size_t)g + 1];
@@ -1502,8 +2931,17 @@ int main(int argc,char** argv)
     }
 
 
-    if (coverage_mode == 3) {
+    if (coverage_mode == 3 || coverage_mode == 4) {
         for (int c : operator_group_anchor) {
+            if (c >= 0 && c < n) {
+                active[(size_t)c] = 1;
+                unique_coverage_anchor.insert(c);
+            }
+        }
+    }
+
+    if (coverage_mode == 4) {
+        for (int c : internal_operator_group_anchor) {
             if (c >= 0 && c < n) {
                 active[(size_t)c] = 1;
                 unique_coverage_anchor.insert(c);
@@ -1521,10 +2959,14 @@ int main(int argc,char** argv)
           ? "candidate-expanded ablation, unconstrained NNLS"
         : (coverage_mode == 2)
           ? "physical hard interface coverage"
-          : "operator-aware hard coverage: physical + signature clusters";
+        : (coverage_mode == 3)
+          ? "operator-aware interface coverage: physical + interface signatures"
+        : (coverage_mode == 4)
+          ? "domain-wide operator-aware coverage: interface + internal signatures"
+          : "mode-0-seeded adaptive operator enrichment";
 
     printf("============================================================\n");
-    printf("[Stage 3 v14 selectable coverage mode]\n");
+    printf("[Stage 3 v16 mode-5 adaptive operator enrichment]\n");
     printf("coverage mode                      = %d\n", coverage_mode);
     printf("coverage mode description          = %s\n", coverage_mode_name);
     printf("rank files                         = %d\n", num_ranks);
@@ -1536,13 +2978,32 @@ int main(int argc,char** argv)
     printf("Stage-3 candidate pool             = %d\n", n);
     printf("physical interface constraints     = %d\n",
         num_interface_group);
-    printf("operator-aware subconstraints      = %d\n",
-        num_solver_group - num_interface_group);
+    printf("interface operator subconstraints  = %d\n",
+        num_interface_operator_subgroups);
+    printf("internal operator subconstraints   = %d\n",
+        num_internal_operator_subgroups);
     printf("total solver coverage constraints  = %d\n",
         num_solver_group);
-    if (coverage_mode == 3) {
+    if (coverage_mode == 3 || coverage_mode == 4) {
         printf("operator clusters requested        = %d\n", operator_clusters);
         printf("operator signature relative floor  = %.6e\n", operator_signature_rtol);
+    }
+    if (coverage_mode == 4) {
+        printf("strictly-internal groups           = %zu\n",
+            internal_operator_groups.size());
+        printf("internal-added candidate elements  = %zu\n",
+            internal_coverage_added_element.size());
+        printf("internal groups empty before expansion = %d\n",
+            empty_internal_before_expansion);
+    }
+    if (coverage_mode == 5) {
+        printf("mode5 seed tolerance               = %.6e\n", mode5_seed_tol);
+        printf("mode5 operator defect tolerance    = %.6e\n", mode5_defect_tol);
+        printf("mode5 adaptive rounds              = %d\n", mode5_result.rounds);
+        printf("mode5 added candidates             = %d\n", mode5_result.added_candidates);
+        printf("mode5 final maximum defect         = %.6e\n", mode5_result.final_max_defect);
+        printf("mode5 final deficient groups       = %d\n", mode5_result.deficient_groups_final);
+        printf("mode5 hard fallback groups         = %d\n", num_mode5_hard_group);
     }
     printf("interfaces empty before expansion  = %d\n",
         empty_interface_before_expansion);
@@ -1553,8 +3014,13 @@ int main(int argc,char** argv)
         singleton_interface_groups);
     printf("inner NNLS max iterations          = %d\n", max_iter);
     printf("inner NNLS tolerance               = %.6e\n", tol);
+    printf("online output weight threshold     = %.6e\n", weight_tol);
     printf("coverage selection threshold tau   = %.6e\n",
         coverage_tau);
+    printf("threshold-consistent refit         = %s\n",
+        threshold_refit ? "enabled" : "disabled");
+    printf("threshold refit max passes         = %d\n",
+        threshold_refit_max_pass);
     printf("ADMM max iterations                = %d\n",
         admm_max_iter);
     printf("ADMM initial rho                   = %.6e\n",
@@ -1573,7 +3039,7 @@ int main(int argc,char** argv)
     int admm_outer_iter = 0;
     int coverage_status = 0;
 
-    if (coverage_mode >= 2) {
+    if (use_hard_coverage_solver) {
         coverage_status =
             monolis_optimize_nnls_R_with_sparse_solution_interface_coverage_admm(
                 A,
@@ -1611,6 +3077,35 @@ int main(int argc,char** argv)
             &residual);
     }
 
+    ThresholdRefitResult threshold_refit_result;
+    if (threshold_refit != 0 && weight_tol > 0.0) {
+        const int refit_coverage_mode =
+            use_hard_coverage_solver ? 2 : 0;
+        threshold_refit_result = threshold_consistent_refit(
+            A, b, x, m, n, max_iter, tol, weight_tol, refit_coverage_mode,
+            solver_group_ptr, solver_group_item, solver_group_epsilon,
+            admm_max_iter, admm_rho, admm_abs_tol, admm_rel_tol,
+            admm_verbose, threshold_refit_max_pass);
+
+        residual = threshold_refit_result.residual_final;
+        if (use_hard_coverage_solver) {
+            coverage_status = threshold_refit_result.coverage_status;
+            max_coverage_violation = threshold_refit_result.max_coverage_violation;
+            admm_outer_iter = threshold_refit_result.coverage_outer_iter;
+        }
+    }
+    else {
+        threshold_refit_result.enabled = 0;
+        threshold_refit_result.initial_support =
+            (int)std::count_if(
+                x.begin(),x.end(),
+                [weight_tol](double v){ return v > weight_tol; });
+        threshold_refit_result.final_support = threshold_refit_result.initial_support;
+        threshold_refit_result.residual_before = residual;
+        threshold_refit_result.residual_after_initial_cut = residual;
+        threshold_refit_result.residual_final = residual;
+    }
+
     time_solver =
         HROM_elapsed_sec(timer_solver_begin, HROMClock::now());
 
@@ -1621,9 +3116,8 @@ int main(int argc,char** argv)
     double minimum_group_margin = 0.0;
 
     int minimum_margin_group = -1;
-    int minimum_sum_group = -1;
 
-    if (coverage_mode >= 2) {
+    if (use_hard_coverage_solver) {
         minimum_group_sum = DBL_MAX;
         minimum_group_margin = DBL_MAX;
 
@@ -1644,7 +3138,6 @@ int main(int argc,char** argv)
 
             if (sum < minimum_group_sum) {
                 minimum_group_sum = sum;
-                minimum_sum_group = g;
             }
 
             const double margin =
@@ -1762,21 +3255,29 @@ int main(int argc,char** argv)
         }
 
 
-        if (coverage_mode == 3) {
+        auto check_operator_group_range = [&] (
+            const int begin_group,
+            const int end_group,
+            const char* label) -> int {
+
             int operator_uncovered = 0;
             double operator_min_margin = DBL_MAX;
             int operator_worst_solver_g = -1;
 
-            for (int sg = num_interface_group; sg < num_solver_group; ++sg) {
+            for (int sg = begin_group; sg < end_group; ++sg) {
                 double sum = 0.0;
                 bool selected_member = false;
+
                 for (int k = solver_group_ptr[(size_t)sg];
                      k < solver_group_ptr[(size_t)sg + 1]; ++k) {
                     const int c = solver_group_item[(size_t)k];
                     sum += x[(size_t)c];
                     if (x[(size_t)c] > weight_tol) selected_member = true;
                 }
-                const double margin = sum - solver_group_epsilon[(size_t)sg];
+
+                const double margin =
+                    sum - solver_group_epsilon[(size_t)sg];
+
                 if (margin < operator_min_margin) {
                     operator_min_margin = margin;
                     operator_worst_solver_g = sg;
@@ -1785,14 +3286,67 @@ int main(int argc,char** argv)
             }
 
             printf(
-                "[OPERATOR-COVERAGE-RESULT] subgroups=%d uncovered_after_threshold=%d min_margin=%.15e worst_solver_group=%d\\n",
-                num_solver_group - num_interface_group,
+                "[%s-OPERATOR-COVERAGE-RESULT] subgroups=%d "
+                "uncovered_after_threshold=%d min_margin=%.15e "
+                "worst_solver_group=%d\n",
+                label,
+                end_group - begin_group,
                 operator_uncovered,
                 (operator_min_margin == DBL_MAX) ? 0.0 : operator_min_margin,
                 operator_worst_solver_g);
 
-            if (operator_uncovered != 0) {
+            return operator_uncovered;
+        };
+
+        if (coverage_mode == 3 || coverage_mode == 4) {
+            const int interface_operator_uncovered =
+                check_operator_group_range(
+                    num_interface_group,
+                    first_internal_solver_group,
+                    "INTERFACE");
+
+            if (interface_operator_uncovered != 0) {
                 die("operator-aware interface coverage lost one or more signature clusters");
+            }
+        }
+
+        if (coverage_mode == 4) {
+            const int internal_operator_uncovered =
+                check_operator_group_range(
+                    first_internal_solver_group,
+                    num_solver_group,
+                    "INTERNAL");
+
+            if (internal_operator_uncovered != 0) {
+                die("internal operator-aware coverage lost one or more signature clusters");
+            }
+        }
+
+        if (coverage_mode == 5 && num_mode5_hard_group > 0) {
+            int mode5_uncovered = 0;
+            double mode5_min_margin = DBL_MAX;
+            for (int sg = 0; sg < num_solver_group; ++sg) {
+                double sum = 0.0;
+                bool selected_member = false;
+                for (int k = solver_group_ptr[(size_t)sg];
+                     k < solver_group_ptr[(size_t)sg + 1]; ++k) {
+                    const int c = solver_group_item[(size_t)k];
+                    sum += x[(size_t)c];
+                    if (x[(size_t)c] > weight_tol) selected_member = true;
+                }
+                mode5_min_margin = std::min(
+                    mode5_min_margin,
+                    sum - solver_group_epsilon[(size_t)sg]);
+                if (!selected_member) mode5_uncovered++;
+            }
+            printf(
+                "[MODE5-HARD-COVERAGE-RESULT] groups=%d uncovered=%d "
+                "min_margin=%.15e\n",
+                num_mode5_hard_group,
+                mode5_uncovered,
+                (mode5_min_margin == DBL_MAX) ? 0.0 : mode5_min_margin);
+            if (mode5_uncovered != 0) {
+                die("mode-5 hard fallback lost one or more adaptive anchors");
             }
         }
 
@@ -1805,7 +3359,7 @@ int main(int argc,char** argv)
                         *std::max_element(
                             solver_group_epsilon.begin(),
                             solver_group_epsilon.end()))) {
-            die("interface-coverage constrained NNLS did not satisfy "
+            die("coverage-constrained NNLS did not satisfy "
                 "the requested hard constraints");
         }
     }
@@ -1838,7 +3392,9 @@ int main(int argc,char** argv)
      * The unique original-global IDs in this table are the physical elements
      * before Stage-1 reduction (ghost/rank copies are removed by the set).
      */
-    const std::vector<RouteEntry> routes=read_all_routes(directory,num_ranks);
+    if (routes.empty()) {
+        routes = read_all_routes(directory,num_ranks);
+    }
     std::unordered_set<int64_t> original_physical_elem_set;
     original_physical_elem_set.reserve(routes.size()*2+1);
     for (const RouteEntry& e : routes) {
@@ -2212,8 +3768,84 @@ int main(int argc,char** argv)
             coverage_added_element.size());
         fprintf(
             fp_report,
+            "internal_coverage_added_candidates %zu\n",
+            internal_coverage_added_element.size());
+        fprintf(
+            fp_report,
+            "internal_operator_groups %zu\n",
+            internal_operator_groups.size());
+        fprintf(
+            fp_report,
+            "interface_operator_subconstraints %d\n",
+            num_interface_operator_subgroups);
+        fprintf(
+            fp_report,
+            "internal_operator_subconstraints %d\n",
+            num_internal_operator_subgroups);
+        fprintf(
+            fp_report,
+            "total_solver_coverage_constraints %d\n",
+            num_solver_group);
+        fprintf(
+            fp_report,
+            "mode5_seed_tol %.30e\n",
+            mode5_seed_tol);
+        fprintf(
+            fp_report,
+            "mode5_defect_tol %.30e\n",
+            mode5_defect_tol);
+        fprintf(
+            fp_report,
+            "mode5_rounds %d\n",
+            mode5_result.rounds);
+        fprintf(
+            fp_report,
+            "mode5_added_candidates %d\n",
+            mode5_result.added_candidates);
+        fprintf(
+            fp_report,
+            "mode5_final_max_defect %.30e\n",
+            mode5_result.final_max_defect);
+        fprintf(
+            fp_report,
+            "mode5_final_deficient_groups %d\n",
+            mode5_result.deficient_groups_final);
+        fprintf(
+            fp_report,
+            "mode5_hard_fallback_groups %d\n",
+            num_mode5_hard_group);
+        fprintf(
+            fp_report,
             "stage3_candidate_pool %d\n",
             stage3_num_candidates);
+        fprintf(
+            fp_report,
+            "threshold_refit_enabled %d\n",
+            threshold_refit_result.enabled);
+        fprintf(
+            fp_report,
+            "threshold_refit_passes %d\n",
+            threshold_refit_result.passes);
+        fprintf(
+            fp_report,
+            "threshold_refit_initial_support %d\n",
+            threshold_refit_result.initial_support);
+        fprintf(
+            fp_report,
+            "threshold_refit_final_support %d\n",
+            threshold_refit_result.final_support);
+        fprintf(
+            fp_report,
+            "threshold_refit_residual_before %.30e\n",
+            threshold_refit_result.residual_before);
+        fprintf(
+            fp_report,
+            "threshold_refit_residual_after_initial_cut %.30e\n",
+            threshold_refit_result.residual_after_initial_cut);
+        fprintf(
+            fp_report,
+            "threshold_refit_residual_final %.30e\n",
+            threshold_refit_result.residual_final);
         fprintf(
             fp_report,
             "stage2_retained_vs_stage1_percent %.15e\n",
@@ -2290,7 +3922,7 @@ int main(int argc,char** argv)
             report_path.c_str());
     }
 
-    printf("[Stage 3 v14 result] mode=%d selected=%d / %d "
+    printf("[Stage 3 v15 result] mode=%d selected=%d / %d "
            "reduction=%.3f%% normalized_residual=%.15e "
            "raw_residual=%.15e\n",
         coverage_mode,

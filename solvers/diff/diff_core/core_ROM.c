@@ -306,11 +306,6 @@ void solver_rom(
     monolis_copy_mat_value_R(&(sys->monolis_rom0), &(sys->monolis_rom));
     monolis_clear_mat_value_rhs_R(&(sys->monolis_rom));
 
-
-    if(step == 104){
-        //exit(1);
-    }
-
    set_element_vec(
             &(sys->monolis),
             &(sys->fe),
@@ -325,17 +320,13 @@ void solver_rom(
             sys->vals.theo_sol,
             t);
     
-    //if(step == 1||step==2){
             BBFE_sys_monowrap_set_Dirichlet_bc(
             &(sys->monolis),
             sys->fe.total_num_nodes,
             BLOCK_SIZE,
             &(sys->bc),
             sys->monolis.mat.R.B);
-    //}
-/*
 
-*/
     double t2 = monolis_get_time_global_sync();
 
     sys->rom.hlpod_vals.time_calc_reduced_matvec = t2 - t1;

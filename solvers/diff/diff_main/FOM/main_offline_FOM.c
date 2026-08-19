@@ -171,7 +171,7 @@ int main (
             sys.vals.finish_time,
             sys.vals.dt,
             sys.vals.snapshot_interval,
-            1,
+            5,
 			1);
     /******************/
 
@@ -183,17 +183,67 @@ int main (
 	double t = 0.0;
 	int step = 0;
 	int file_num = 0;
-	while (t < sys.vals.finish_time) {
-		t += sys.vals.dt;
-		step += 1;
 
-        solver_fom_collect_snapmat(&sys, t, step);
+    double train_Din[] = {
+        1.0e-3,
+        1.0e-4,
+        1.0e-5,
+        1.0e-6,
+        1.0e-7
+    };
 
-		if(step%sys.vals.output_interval == 0) {
-			output_files(&sys, file_num, t);
-			file_num += 1;
-		}
-	}
+    int num_train_param = sizeof(train_Din) / sizeof(train_Din[0]);
+
+    for(int iparam = 0; iparam < num_train_param; iparam++)
+    {
+        MANUSOL_PARAM prm = {
+            .radius = 0.75,
+            .D_out  = 1.0,
+            .D_in   = train_Din[iparam],
+            .T0     = 1.0,
+            .Q0     = 1.0,
+            .tau    = 1.0
+        };
+
+        manusol_set_param(&prm);
+
+        /*
+        * D_IN が変化するので
+        * A(mu) を作り直す
+        */
+        monolis_clear_mat_value_R(
+            &(sys.monolis0));
+
+        set_element_mat(
+            &(sys.monolis0),
+            &(sys.fe),
+            &(sys.basis),
+            &(sys.vals));
+        
+        monolis_copy_mat_R(&(sys.monolis0), &(sys.monolis));
+
+        /*
+        * 各 parameter case の初期状態
+        */
+        manusol_set_init_value(
+            &(sys.fe),
+            sys.vals.T);
+
+        double t = 0.0;
+        int step = 0;
+
+        while(t < sys.vals.finish_time) {
+
+            t += sys.vals.dt;
+            step++;
+
+            solver_fom_collect_snapmat(
+                &sys,
+                t,
+                step,
+                iparam);
+        }
+    }
     /**************************************************/
 
     /*for ROM *****************************************/

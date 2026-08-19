@@ -20,6 +20,7 @@ cd $directory
 
 mv ../../solvers/fluid_sups/karman_vortex/merged_mesh/parted.0 ./
 mv ../../solvers/fluid_sups/karman_vortex/merged_mesh/D_bc.dat ./
+mv ../../solvers/fluid_sups/karman_vortex/merged_mesh/elem.dat ./
 
 
 # for parameteric study

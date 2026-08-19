@@ -53,34 +53,67 @@ mpirun -np $np  ./hlpod_diff_offline_ROM ./ -nd $nd -nm $nm -pa $pa -st $st
 
 #./hrom_stage3_serial ./ $np  10000 1.0e-8 1.0e-8 1.0e-8  200 100.0 1.0e-10 1.0e-6  1 3
 
-# hrom_stage3_serial parameter sweep
-# {1}: 1.0e-8, 1.0e-9, 1.0e-10
-# {2}: 0, 3
-for prm1 in 1.0e-8 1.0e-9 1.0e-10
+operator_signature_rtol=1.0e-8
+mode5_seed_tol=1.0e-4
+mode5_defect_tol=1.0e-1
+mode5_max_round=32
+mode5_add_per_round=1
+mode5_hard_fallback=0
+
+for prm1 in 1.0e-3 1.0e-4 1.0e-5 1.0e-6 1.0e-7 1.0e-8
 do
-    for prm2 in 0 3
+    for prm2 in 0 4 5
     do
-        ./hrom_stage3_serial ./ $np  10000 ${prm1} 1.0e-8 1.0e-8 \
-            200 100.0 1.0e-10 1.0e-6  1 ${prm2}
+        if [ "${prm2}" -eq 0 ]; then
+            # Classical sparse-NNLS baseline: no output threshold/refit.
+            weight_tol=0.0
+            coverage_tau=1.0e-8   # unused by mode 0, but must remain positive
+            threshold_refit=0
+        else
+            # Adaptive mode 5: the output support is judged using weight_tol.
+            weight_tol=1.0e-8
+            coverage_tau=1.0e-8   # used only if hard fallback is enabled
+            threshold_refit=1
+        fi
+
+        ./hrom_stage3_serial ./ "${np}" \
+            20000 \
+            "${prm1}" \
+            "${weight_tol}" \
+            "${coverage_tau}" \
+            200 \
+            100.0 \
+            1.0e-10 \
+            1.0e-6 \
+            1 \
+            "${prm2}" \
+            2 \
+            "${operator_signature_rtol}" \
+            "${threshold_refit}" \
+            32 \
+            "${mode5_seed_tol}" \
+            "${mode5_defect_tol}" \
+            "${mode5_max_round}" \
+            "${mode5_add_per_round}" \
+            "${mode5_hard_fallback}"
 
         save_dir="hrom_stage3_results/prm1_${prm1}_prm2_${prm2}"
         mkdir -p "${save_dir}/DDECM"
 
-        # stage3で生成された結果を保存
         cp DDECM/stage_reduction_summary.txt "${save_dir}/DDECM/"
+        cp DDECM/stage3_selected_elem.txt "${save_dir}/DDECM/"
+        cp DDECM/stage3_NNLS_residual.dat "${save_dir}/DDECM/"
 
-        # 前ケースのL2 errorを誤って使わないよう削除
         rm -f l2_error_rom.txt l2_error_fem_hrom.txt
 
-        # online HROM
-        mpirun -np $np ./hlpod_diff_online_HROM ./ \
-            -nd $nd -nm $nm -pa $pa -st $st
+        mpirun -np "${np}" ./hlpod_diff_online_HROM ./ \
+            -nd "${nd}" -nm "${nm}" -pa "${pa}" -st "${st}"
 
-        # onlineで生成された結果を保存
         cp l2_error_rom.txt "${save_dir}/"
         cp l2_error_fem_hrom.txt "${save_dir}/"
     done
 done
+
 
 
 

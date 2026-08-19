@@ -3,6 +3,8 @@
 #include "hlpod_dataset.h"
 #include "diff_dataset.h"
 
+void manusol_set_param(const MANUSOL_PARAM* prm);
+
 double manusol_get_sol(
 		double x,
 		double y,
@@ -157,3 +159,9 @@ void ROM_set_D_bc_rhs_para(
         const int		num_modes,
 		const int 		num_subdomains,
 		const double    dt);
+    
+void solver_fom_collect_snapmat(
+    FE_SYSTEM* sys,
+    double t,
+    const int step,
+    const int iparam);
