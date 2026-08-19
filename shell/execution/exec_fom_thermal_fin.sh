@@ -7,11 +7,11 @@ e=20
 ep=5
 
 #podモード数
-num_modes=(10)
+num_modes=(5)
 #POD計算領域数
 num_1stdd=(32)
 #並列計算領域数 (=並列数)
-num_parallel=(4)
+num_parallel=(8)
 #基底本数可変の閾値 1.0E-{pa}
 pa=0
 #solver type
@@ -30,7 +30,7 @@ do
 	    #. shell/diff/execution.sh $e $ep $nm $nd $np $pa $st
 	    . shell/diff_hrom/execution_offline_3ph.sh $e $ep $nm $nd $np $pa $st
 
-        . shell/diff_hrom/execution_online.sh $e $ep $nm $nd $np $pa $st
+        #. shell/diff_hrom/execution_online.sh $e $ep $nm $nd $np $pa $st
 
 
         done

@@ -28,54 +28,108 @@ static const char* OUTPUT_FILENAME_VTK    = "result_%06d.vtk";
 
 
 /*
- * Domain:
- *   [0,5] x [0,5] x [0,5]
+ * ============================================================
+ * Edge-heated transient-diffusion HROM stress benchmark
+ * ============================================================
  *
- * Spherical inclusion:
- *   center = (2.5, 2.5, 2.5)
- *   radius = 0.75
+ * Intended component layout (dper=1, --copies 8, --depth-copies 1):
  *
- * Diffusion contrast:
- *   D_out / D_in = 1.0e4
+ *   heated face
+ *      |
+ *      v
+ *   x=0                                                x=4
+ *    | D0 | D1 | D2 | D3 || D4 | D5 | D6 | D7 |
+ *
+ * Coefficient distribution:
+ *
+ *   left  half (D0-D3, x <= 2): q(x) = D_out = O(1)
+ *   right half (D4-D7, x >  2): q(x) = D_in
+ *
+ * with
+ *
+ *   a(x) = q(x)   (mass coefficient),
+ *   k(x) = q(x)   (diffusion coefficient).
+ *
+ * Governing equation:
+ *
+ *   a(x) T_t - div(k(x) grad T) = 0.
+ *
+ * Initial condition:
+ *
+ *   T(x,0) = T0.
+ *
+ * Boundary condition REQUIRED for this benchmark:
+ *
+ *   x = xmin : T = T0 + Q0*(1-exp(-t/tau))
+ *   all other external faces : natural zero-flux (adiabatic)
+ *
+ * Therefore D_bc.dat must contain ONLY the global xmin face.  With the
+ * repeat mesh generator use, for example,
+ *
+ *   --no-auto-bc --bc xmin:1
+ *
+ * There is no manufactured volumetric source.  Heat enters only from the
+ * left end face and diffuses gradually through the component chain.
+ *
+ * Offline training uses D_out=1 and small D_in, so element weak-form
+ * contributions on D4-D7 are small.  The time horizon should be long enough
+ * for the FOM temperature front to reach the right half, so POD still sees
+ * those states.  Online uses the SAME PDE family with D_in increased toward
+ * 1 while the offline POD/HROM data are frozen.
+ *
+ * manusol_get_sol() is retained only as the time-dependent Dirichlet value
+ * provider required by the existing BBFE_manusol_set_bc_scalar() path.  It is
+ * NOT an analytical solution in the interior.  FOM output must be used as
+ * the reference for ROM/HROM error evaluation.
+ * ============================================================
  */
 
-#define XC      2.5
-#define YC      2.5
-#define ZC      2.5
-
-#define RADIUS  0.75
-
-#define D_OUT   1.0
-#define D_IN    1.0e-4
-
-
-#define TAU     1.0
+#define HROM_STRESS_SPLIT_X          2.0
 
 void manusol_set_param(const MANUSOL_PARAM* prm)
 {
     g_manusol_param = *prm;
+
+    if (!(g_manusol_param.D_out > 0.0) ||
+        !(g_manusol_param.D_in  > 0.0) ||
+        !(g_manusol_param.tau   > 0.0)) {
+        fprintf(stderr,
+            "ERROR: edge-heated transient-diffusion stress benchmark requires "
+            "D_out>0, D_in>0, tau>0 (D_out=%.6e D_in=%.6e tau=%.6e)\n",
+            g_manusol_param.D_out,
+            g_manusol_param.D_in,
+            g_manusol_param.tau);
+        exit(EXIT_FAILURE);
+    }
+
+    fprintf(stderr,
+        "[TRANSIENT-DIFFUSION-EDGE-STRESS] "
+        "left(D0-D3)=%.6e right(D4-D7)=%.6e "
+        "T0=%.6e dT=%.6e ramp_tau=%.6e split_x=%.6e\n",
+        g_manusol_param.D_out,
+        g_manusol_param.D_in,
+        g_manusol_param.T0,
+        g_manusol_param.Q0,
+        g_manusol_param.tau,
+        HROM_STRESS_SPLIT_X);
+    fprintf(stderr,
+        "[TRANSIENT-DIFFUSION-EDGE-STRESS] REQUIRED BC: xmin Dirichlet only; "
+        "all other faces natural zero-flux.\n");
 }
 
-
-static double manusol_phi(double r)
+static double hrom_stress_boundary_temperature(const double t)
 {
-    const double R   = g_manusol_param.radius;
-    const double Di  = g_manusol_param.D_in;
-    const double Do  = g_manusol_param.D_out;
-    const double Q   = g_manusol_param.Q0;
+    return g_manusol_param.T0
+         + g_manusol_param.Q0
+         * (1.0 - exp(-t/g_manusol_param.tau));
+}
 
-    if (r <= R) {
-        return
-            Q * R * R / (3.0 * Do)
-            +
-            Q * (R * R - r * r)
-            / (6.0 * Di);
+static double hrom_stress_q(const double x[3])
+{
+    if (x[0] <= HROM_STRESS_SPLIT_X) {
+        return g_manusol_param.D_out;
     }
-    else {
-        return
-            Q * R * R * R
-            / (3.0 * Do * r);
-    }
+    return g_manusol_param.D_in;
 }
 
 double manusol_get_sol(
@@ -84,42 +138,22 @@ double manusol_get_sol(
         double z,
         double t)
 {
-    double dx = x - XC;
-    double dy = y - YC;
-    double dz = z - ZC;
-
-    double r =
-        sqrt(dx * dx +
-             dy * dy +
-             dz * dz);
-
-    double phi = manusol_phi(r);
-
-    double h =
-        1.0 - exp(-t / g_manusol_param.tau);
-
-    return g_manusol_param.T0 + h * phi;
+    /*
+     * Compatibility callback for BBFE_manusol_set_bc_scalar().
+     * D_bc.dat must contain only xmin, so only boundary nodes consume this
+     * value.  This is intentionally NOT the interior analytical solution.
+     */
+    (void)x;
+    (void)y;
+    (void)z;
+    return hrom_stress_boundary_temperature(t);
 }
+
 double manusol_get_diff_coef(double x[3])
 {
-    double dx = x[0] - XC;
-    double dy = x[1] - YC;
-    double dz = x[2] - ZC;
-
-    double r2 =
-        dx * dx +
-        dy * dy +
-        dz * dz;
-
-    if (r2 <=
-        g_manusol_param.radius *
-        g_manusol_param.radius)
-    {
-        return g_manusol_param.D_in;
-    }
-
-    return g_manusol_param.D_out;
+    return hrom_stress_q(x);
 }
+
 double manusol_get_source(
         double x[3],
         double t,
@@ -127,80 +161,40 @@ double manusol_get_source(
         double v[3],
         double k)
 {
+    (void)x;
+    (void)t;
+    (void)a;
     (void)v;
     (void)k;
-
-    double dx = x[0] - XC;
-    double dy = x[1] - YC;
-    double dz = x[2] - ZC;
-
-    double r2 =
-        dx * dx +
-        dy * dy +
-        dz * dz;
-
-    double r = sqrt(r2);
-
-    double phi = manusol_phi(r);
-
-    double tau = g_manusol_param.tau;
-    double R   = g_manusol_param.radius;
-    double Q   = g_manusol_param.Q0;
-
-    double e =
-        exp(-t / tau);
-
-    double h =
-        1.0 - e;
-
-    double dh =
-        e / tau;
-
-    double q;
-
-    if (r2 <= R * R)
-    {
-        q = Q;
-    }
-    else
-    {
-        q = 0.0;
-    }
-
-    return
-        a * dh * phi
-        +
-        h * q;
+    return 0.0;
 }
 
 double manusol_get_sol_without_time(
-		double x,
-		double y,
-		double z,
-		double t)
+        double x,
+        double y,
+        double z,
+        double t)
 {
-	double val = sin( 0.25*x ) * sin( 0.5*y ) * sin( 1.0*z );
-
-	return val;
+    (void)x;
+    (void)y;
+    (void)z;
+    (void)t;
+    return g_manusol_param.T0;
 }
-
 
 void manusol_get_conv_vel(
-		double v[3],
-		double x[3])
+        double v[3],
+        double x[3])
 {
-	v[0] = 1.0 + x[0]*x[0];
-	v[1] = 1.0 + x[1]*x[1];
-	v[2] = 1.0 + x[2]*x[2];
+    (void)x;
+    v[0] = 0.0;
+    v[1] = 0.0;
+    v[2] = 0.0;
 }
 
-
-double manusol_get_mass_coef(
-		double x[3])
+double manusol_get_mass_coef(double x[3])
 {
-	double val = 1.0;
-
-	return val;
+    return hrom_stress_q(x);
 }
 
 /*
@@ -268,25 +262,13 @@ double manusol_get_source(
 */
 
 double manusol_get_source_without_time(
-                double x[3],
-                double t,
-                double a,
-                double v[3],
-                double k)
+        double x[3],
+        double t,
+        double a,
+        double v[3],
+        double k)
 {
-        double val = 0.0;
-/*
-        if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
-                val = 1000;
-        }
-        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 2.45 && x[1] < 2.55 &&x[2] > 2.45 && x[2] < 2.55){
-                val = 1000;
-        }
-        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
-                val = 1000;
-        }
-*/
-        return val;
+    return manusol_get_source(x,t,a,v,k);
 }
 
 /*
@@ -384,12 +366,12 @@ void manusol_set_source(
 
 
 void manusol_set_init_value(
-		BBFE_DATA* fe,
-		double* T)
+        BBFE_DATA* fe,
+        double* T)
 {
-	for(int i=0; i<(fe->total_num_nodes); i++) {
-		T[i] = manusol_get_sol(fe->x[i][0], fe->x[i][1], fe->x[i][2], 0.0);
-	}
+    for(int i = 0; i < fe->total_num_nodes; ++i) {
+        T[i] = g_manusol_param.T0;
+    }
 }
 
 
@@ -483,42 +465,40 @@ void read_calc_conditions(
 
 
 void output_result_file_vtk(
-		BBFE_DATA*       fe,
-		VALUES*        vals,
-		const char*    filename,
-		const char*    directory,
-		double         t)
+        BBFE_DATA*       fe,
+        VALUES*          vals,
+        const char*      filename,
+        const char*      directory,
+        double           t)
 {
-	FILE* fp;
-	fp = BBFE_sys_write_fopen(fp, filename, directory);
+    (void)t;
 
-	switch( fe->local_num_nodes ) {
-		case 4:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
-			break;
+    FILE* fp;
+    fp = BBFE_sys_write_fopen(fp, filename, directory);
 
-		case 8:
-			BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
-			break;
-	}
+    switch(fe->local_num_nodes) {
+        case 4:
+            BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_TETRA);
+            break;
+        case 8:
+            BBFE_sys_write_vtk_shape(fp, fe, TYPE_VTK_HEXAHEDRON);
+            break;
+    }
 
-	fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
-	BB_vtk_write_point_vals_scalar(fp, vals->T, fe->total_num_nodes, "temperature");
+    fprintf(fp, "POINT_DATA %d\n", fe->total_num_nodes);
+    BB_vtk_write_point_vals_scalar(
+        fp, vals->T, fe->total_num_nodes, "temperature");
 
-	// for manufactured solution
-	BBFE_manusol_calc_nodal_error_scalar(
-			fe, vals->error, vals->theo_sol, vals->T);
-	BB_vtk_write_point_vals_scalar(fp, vals->error   , fe->total_num_nodes, "abs_error");
-	BB_vtk_write_point_vals_scalar(fp, vals->theo_sol, fe->total_num_nodes, "theoretical");
+    /* Visualize the fixed left/right coefficient distribution as well. */
+    double* q = BB_std_calloc_1d_double(q, fe->total_num_nodes);
+    for(int i = 0; i < fe->total_num_nodes; ++i) {
+        q[i] = manusol_get_diff_coef(fe->x[i]);
+    }
+    BB_vtk_write_point_vals_scalar(
+        fp, q, fe->total_num_nodes, "diffusion_mass_scale");
+    BB_std_free_1d_double(q, fe->total_num_nodes);
 
-	double* source;
-	source = BB_std_calloc_1d_double(source, fe->total_num_nodes);
-	manusol_set_source(fe, source, t);
-	BB_vtk_write_point_vals_scalar(fp, source, fe->total_num_nodes, "source");
-	BB_std_free_1d_double(source, fe->total_num_nodes);
-
-	fclose(fp);
-
+    fclose(fp);
 }
 
 
@@ -550,38 +530,10 @@ void output_files(
 			filename,
 			sys->cond.directory);
 
-	/**** for manufactured solution ****/
-/*
-	double* source;
-	source = BB_std_calloc_1d_double(source, sys->fe.total_num_nodes);
-	manusol_set_source(&(sys->fe), source, t);
-
-	filename = monolis_get_global_output_file_name(MONOLIS_DEFAULT_TOP_DIR, "./", fname_sou);
-	BBFE_write_ascii_nodal_vals_scalar(
-			&(sys->fe),
-			source,
-			filename,
-			sys->cond.directory);
-*/
-	double L2_error = BBFE_elemmat_equivval_relative_L2_error_scalar(
-			&(sys->fe),
-			&(sys->basis),
-			&(sys->monolis_com),
-			t,
-			sys->vals.T,
-			manusol_get_sol);
-
-	printf("%s L2 error: %e\n", CODENAME, L2_error);
-
-	if(monolis_mpi_get_global_my_rank() == 0){
-		FILE* fp;
-		fp = BBFE_sys_write_add_fopen(fp, "l2_error.txt", sys->cond.directory);
-		fprintf(fp, "%e %e\n", t, L2_error);
-		fclose(fp);
-	}
-
-//	BB_std_free_1d_double(source, sys->fe.total_num_nodes);
-	/***********************************/
+    /*
+     * No analytical interior solution is used in the edge-heating benchmark.
+     * Compare ROM/HROM against a saved FOM reference in post-processing.
+     */
 }
 
 
@@ -1309,8 +1261,14 @@ void solver_fom(
 {
     printf("\n%s ----------------- step %d ----------------\n", CODENAME, step);
     
-    monolis_copy_mat_value_R(&(sys.monolis0), &(sys.monolis));
+    /* Parameter-dependent a(x),k(x): rebuild the matrix for current D_in/D_out. */
+    monolis_clear_mat_value_R(&(sys.monolis));
     monolis_clear_mat_value_rhs_R(&(sys.monolis));
+    set_element_mat(
+            &(sys.monolis),
+            &(sys.fe),
+            &(sys.basis),
+            &(sys.vals));
 
     set_element_vec(
             &(sys.monolis),
@@ -1511,10 +1469,15 @@ void solver_fom_collect_snapmat(
         fflush(stderr); \
     } while(0)
 
+    /*
+     * The caller assembles sys->monolis0 once for the current parameter
+     * (D_out,D_in) before entering the time loop.  Coefficients are time
+     * independent inside one parameter case, so reuse that matrix at every
+     * time step and update only the RHS / Dirichlet contribution.
+     */
     monolis_copy_mat_R(
         &(sys->monolis0),
         &(sys->monolis));
-
     monolis_clear_mat_value_rhs_R(
         &(sys->monolis));
 

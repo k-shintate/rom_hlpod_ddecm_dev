@@ -281,7 +281,7 @@ int main (
             .radius = 0.75,
             .D_out  = 1.0,
             .D_in   = train_Din[iparam],
-            .T0     = 1.0,
+            .T0     = 0.0,
             .Q0     = 1.0,
             .tau    = 1.0
         };

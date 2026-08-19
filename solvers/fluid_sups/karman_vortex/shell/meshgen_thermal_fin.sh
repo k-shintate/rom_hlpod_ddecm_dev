@@ -28,17 +28,30 @@ mkdir -p mesh_karman_vortex
 rm -rf merged_mesh
 
 python3 mesh_io/repeat_dat_mesh_with_bc.py \
-    --geo gmsh/thermal_fin_fig3.geo \
-    --physical-group-script mesh_io/save_physical_groups.py \
-    --copies 8 \
-    --depth-copies 4 \
-    --axis x \
-    --gap 0.0 \
-    --symmetric \
-    --block-length 1 \
-    --bc-surface-dofs 1 \
-    --bc-value 0.0 \
-    --out-dir merged_mesh
+  --geo gmsh/thermal_fin_fig3.geo \
+  --physical-group-script mesh_io/save_physical_groups.py \
+  --copies 8 \
+  --depth-copies 4 \
+  --axis x \
+  --gap 0.0 \
+  --symmetric \
+  --block-length 1 \
+  --bc xmin:1 \
+  --bc-value 0.0 \
+  --out-dir merged_mesh
+
+cd merged_mesh
+
+cp D_bc.dat D_bc.dat.bak
+
+awk '
+NR==1 {print; next}
+{print $1, 0, $3}
+' D_bc.dat.bak > D_bc.dat
+
+head D_bc.dat
+
+cd ..
 
 # --------------------------------------------------
 # Resolve GEDATSU paths BEFORE cd

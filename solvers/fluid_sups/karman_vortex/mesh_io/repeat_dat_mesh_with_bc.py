@@ -1954,10 +1954,14 @@ def build_global_bbox_bc(
 
         for gid in ids:
             for dof in dofs:
+                # GEDATSU D_bc.dat node IDs are written in the global
+                # node.dat ordering (0-based), independently of the
+                # connectivity base used by elem.dat.  Using ``+ base``
+                # here shifts every BC by one when the source connectivity
+                # is 1-based.
                 result.add(
                     (
-                        int(gid)
-                        + base,
+                        int(gid),
                         int(dof),
                     )
                 )
@@ -2098,10 +2102,11 @@ def build_surface_bc_grid(
         bc_nodes
     ):
         for dof in dofs:
+            # Same convention as build_global_bbox_bc(): D_bc.dat uses
+            # the 0-based global node.dat ordering.
             rows.append(
                 (
-                    gid
-                    + base,
+                    gid,
                     int(dof),
                 )
             )
@@ -2457,6 +2462,19 @@ def main() -> None:
 
     args = p.parse_args()
 
+    # Remember whether the user explicitly requested a surface-based BC.
+    # For this generator, bbox BCs (--bc ...) and surface BCs are mutually
+    # exclusive unless the code is intentionally extended later.  In
+    # particular, edge-heating with --bc xmin:1 must NEVER inherit the
+    # default All_external_boundaries surface group.
+    explicit_bc_surface = bool(args.bc_surface)
+
+    if args.bc and explicit_bc_surface:
+        raise ValueError(
+            "Do not combine --bc with --bc-surface. "
+            "For edge heating use bbox BC only, e.g. --bc xmin:1."
+        )
+
     # -----------------------------------------------------------------
     # Basic validation
     # -----------------------------------------------------------------
@@ -2574,11 +2592,22 @@ def main() -> None:
             ]
         )
 
-        bc_group = (
-            None
-            if args.no_auto_bc
-            else args.bc_group
-        )
+        # STRICT BC precedence:
+        #   1) Any explicit bbox BC (--bc ...) disables the automatic GEO
+        #      surface BC unconditionally.
+        #   2) --bc-surface is not allowed together with --bc (checked above).
+        # This guarantees that --bc xmin:1 produces ONLY the global xmin face.
+        if args.bc:
+            bc_group = None
+            args.bc_surface = []
+            print(
+                "[BC-GENERATION] explicit bbox BC supplied; "
+                "automatic GEO surface BC is disabled and ignored."
+            )
+        elif args.no_auto_bc:
+            bc_group = None
+        else:
+            bc_group = args.bc_group
 
         geo_info = generate_component_from_geo(
             geo_path=args.geo,
@@ -2653,7 +2682,8 @@ def main() -> None:
             )
 
         if (
-            not args.bc_surface
+            not args.bc
+            and not args.bc_surface
             and geo_info[
                 "bc_surface"
             ]
@@ -2947,15 +2977,22 @@ def main() -> None:
         for spec in args.bc
     ]
 
-    for row in build_global_bbox_bc(
+    if bbox_specs and args.bc_surface:
+        raise RuntimeError(
+            "Internal BC configuration error: bbox BC and surface BC "
+            "are both active. This generator requires bbox-only BC when "
+            "--bc is supplied."
+        )
+
+    bbox_rows = build_global_bbox_bc(
         merged_nodes,
         bbox_specs,
         base,
         args.bc_tol,
-    ):
-        bc_rows_set.add(
-            row
-        )
+    )
+
+    for row in bbox_rows:
+        bc_rows_set.add(row)
 
     surface_dofs = parse_dof_list(
         args.bc_surface_dofs,
@@ -2990,6 +3027,23 @@ def main() -> None:
             bc_rows_set.add(
                 row
             )
+
+    # Hard invariant for bbox-only BC generation.  This catches accidental
+    # re-introduction of All_external_boundaries or any other surface group.
+    if bbox_specs:
+        expected_bbox_rows = set(bbox_rows)
+        if bc_rows_set != expected_bbox_rows:
+            extra = sorted(bc_rows_set - expected_bbox_rows)
+            missing = sorted(expected_bbox_rows - bc_rows_set)
+            raise RuntimeError(
+                "bbox-only BC invariant failed: "
+                f"extra={len(extra)} missing={len(missing)} "
+                f"extra(first10)={extra[:10]} missing(first10)={missing[:10]}"
+            )
+        print(
+            f"[BC-GENERATION] mode=bbox-only specs={args.bc} "
+            f"rows={len(expected_bbox_rows)}"
+        )
 
     bc_rows = sorted(
         bc_rows_set,
@@ -3130,6 +3184,9 @@ def main() -> None:
         )
         f.write(
             f"index base             : {base}\n"
+        )
+        f.write(
+            "D_bc node id base       : 0 (GEDATSU global node ordering)\n"
         )
         f.write(
             f"x components           : {args.copies}\n"
