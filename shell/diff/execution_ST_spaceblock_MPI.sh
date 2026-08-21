@@ -2,7 +2,7 @@
 
 # Reference space-time spatial-block FOM launcher.
 #
-# The current Makefile_ST builds one executable, diff_ST_MPI.  The executable
+# The current Makefile_ST builds one executable, hlpod_diff_st_ddrom.  The executable
 # selects the verified reference-FOM path with ST_DDROM_MODE=fom.  Therefore
 # this wrapper reuses execution_ST_DDROM_MPI.sh instead of requiring a second
 # executable or a second Makefile target.

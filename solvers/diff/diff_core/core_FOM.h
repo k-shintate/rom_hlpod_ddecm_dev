@@ -124,11 +124,6 @@ void solver_fom_collect_snapmat_test(
 		double t,
 		const int step);
 
-void solver_fom_collect_snapmat(
-		FE_SYSTEM* sys,
-		double t,
-		const int step);
-
 void set_element_vec_source(
 		MONOLIS*     monolis,
 		BBFE_DATA*     fe,

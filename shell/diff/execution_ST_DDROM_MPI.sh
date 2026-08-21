@@ -204,7 +204,7 @@ for tool in \
     fi
 done
 
-if [[ "$rebuild_solver" -eq 1 || ! -x "$result_dir/diff_ST_MPI" ]]; then
+if [[ "$rebuild_solver" -eq 1 || ! -x "$result_dir/hlpod_diff_st_ddrom" ]]; then
     echo "Building ST-DDROM executable..."
     (
         cd "$solver_dir"
@@ -212,8 +212,8 @@ if [[ "$rebuild_solver" -eq 1 || ! -x "$result_dir/diff_ST_MPI" ]]; then
         make -f Makefile_ST
     )
 
-    if [[ ! -x "$solver_dir/diff_ST_MPI" ]]; then
-        echo "ERROR: build did not create $solver_dir/diff_ST_MPI" >&2
+    if [[ ! -x "$solver_dir/hlpod_diff_st_ddrom" ]]; then
+        echo "ERROR: build did not create $solver_dir/hlpod_diff_st_ddrom" >&2
         exit 1
     fi
 fi
@@ -227,7 +227,7 @@ mkdir -p \
     "$result_dir/fem_solver_prm" \
     "$result_dir/calctime"
 
-cp -f "$solver_dir/diff_ST_MPI" "$result_dir/diff_ST_MPI"
+cp -f "$solver_dir/hlpod_diff_st_ddrom" "$result_dir/hlpod_diff_st_ddrom"
 cd "$result_dir"
 
 if [[ ! -f cond.dat ]]; then
@@ -331,7 +331,7 @@ run_mode() {
         ST_DDROM_SNAPSHOT_DIR="$snapshot_dir" \
         ST_DDROM_BASIS_DIR="$basis_dir" \
         mpirun -np "$np" \
-            ./diff_ST_MPI ./ \
+            ./hlpod_diff_st_ddrom ./ \
             -nd "$nd" \
             -nm "$nm" \
             -pa "$pa" \
