@@ -24,6 +24,7 @@ cp -r hlpod_fluid_sups_karman_vortex_FOM_weakbc ./../../$directory
 cd ./../../$directory
 mkdir -p {fem_solver_prm,calctime,hot_start}
 
-mpirun  -np ${np} ./hlpod_fluid_sups_karman_vortex_FOM_weakbc ./ 
+mpirun  -np ${np} ./hlpod_fluid_sups_karman_vortex_FOM_weakbc ./ --wall-mode nitsche-noslip --wall-gamma 100 --wall-cdt 0.1
+#mpirun  -np ${np} ./hlpod_fluid_sups_karman_vortex_FOM_weakbc ./ --wall-mode nitsche-spalding --wall-exchange opposite-node --wall-gamma 100 --wall-cdt 0.1
 
 cd ../..

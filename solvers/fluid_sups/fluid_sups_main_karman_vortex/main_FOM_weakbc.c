@@ -1328,7 +1328,7 @@ if (monolis_mpi_get_global_my_rank() == 0) {
  * デバッグ中は100ステップごと程度にする。
  * 毎ステップowner mapを再構築すると非常に重い。
  */
-const int diagnostic_interval = 1;
+const int diagnostic_interval = 10;
 sys.vals.C_vms = 0.0;
 sys.vals.vms_cap_coeff = 0.0;
     while (t < sys.vals.finish_time) {
