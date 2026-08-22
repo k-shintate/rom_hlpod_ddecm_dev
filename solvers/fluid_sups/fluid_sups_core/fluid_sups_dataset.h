@@ -23,6 +23,12 @@ typedef struct
     double** v_old;
 	double** delta_v;
 	double*  delta_p;
+
+    double*  y_plus;
+    int*    y_plus_count;
+
+    double C_vms;
+    double vms_cap_coeff;
     
     /*for ROM input data*/
     double  rom_finish_time;
@@ -74,6 +80,9 @@ typedef struct
 	BBFE_BASIS   basis_surf;
     BBFE_DATA    surf;
 
+	BBFE_BASIS   basis_surf_internal;
+    BBFE_DATA    surf_internal;
+    
     /*for ROM*/
 	MONOLIS      monolis_rom;
 	MONOLIS      monolis_rom0;

@@ -680,6 +680,80 @@ int ROM_std_stdd_diffusion_project_all_rhs(
     for(int window = 0; window < context->reduced->num_windows; window++){
         int status;
 
+        if(manusol_rank_benchmark_is_active()){
+            /*
+             * Exact algebraic manufactured ST forcing:
+             *   source_w = A U_w^target - B U_{w-1}^target.
+             * Because the benchmark has homogeneous Dirichlet data, this is
+             * also the effective RHS used by the homogeneous reduced basis.
+             */
+            memset(context->lift, 0, length * sizeof(double));
+            for(int node = 0; node < context->fom->fe.total_num_nodes; node++){
+                for(int slab = 0; slab < ns; slab++){
+                    const int global_step = window * ns + slab + 1;
+                    const double time =
+                        (double)global_step * context->fom->vals.dt;
+                    context->lift[diffusion_stdd_index(
+                        context, node, slab)] = manusol_get_sol(
+                            context->fom->fe.x[node][0],
+                            context->fom->fe.x[node][1],
+                            context->fom->fe.x[node][2],
+                            time);
+                }
+            }
+
+            status = ROM_std_stdd_diffusion_apply_A(
+                context->lift, context->work_A, context);
+            if(status != ROM_STDD_SUCCESS){
+                return status;
+            }
+
+            memset(context->previous_input, 0, length * sizeof(double));
+            if(window > 0){
+                const int previous_window = window - 1;
+                for(int node = 0;
+                    node < context->fom->fe.total_num_nodes;
+                    node++)
+                {
+                    for(int slab = 0; slab < ns; slab++){
+                        const int global_step =
+                            previous_window * ns + slab + 1;
+                        const double time =
+                            (double)global_step * context->fom->vals.dt;
+                        context->previous_input[diffusion_stdd_index(
+                            context, node, slab)] = manusol_get_sol(
+                                context->fom->fe.x[node][0],
+                                context->fom->fe.x[node][1],
+                                context->fom->fe.x[node][2],
+                                time);
+                    }
+                }
+            }
+
+            status = ROM_std_stdd_diffusion_apply_B(
+                context->previous_input, context->work_B, context);
+            if(status != ROM_STDD_SUCCESS){
+                return status;
+            }
+
+            for(size_t row = 0; row < length; row++){
+                context->effective_rhs[row] =
+                    context->work_A[row] - context->work_B[row];
+            }
+
+            status = ROM_std_stdd_project_local_rhs(
+                context->reduced,
+                window,
+                context->effective_rhs,
+                context->reduced->reduced_rhs
+                    + (size_t)window
+                        * (size_t)context->reduced->num_modes_capacity);
+            if(status != ROM_STDD_SUCCESS){
+                return status;
+            }
+            continue;
+        }
+
         status = diffusion_stdd_assemble_source(
             context,
             window,

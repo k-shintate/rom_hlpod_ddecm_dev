@@ -3,7 +3,6 @@
 #include "set_matvec.h"
 #include "fluid_linalg_compat.h"
 
-
 void ddhr_lb_set_reduced_mat_para_save_memory_debug(
 		MONOLIS*     	monolis,
 		BBFE_DATA*     	fe,

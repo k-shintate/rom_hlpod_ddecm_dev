@@ -65,63 +65,6 @@ void ROM_read_args(
 
 }
 
-static void check_edge_heat_bc(
-    const BBFE_DATA* fe,
-    const BBFE_BC* bc)
-{
-    double xmin = fe->x[0][0];
-    double xmax = fe->x[0][0];
-
-    for(int i = 1; i < fe->total_num_nodes; i++) {
-        if(fe->x[i][0] < xmin) xmin = fe->x[i][0];
-        if(fe->x[i][0] > xmax) xmax = fe->x[i][0];
-    }
-
-    const double tol =
-        1.0e-10 * fmax(1.0, fabs(xmax - xmin));
-
-    int n_bc = 0;
-    int n_wrong = 0;
-
-    for(int i = 0; i < fe->total_num_nodes; i++) {
-
-        if(!bc->D_bc_exists[i]) {
-            continue;
-        }
-
-        n_bc++;
-
-        if(fabs(fe->x[i][0] - xmin) > tol) {
-            fprintf(
-                stderr,
-                "[EDGE-HEAT-BC-ERROR] "
-                "node=%d x=(%.16e %.16e %.16e) xmin=%.16e\n",
-                i,
-                fe->x[i][0],
-                fe->x[i][1],
-                fe->x[i][2],
-                xmin);
-
-            n_wrong++;
-        }
-    }
-
-    fprintf(
-        stderr,
-        "[EDGE-HEAT-BC-CHECK] xmin=%.16e "
-        "num_D_bc=%d wrong_D_bc=%d\n",
-        xmin,
-        n_bc,
-        n_wrong);
-
-    if(n_wrong > 0) {
-        fprintf(
-            stderr,
-            "ERROR: edge-heating benchmark requires "
-            "Dirichlet BC only on x=xmin\n");
-        exit(EXIT_FAILURE);
-    }
-}
 
 int main (
 		int argc,
@@ -142,10 +85,6 @@ int main (
 			argc, argv, sys.cond.directory,
 			sys.vals.num_ip_each_axis,
 			true);
-
-    check_edge_heat_bc(
-        &(sys.fe),
-        &(sys.bc));
 
 	memory_allocation_nodal_values(
 			&(sys.vals),
@@ -261,7 +200,7 @@ int main (
             .radius = 0.75,
             .D_out  = 1.0,
             .D_in   = train_Din[iparam],
-            .T0     = 0.0,
+            .T0     = 1.0,
             .Q0     = 1.0,
             .tau    = 1.0
         };
@@ -303,14 +242,7 @@ int main (
                 t,
                 step,
                 iparam);
-
-            if(step%sys.vals.output_interval == 0) {
-                output_files(&sys, file_num, t);
-                        
-                file_num += 1;
-            }
         }
-
     }
     /**************************************************/
 

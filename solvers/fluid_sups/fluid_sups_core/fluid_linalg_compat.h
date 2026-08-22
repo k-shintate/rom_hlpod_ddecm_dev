@@ -1,31 +1,41 @@
 #pragma once
 
 /*
- * Portable linear-algebra compatibility layer for fluid_sups_core/core_NR.c.
+ * Portable linear-algebra compatibility layer.
+ *
+ * Linux + Intel MKL:
+ *   Compile with:
+ *
+ *       -DFLUID_USE_MKL=1
  *
  * macOS:
- *   - Accelerate CBLAS
- *   - LP64 interface (32-bit BLAS/LAPACK integer arguments)
- *   - posix_memalign for the existing 64-byte aligned work buffers
+ *   Accelerate CBLAS is used.
  *
- * IMPORTANT:
- * ACCELERATE_NEW_LAPACK should preferably be supplied from the compiler
- * command line so it is defined before ANY Accelerate/vecLib header can be
- * included indirectly.  This header also defines it defensively.
- *
- * We intentionally DO NOT define ACCELERATE_LAPACK_ILP64 because the current
- * core_NR.c passes ordinary int values (nrv, msz, etc.) to CBLAS.
+ * Other platforms:
+ *   Standard CBLAS is used.
  */
 
 #include <stddef.h>
 #include <stdlib.h>
 
+
+/* ============================================================
+ * Intel MKL
+ * ============================================================ */
 #if defined(FLUID_USE_MKL) && FLUID_USE_MKL
 
 #include <mkl.h>
 
+
+/* ============================================================
+ * Non-MKL
+ * ============================================================ */
 #else
 
+
+/* ------------------------------------------------------------
+ * macOS Accelerate
+ * ------------------------------------------------------------ */
 #if defined(__APPLE__)
 
 #ifndef ACCELERATE_NEW_LAPACK
@@ -34,10 +44,20 @@
 
 #include <Accelerate/Accelerate.h>
 
+
+/* ------------------------------------------------------------
+ * Standard CBLAS
+ * ------------------------------------------------------------ */
 #else
+
 #include <cblas.h>
+
 #endif
 
+
+/* ============================================================
+ * MKL-compatible aligned allocation for non-MKL environments
+ * ============================================================ */
 static inline void* fluid_aligned_malloc(
     size_t size,
     size_t alignment)
@@ -59,15 +79,19 @@ static inline void* fluid_aligned_malloc(
     return pointer;
 }
 
-static inline void fluid_aligned_free(void* pointer)
+
+static inline void fluid_aligned_free(
+    void* pointer)
 {
     free(pointer);
 }
+
 
 #define mkl_malloc(size, alignment) \
     fluid_aligned_malloc((size), (alignment))
 
 #define mkl_free(pointer) \
     fluid_aligned_free((pointer))
+
 
 #endif

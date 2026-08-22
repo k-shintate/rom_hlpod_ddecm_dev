@@ -5,6 +5,28 @@
 
 void manusol_set_param(const MANUSOL_PARAM* prm);
 
+/*
+ * Optional rank-controlled dG(0) manufactured benchmark.
+ * rank <= 0 disables the benchmark and restores the legacy spherical case.
+ * When enabled, the exact solution at time-grid points is a sum of `rank`
+ * orthogonal Laplacian eigenmodes with DCT-orthogonal window coefficients.
+ * The source is manufactured for the backward-Euler/dG(0) discrete equation.
+ */
+int manusol_configure_rank_benchmark(
+        int rank,
+        int slabs_per_window,
+        int num_windows,
+        double dt,
+        double diffusivity,
+        double total_amplitude,
+        const double domain_min[3],
+        const double domain_max[3]);
+
+int manusol_rank_benchmark_is_active(void);
+int manusol_rank_benchmark_rank(void);
+double manusol_rank_benchmark_diffusivity(void);
+double manusol_rank_benchmark_total_amplitude(void);
+
 double manusol_get_sol(
 		double x,
 		double y,

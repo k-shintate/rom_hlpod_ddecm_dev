@@ -1,0 +1,223 @@
+# =============================================================================
+# Makefile for diffusion all-at-once ST-DDROM (dG(0))
+#
+# Usage:
+#   make
+#   make st_ddrom
+#   make clean
+#   make algebra_test
+#
+# Runtime example:
+#   DIFF_ST_DDROM_MODE=full \
+#   DIFF_ST_DDROM_SLABS_PER_WINDOW=4 \
+#   DIFF_ST_DDROM_MAX_MODES=8 \
+#   DIFF_ST_DDROM_POD_ENERGY=0.999999 \
+#   mpirun -np 4 ./hlpod_diff_st_ddrom <case-directory>
+# =============================================================================
+
+CC = mpic++
+FC = mpif90
+
+CFLAGS  := -g -O3
+LDFLAGS :=
+
+# =============================================================================
+# Platform
+# =============================================================================
+
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+# LAPACK/BLAS are provided by Accelerate on macOS.
+LAPACK_BLAS_LIBS := -framework Accelerate
+DEAD_STRIP_FLAG  := -Wl,-dead_strip
+GROUP_BEGIN      :=
+GROUP_END        :=
+else
+LAPACK_BLAS_LIBS := -llapack -lblas
+DEAD_STRIP_FLAG  := -Wl,--gc-sections
+GROUP_BEGIN      := -Wl,--start-group
+GROUP_END        := -Wl,--end-group
+endif
+
+# =============================================================================
+# MONOLIS / BBFE / ROM paths
+#
+# These paths follow Makefile_HROM and Makefile_ST_cavity supplied with the
+# project.  Override them from the command line if your checkout differs, e.g.
+#
+#   make MONOLIS_ROOT=/path/to/monolis TEST_THERMAL_ROOT=/path/to/test_thermal
+# =============================================================================
+
+TEST_THERMAL_ROOT ?= ../../../test_thermal
+MONOLIS_ROOT      ?= $(TEST_THERMAL_ROOT)/submodule/monolis
+ROM_ROOT          ?= ../..
+
+INCLUDES := \
+	-I/usr/local/include \
+	-I$(MONOLIS_ROOT)/include
+
+LIBS_MONOLIS := \
+	-L/usr/local/lib \
+	-lm \
+	-lstdc++ \
+	-L$(MONOLIS_ROOT)/lib \
+	-lmonolis_solver \
+	-lgedatsu \
+	-lmonolis_utils \
+	-lmetis
+
+# The ST-DDROM implementation uses rank-local LAPACK dgesvd_ rather than
+# ScaLAPACK.  Keep this target independent of -lscalapack unless a local ROM
+# library explicitly requires it.
+LIBS_NUMERIC := $(LAPACK_BLAS_LIBS)
+
+INCLUDES_BB := -I$(TEST_THERMAL_ROOT)/include
+
+LIBS_BB := \
+	-L$(TEST_THERMAL_ROOT)/lib \
+	-lBBFE_std \
+	-lBBFE_sys \
+	-lBBFE_elemmat \
+	-lBBFE_manusol \
+	-lBB
+
+INCLUDES_ROM := \
+	-I$(ROM_ROOT)/include/rom_BB \
+	-I$(ROM_ROOT)/include/rom_std \
+	-I$(ROM_ROOT)/include/rom_sys \
+	-I$(ROM_ROOT)/include/rom_ecm \
+	-I./diff_core
+
+LIBS_ROM := \
+	-L$(ROM_ROOT)/lib \
+	-lrom_BB \
+	-lrom_std \
+	-lrom_sys \
+	-lrom_ecm
+
+ALL_INCLUDES := $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM)
+
+# =============================================================================
+# Diffusion all-at-once ST-DDROM
+# =============================================================================
+
+ST_DDROM_CORE_OBJ := \
+	./diff_core/convdiff_core.o \
+	./diff_core/core_FOM.o \
+	./diff_core/st_fom_common.o \
+	./diff_core/rom_std_stddrom.o \
+	./diff_core/rom_std_stddrom_diffusion.o
+
+ST_DDROM_MAIN_OBJ := ./diff_main/ST_DDROM/main_ST_DDROM.o
+ST_DDROM_OBJ      := $(ST_DDROM_CORE_OBJ) $(ST_DDROM_MAIN_OBJ)
+
+TARGET_ST_DDROM := hlpod_diff_st_ddrom
+
+# Included implementation fragments; make will rebuild the parent object when
+# one of these files changes.
+ST_FOM_COMMON_PARTS := $(wildcard ./diff_core/st_fom_common/*.inc)
+STDD_GENERIC_PARTS  := $(wildcard ./diff_core/rom_std_stddrom/*.inc)
+
+# =============================================================================
+# Targets
+# =============================================================================
+
+.PHONY: all build st_ddrom clean clean_st_ddrom clean_data algebra_test print_config
+
+all: st_ddrom
+
+build: st_ddrom
+
+st_ddrom: $(TARGET_ST_DDROM)
+
+$(TARGET_ST_DDROM): $(ST_DDROM_OBJ)
+	$(FC) $(CFLAGS) $(LDFLAGS) $(DEAD_STRIP_FLAG) \
+		-o $@ $(ST_DDROM_OBJ) \
+		$(GROUP_BEGIN) $(LIBS_BB) $(LIBS_ROM) $(LIBS_MONOLIS) $(LIBS_NUMERIC) $(GROUP_END)
+	@echo
+	@echo "Built: $(TARGET_ST_DDROM)"
+	@echo
+
+# =============================================================================
+# Explicit object rules
+# =============================================================================
+
+./diff_core/convdiff_core.o: \
+	./diff_core/convdiff_core.c \
+	./diff_core/convdiff_core.h
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+# core_FOM.c contains legacy ROM/snapshot routines that are not needed by the
+# ST-DDROM executable.  Function/data sections let the linker discard those
+# unused sections cleanly when --gc-sections is available.
+./diff_core/core_FOM.o: \
+	./diff_core/core_FOM.c \
+	./diff_core/core_FOM.h \
+	./diff_core/diff_dataset.h \
+	./diff_core/convdiff_core.h
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
+		$(ALL_INCLUDES) -c $< -o $@
+
+./diff_core/st_fom_common.o: \
+	./diff_core/st_fom_common.c \
+	./diff_core/st_fom_common.h \
+	$(ST_FOM_COMMON_PARTS)
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+./diff_core/rom_std_stddrom.o: \
+	./diff_core/rom_std_stddrom.c \
+	./diff_core/rom_std_stddrom.h \
+	$(STDD_GENERIC_PARTS)
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+./diff_core/rom_std_stddrom_diffusion.o: \
+	./diff_core/rom_std_stddrom_diffusion.c \
+	./diff_core/rom_std_stddrom_diffusion.h \
+	./diff_core/rom_std_stddrom.h \
+	./diff_core/st_fom_common.h \
+	./diff_core/core_FOM.h
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+./diff_main/ST_DDROM/main_ST_DDROM.o: \
+	./diff_main/ST_DDROM/main_ST_DDROM.c \
+	./diff_core/core_ROM.h \
+	./diff_core/core_FOM.h \
+	./diff_core/rom_std_stddrom.h \
+	./diff_core/rom_std_stddrom_diffusion.h \
+	./diff_core/st_fom_common.h
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+# Generic fallback for additional diffusion .c files.
+%.o: %.c
+	$(CC) $(CFLAGS) $(ALL_INCLUDES) -c $< -o $@
+
+# =============================================================================
+# Checks / utilities
+# =============================================================================
+
+algebra_test:
+	python3 ./tests/check_dg0_all_at_once_algebra.py
+
+print_config:
+	@echo "CC               = $(CC)"
+	@echo "FC               = $(FC)"
+	@echo "TEST_THERMAL_ROOT= $(TEST_THERMAL_ROOT)"
+	@echo "MONOLIS_ROOT     = $(MONOLIS_ROOT)"
+	@echo "ROM_ROOT         = $(ROM_ROOT)"
+	@echo "TARGET_ST_DDROM  = $(TARGET_ST_DDROM)"
+	@echo "INCLUDES         = $(ALL_INCLUDES)"
+	@echo "LIBS             = $(LIBS_BB) $(LIBS_ROM) $(LIBS_MONOLIS) $(LIBS_NUMERIC)"
+
+# =============================================================================
+# Clean
+# =============================================================================
+
+clean_st_ddrom:
+	$(RM) -f $(ST_DDROM_OBJ) $(TARGET_ST_DDROM)
+
+clean: clean_st_ddrom
+
+# Remove only object files, leaving the executable in place.
+clean_data:
+	$(RM) -f $(ST_DDROM_OBJ)

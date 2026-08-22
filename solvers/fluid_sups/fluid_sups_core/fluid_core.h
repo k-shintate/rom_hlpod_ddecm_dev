@@ -26,16 +26,23 @@
 #include <string.h>
 #include <stdarg.h>
 
+
+/* ==========================================================================
+ * Global code name
+ * ========================================================================== */
+
 extern const char* CODENAME;
 
-extern const char* INPUT_FILENAME_NODE;
-extern const char* INPUT_FILENAME_ELEM;
 
+/* ==========================================================================
+ * Basic fluid utilities
+ * ========================================================================== */
 
 const char* BBFE_fluid_get_directory_name(
         int         argc,
         char*       argv[],
         const char* codename);
+
 
 void BBFE_fluid_pre(
         BBFE_DATA*    fe,
@@ -45,47 +52,67 @@ void BBFE_fluid_pre(
         const char*   directory,
         int           num_integ_points_each_axis);
 
+
 void BBFE_fluid_set_basis(
         BBFE_BASIS*   basis,
         int           local_num_nodes,
         int           num_integ_points_each_axis);
+
 
 void BBFE_fluid_sups_renew_velocity(
         double**  v,
         double*   ans_vec,
         const int total_num_nodes);
 
+
 void BBFE_fluid_sups_renew_pressure(
         double*   p,
         double*   ans_vec,
         const int total_num_nodes);
 
+
+void BBFE_fluid_sups_update_vec(
+        double**  v,
+        double*   p,
+        double*   ans_vec,
+        const int total_num_nodes);
+
+
 void BBFE_fluid_finalize(
         BBFE_DATA*   fe,
         BBFE_BASIS*  basis);
+
+
+/* ==========================================================================
+ * Shared FOM / NR / ST-FOM API
+ * ========================================================================== */
 
 void BBFE_fluid_initialize_velocity_pressure(
         double**    v,
         double*     p,
         const int   total_num_nodes);
 
+
 void BBFE_fluid_initialize_velocity_pressure_karman_vortex(
-	double**    v,
-    double**    v_old,
-	double*     p,
-	const int   total_num_nodes);
+        double**    v,
+        double**    v_old,
+        double*     p,
+        const int   total_num_nodes);
+
 
 void BBFE_fluid_sups_add_velocity_pressure(
-        double**  v,
-        double*   p,
-        double*   sol_vec,
-        const int total_num_nodes);
+        double**    v,
+        double*     p,
+        double*     sol_vec,
+        const int   total_num_nodes);
+
 
 void BBFE_fluid_add_Dbc(
         double*         ansvec,
         BBFE_BC*        bc,
         const int       total_num_nodes,
         const int       dof);
+
 
 void BBFE_fluid_update_velocity_pressure_NR(
         double**    v,
@@ -94,35 +121,42 @@ void BBFE_fluid_update_velocity_pressure_NR(
         double*     delta_p,
         const int   total_num_nodes);
 
+
 double BBFE_fluid_calc_internal_norm_2d(
-        double**  in,
-        const int num1,
-        const int num2);
+        double**    in,
+        const int   num1,
+        const int   num2);
+
 
 double BBFE_fluid_calc_internal_norm_1d(
-        double*  in,
-        const int num1,
-        const int num2);
+        double*     in,
+        const int   num1,
+        const int   num2);
+
 
 void BBFE_fluid_vec_copy_2d(
-        double**  in,
-        double**  out,
-        const int num1,
-        const int num2);
+        double**    in,
+        double**    out,
+        const int   num1,
+        const int   num2);
+
 
 void BBFE_fluid_vec_copy_1d(
-        double* dst,
+        double*       dst,
         const double* src,
-        int size);
+        int           size);
+
 
 double BBFE_fluid_calc_internal_norm_total(
         const double* rvec,
-        int n_internal_vertex);
+        int           n_internal_vertex);
+
 
 double BBFE_fluid_calc_internal_norm_momentum(
         const double* rvec,
-        int n_internal_vertex);
+        int           n_internal_vertex);
+
 
 double BBFE_fluid_calc_internal_norm_mass(
         const double* rvec,
-        int n_internal_vertex);
+        int           n_internal_vertex);

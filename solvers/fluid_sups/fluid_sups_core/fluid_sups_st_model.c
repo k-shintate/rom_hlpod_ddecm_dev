@@ -1,3 +1,4 @@
+#include "fluid_core.h"
 #include "fluid_sups_st_model.h"
 #include "fluid_sups_nr_api_compat.h"
 #include "fluid_sups_jold.h"

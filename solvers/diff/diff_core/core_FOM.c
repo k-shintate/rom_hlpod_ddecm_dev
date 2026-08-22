@@ -56,6 +56,255 @@ void manusol_set_param(const MANUSOL_PARAM* prm)
     g_manusol_param = *prm;
 }
 
+#define MANUSOL_RANK_BENCHMARK_MAX_RANK 64
+
+typedef struct {
+    int active;
+    int rank;
+    int slabs_per_window;
+    int num_windows;
+    double dt;
+    double diffusivity;
+    double total_amplitude;
+    double domain_min[3];
+    double domain_length[3];
+} MANUSOL_RANK_BENCHMARK_PARAM;
+
+static MANUSOL_RANK_BENCHMARK_PARAM g_rank_benchmark = {
+    .active = 0,
+    .rank = 0,
+    .slabs_per_window = 0,
+    .num_windows = 0,
+    .dt = 0.0,
+    .diffusivity = 1.0,
+    .total_amplitude = 1.0,
+    .domain_min = {0.0, 0.0, 0.0},
+    .domain_length = {1.0, 1.0, 1.0}
+};
+
+static const double MANUSOL_PI = 3.141592653589793238462643383279502884;
+
+static int manusol_rank_mode_triplet(
+    int mode,
+    int* nx,
+    int* ny,
+    int* nz)
+{
+    int count = 0;
+
+    if(mode < 0 || nx == NULL || ny == NULL || nz == NULL){
+        return -1;
+    }
+
+    /*
+     * Enumerate low-frequency sine eigenmodes by expanding max-frequency
+     * shells.  This keeps the benchmark usable beyond r=8 without a fixed
+     * hard-coded mode table.
+     */
+    for(int shell = 1; shell <= 16; shell++){
+        for(int i = 1; i <= shell; i++){
+            for(int j = 1; j <= shell; j++){
+                for(int k = 1; k <= shell; k++){
+                    if(i != shell && j != shell && k != shell){
+                        continue;
+                    }
+                    if(count == mode){
+                        *nx = i;
+                        *ny = j;
+                        *nz = k;
+                        return 0;
+                    }
+                    count++;
+                }
+            }
+        }
+    }
+
+    return -1;
+}
+
+static double manusol_rank_spatial_mode(
+    int mode,
+    double x,
+    double y,
+    double z)
+{
+    int nx;
+    int ny;
+    int nz;
+    double xi[3];
+
+    if(manusol_rank_mode_triplet(mode, &nx, &ny, &nz) != 0){
+        return 0.0;
+    }
+
+    xi[0] = (x - g_rank_benchmark.domain_min[0])
+        / g_rank_benchmark.domain_length[0];
+    xi[1] = (y - g_rank_benchmark.domain_min[1])
+        / g_rank_benchmark.domain_length[1];
+    xi[2] = (z - g_rank_benchmark.domain_min[2])
+        / g_rank_benchmark.domain_length[2];
+
+    /* Make the homogeneous Dirichlet boundary exact in floating point. */
+    for(int d = 0; d < 3; d++){
+        if(xi[d] <= 1.0e-12 || xi[d] >= 1.0 - 1.0e-12){
+            return 0.0;
+        }
+    }
+
+    return
+        sin((double)nx * MANUSOL_PI * xi[0])
+        * sin((double)ny * MANUSOL_PI * xi[1])
+        * sin((double)nz * MANUSOL_PI * xi[2]);
+}
+
+static double manusol_rank_eigenvalue(int mode)
+{
+    int nx;
+    int ny;
+    int nz;
+
+    if(manusol_rank_mode_triplet(mode, &nx, &ny, &nz) != 0){
+        return 0.0;
+    }
+
+    return MANUSOL_PI * MANUSOL_PI * (
+        ((double)nx * (double)nx)
+            / (g_rank_benchmark.domain_length[0]
+               * g_rank_benchmark.domain_length[0])
+        + ((double)ny * (double)ny)
+            / (g_rank_benchmark.domain_length[1]
+               * g_rank_benchmark.domain_length[1])
+        + ((double)nz * (double)nz)
+            / (g_rank_benchmark.domain_length[2]
+               * g_rank_benchmark.domain_length[2]));
+}
+
+static double manusol_rank_window_coefficient(int mode, int window)
+{
+    if(mode == 0){
+        return 1.0;
+    }
+
+    return sqrt(2.0) * cos(
+        MANUSOL_PI * (double)mode
+        * ((double)window + 0.5)
+        / (double)g_rank_benchmark.num_windows);
+}
+
+static double manusol_rank_slab_shape(int slab)
+{
+    if(g_rank_benchmark.slabs_per_window <= 1){
+        return 1.0;
+    }
+
+    /* Shared temporal shape for all spatial modes inside every ST window. */
+    return 1.0
+        - 0.5 * (double)slab
+        / (double)(g_rank_benchmark.slabs_per_window - 1);
+}
+
+static double manusol_rank_modal_coefficient(int mode, int step)
+{
+    int zero_based;
+    int window;
+    int slab;
+    double sigma;
+
+    if(!g_rank_benchmark.active || step <= 0){
+        return 0.0;
+    }
+
+    zero_based = step - 1;
+    window = zero_based / g_rank_benchmark.slabs_per_window;
+    slab = zero_based % g_rank_benchmark.slabs_per_window;
+
+    if(window < 0 || window >= g_rank_benchmark.num_windows){
+        return 0.0;
+    }
+
+    /* Equal-energy spatial modes while keeping total field energy O(1). */
+    sigma = g_rank_benchmark.total_amplitude
+        / sqrt((double)g_rank_benchmark.rank);
+
+    return sigma
+        * manusol_rank_window_coefficient(mode, window)
+        * manusol_rank_slab_shape(slab);
+}
+
+static int manusol_rank_step_from_time(double t)
+{
+    if(t <= 0.0){
+        return 0;
+    }
+
+    return (int)llround(t / g_rank_benchmark.dt);
+}
+
+int manusol_configure_rank_benchmark(
+        int rank,
+        int slabs_per_window,
+        int num_windows,
+        double dt,
+        double diffusivity,
+        double total_amplitude,
+        const double domain_min[3],
+        const double domain_max[3])
+{
+    if(rank <= 0){
+        g_rank_benchmark.active = 0;
+        g_rank_benchmark.rank = 0;
+        return 0;
+    }
+
+    if(rank > MANUSOL_RANK_BENCHMARK_MAX_RANK ||
+       slabs_per_window <= 0 || num_windows <= 0 || dt <= 0.0 ||
+       diffusivity <= 0.0 || total_amplitude <= 0.0 ||
+       domain_min == NULL || domain_max == NULL)
+    {
+        return -1;
+    }
+
+    for(int d = 0; d < 3; d++){
+        const double length = domain_max[d] - domain_min[d];
+        if(length <= 0.0){
+            return -1;
+        }
+        g_rank_benchmark.domain_min[d] = domain_min[d];
+        g_rank_benchmark.domain_length[d] = length;
+    }
+
+    g_rank_benchmark.active = 1;
+    g_rank_benchmark.rank = rank;
+    g_rank_benchmark.slabs_per_window = slabs_per_window;
+    g_rank_benchmark.num_windows = num_windows;
+    g_rank_benchmark.dt = dt;
+    g_rank_benchmark.diffusivity = diffusivity;
+    g_rank_benchmark.total_amplitude = total_amplitude;
+
+    return 0;
+}
+
+int manusol_rank_benchmark_is_active(void)
+{
+    return g_rank_benchmark.active;
+}
+
+int manusol_rank_benchmark_rank(void)
+{
+    return g_rank_benchmark.rank;
+}
+
+double manusol_rank_benchmark_diffusivity(void)
+{
+    return g_rank_benchmark.diffusivity;
+}
+
+double manusol_rank_benchmark_total_amplitude(void)
+{
+    return g_rank_benchmark.total_amplitude;
+}
+
 
 static double manusol_phi(double r)
 {
@@ -84,6 +333,17 @@ double manusol_get_sol(
         double z,
         double t)
 {
+    if(g_rank_benchmark.active){
+        const int step = manusol_rank_step_from_time(t);
+        double value = 0.0;
+
+        for(int mode = 0; mode < g_rank_benchmark.rank; mode++){
+            value += manusol_rank_modal_coefficient(mode, step)
+                * manusol_rank_spatial_mode(mode, x, y, z);
+        }
+        return value;
+    }
+
     double dx = x - XC;
     double dy = y - YC;
     double dz = z - ZC;
@@ -102,6 +362,11 @@ double manusol_get_sol(
 }
 double manusol_get_diff_coef(double x[3])
 {
+    if(g_rank_benchmark.active){
+        (void)x;
+        return g_rank_benchmark.diffusivity;
+    }
+
     double dx = x[0] - XC;
     double dy = x[1] - YC;
     double dz = x[2] - ZC;
@@ -128,6 +393,38 @@ double manusol_get_source(
         double k)
 {
     (void)v;
+
+    if(g_rank_benchmark.active){
+        const int step = manusol_rank_step_from_time(t);
+        double value = 0.0;
+
+        if(step <= 0){
+            return 0.0;
+        }
+
+        for(int mode = 0; mode < g_rank_benchmark.rank; mode++){
+            const double coeff_now =
+                manusol_rank_modal_coefficient(mode, step);
+            const double coeff_old =
+                manusol_rank_modal_coefficient(mode, step - 1);
+            const double psi = manusol_rank_spatial_mode(
+                mode, x[0], x[1], x[2]);
+            const double lambda = manusol_rank_eigenvalue(mode);
+
+            /*
+             * Discrete dG(0)/backward-Euler manufactured forcing:
+             *   (u_n-u_{n-1})/dt - k Delta u_n = f_n.
+             * This prevents physical diffusion from destroying the desired
+             * rank spectrum during the benchmark.
+             */
+            value += (
+                a * (coeff_now - coeff_old) / g_rank_benchmark.dt
+                + k * lambda * coeff_now) * psi;
+        }
+
+        return value;
+    }
+
     (void)k;
 
     double dx = x[0] - XC;
@@ -1312,14 +1609,29 @@ void solver_fom(
     monolis_copy_mat_value_R(&(sys.monolis0), &(sys.monolis));
     monolis_clear_mat_value_rhs_R(&(sys.monolis));
 
-    set_element_vec(
+    if(manusol_rank_benchmark_is_active()){
+        /*
+         * Algebraic manufactured forcing for the rank-controlled benchmark:
+         * set b_n = D u_n^target.  This makes the discrete FOM reproduce the
+         * prescribed low-rank trajectory up to the linear-solver tolerance.
+         */
+        manusol_set_theo_sol(&(sys.fe), sys.vals.theo_sol, t);
+        monolis_matvec_product_R(
             &(sys.monolis),
-            &(sys.fe),
-            &(sys.basis),
-            &(sys.vals),
-            t);
+            &(sys.monolis_com),
+            sys.vals.theo_sol,
+            sys.monolis.mat.R.B);
+    }
+    else{
+        set_element_vec(
+                &(sys.monolis),
+                &(sys.fe),
+                &(sys.basis),
+                &(sys.vals),
+                t);
+        manusol_set_theo_sol(&(sys.fe), sys.vals.theo_sol, t);
+    }
 
-    manusol_set_theo_sol(&(sys.fe), sys.vals.theo_sol, t);
     BBFE_manusol_set_bc_scalar(
             &(sys.fe),
             &(sys.bc),

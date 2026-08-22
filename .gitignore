@@ -10,9 +10,7 @@ include/*
 !*.hpp
 !*.sh
 !*.py
-!*Makefile
-!*Makefile_squid
-!*Makefile_offline_online
+!*Makefile*
 !*.geo
 !*.md
 !.gitignore

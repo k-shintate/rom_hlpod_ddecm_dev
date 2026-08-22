@@ -1,0 +1,399 @@
+CC = mpic++
+FC = mpif90
+
+CFLAGS  := -g -O3
+LDFLAGS :=
+
+# =============================================================================
+# Platform / BLAS backend
+# =============================================================================
+
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+# macOS 26 SDK:
+# - LP64 Accelerate BLAS/LAPACK
+# - do NOT define ACCELERATE_LAPACK_ILP64 because core_NR.c uses int sizes
+CFLAGS += -DACCELERATE_NEW_LAPACK=1
+
+# Apple's Accelerate headers use ARM NEON vector casts that GNU C++ rejects
+# under strict vector-conversion rules.  Apply this only to sources that need
+# the CBLAS/Accelerate compatibility headers.
+ACCELERATE_CXXFLAGS := -flax-vector-conversions
+
+FLUID_CBLAS_LIBS := -framework Accelerate
+DEAD_STRIP_FLAG  := -Wl,-dead_strip
+else
+ACCELERATE_CXXFLAGS :=
+
+# ST-FOM/ST-DDROM do not link core_NR.o, so they do not require an
+# OpenBLAS-specific CBLAS library.  dgesvd_ is supplied by -llapack and the
+# BLAS dependency is already supplied by -lblas in LIBS.  Leave this empty so
+# Linux systems with the standard BLAS/LAPACK packages do not require
+# libopenblas.
+FLUID_CBLAS_LIBS ?=
+DEAD_STRIP_FLAG  := -Wl,--gc-sections
+endif
+
+
+# =============================================================================
+# Include / link paths
+# =============================================================================
+
+INCLUDES := \
+	-I/usr/local/include \
+	-I./../../../test_thermal/submodule/monolis/include
+
+LIBS := \
+	-L/usr/local/lib \
+	-lm \
+	-lstdc++ \
+	-L../../../test_thermal/submodule/monolis/lib \
+	-lmonolis_solver \
+	-lgedatsu \
+	-lmonolis_utils \
+	-lmetis \
+	-lscalapack \
+	-llapack \
+	-lblas
+
+# The nonlinear ST-DDROM shared-local POD now uses rank-local LAPACK dgesvd.
+# Keep ScaLAPACK in the general development library list for legacy/future
+# infrastructure, but do not drag ScaLAPACK/BLACS into fluid_sups_st_ddrom.
+LIBS_ST_DDROM := $(filter-out -lscalapack,$(LIBS))
+
+INCLUDES_BB := -I../../../test_thermal/include
+
+LIBS_BB := \
+	-L../../../test_thermal/lib \
+	-lBBFE_std \
+	-lBBFE_sys \
+	-lBBFE_elemmat \
+	-lBBFE_manusol \
+	-lBB
+
+INCLUDES_ROM := \
+	-I./../../include/rom_BB \
+	-I./../../include/rom_std \
+	-I./../../include/rom_sys \
+	-I./../../include/rom_ecm \
+	-I./fluid_sups_core \
+	-I./fluid_sups_matvec
+
+LIBS_ROM := \
+	-L./../../lib \
+	-lrom_BB \
+	-lrom_std \
+	-lrom_sys \
+	-lrom_ecm
+
+
+# =============================================================================
+# Full development compile coverage
+#
+# These objects are compiled on every "dev_build" so latent errors in
+# FOM/ROM/HROM/NR infrastructure remain visible.
+#
+# They are not all linked into the ST-FOM/ST-DDROM executables.
+# Compile coverage and executable linkage remain separate.
+# =============================================================================
+
+FUTURE_CORE_OBJ := \
+	./fluid_sups_core/core_FOM.o \
+	./fluid_sups_core/core_HROM_decoupled.o \
+	./fluid_sups_core/core_HROM.o \
+	./fluid_sups_core/core_NR.o \
+	./fluid_sups_core/core_ROM.o \
+	./fluid_sups_core/fluid_core.o \
+	./fluid_sups_matvec/set_matvec_NNLS.o \
+	./fluid_sups_matvec/set_matvec.o
+
+
+# =============================================================================
+# Verified NR provider used by ST-FOM and ST-DDROM
+# =============================================================================
+
+CORE_FOM_PROVIDER_OBJ := ./fluid_sups_core/core_FOM_st_provider.o
+NR_API_GENERATOR      := ./fluid_sups_core/generate_nr_api_from_core_fom.py
+NR_API_HEADER         := ./fluid_sups_core/fluid_sups_nr_api_compat.h
+
+
+# =============================================================================
+# ST-FOM executable
+# =============================================================================
+
+ST_FOM_LINK_OBJ := \
+	$(CORE_FOM_PROVIDER_OBJ) \
+	./fluid_sups_core/fluid_core.o \
+	./fluid_sups_core/st_fom_common.o \
+	./fluid_sups_core/fluid_sups_st_model.o \
+	./fluid_sups_main_cavity/main_ST_FOM.o
+
+TARGET_ST_FOM := fluid_sups_st_fom
+
+
+# =============================================================================
+# Nonlinear Navier-Stokes ST-DDROM executable
+#
+# Generic ROM_std_stdd_* kernels are expected from -lrom_std.
+# The fluid-specific nonlinear adapter and HLPOD bridge are compiled here.
+# =============================================================================
+
+ST_DDROM_LINK_OBJ := \
+	$(CORE_FOM_PROVIDER_OBJ) \
+	./fluid_sups_core/fluid_core.o \
+	./fluid_sups_core/st_fom_common.o \
+	./fluid_sups_core/fluid_sups_st_model.o \
+	./fluid_sups_core/rom_std_stddrom.o \
+	./fluid_sups_core/rom_std_stddrom_hlpod_bridge.o \
+	./fluid_sups_core/rom_std_stddrom_fluid.o \
+	./fluid_sups_main_cavity/main_ST_DDROM.o
+
+TARGET_ST_DDROM := fluid_sups_st_ddrom
+
+
+# =============================================================================
+# Targets
+# =============================================================================
+
+.PHONY: \
+	all \
+	dev_build \
+	compile_future_stack \
+	check_core_fom_provider \
+	st_fom \
+	st_ddrom \
+	clean \
+	clean_st \
+	clean_st_ddrom \
+	clean_future \
+	clean_data \
+	verify_refactor
+
+all: dev_build
+
+# Preserve full future-stack compile coverage, and build both current ST
+# executables.
+dev_build: compile_future_stack st_fom st_ddrom
+
+
+compile_future_stack: $(FUTURE_CORE_OBJ)
+	@echo
+	@echo "Full future fluid stack compiled successfully."
+	@echo "  FOM"
+	@echo "  NR"
+	@echo "  ROM"
+	@echo "  HROM"
+	@echo "  HROM decoupled"
+	@echo "  matvec / NNLS"
+	@echo
+
+
+# =============================================================================
+# Verified core_FOM provider / generated ABI header
+# =============================================================================
+
+$(CORE_FOM_PROVIDER_OBJ): ./fluid_sups_core/core_FOM.c
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
+		-DBBFE_fluid_sups_add_velocity_pressure=BBFE_fluid_sups_add_velocity_pressure_st_provider_private \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+$(NR_API_HEADER): \
+	./fluid_sups_core/core_FOM.c \
+	$(CORE_FOM_PROVIDER_OBJ) \
+	$(NR_API_GENERATOR)
+	python3 $(NR_API_GENERATOR) \
+		./fluid_sups_core/core_FOM.c \
+		$(CORE_FOM_PROVIDER_OBJ) \
+		$(NR_API_HEADER)
+
+check_core_fom_provider: $(CORE_FOM_PROVIDER_OBJ) $(NR_API_HEADER)
+	@echo "Checking local verified NR provider: $(CORE_FOM_PROVIDER_OBJ)"
+	@for s in \
+		BBFE_elemmat_fluid_sups_coef_metric_tensor \
+		BBFE_elemmat_fluid_sups_coef_metric_tensor_LSIC \
+		BBFE_elemmat_fluid_sups_mat_NR \
+		BBFE_elemmat_fluid_sups_vec_NR; do \
+		nm -g "$(CORE_FOM_PROVIDER_OBJ)" 2>/dev/null | grep -q "$$s" || { \
+			echo "ERROR: $(CORE_FOM_PROVIDER_OBJ) does not export $$s"; \
+			exit 1; \
+		}; \
+	done
+	@echo "core_FOM_st_provider.o provides all four verified NR kernels."
+
+
+# =============================================================================
+# ST-FOM
+# =============================================================================
+
+st_fom: $(TARGET_ST_FOM)
+
+$(TARGET_ST_FOM): check_core_fom_provider $(ST_FOM_LINK_OBJ)
+	$(FC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		$(LDFLAGS) \
+		$(DEAD_STRIP_FLAG) \
+		-o $@ $(ST_FOM_LINK_OBJ) \
+		$(LIBS_BB) $(LIBS_ROM) $(LIBS) $(FLUID_CBLAS_LIBS)
+
+
+# =============================================================================
+# Nonlinear Navier-Stokes ST-DDROM
+# =============================================================================
+
+st_ddrom: $(TARGET_ST_DDROM)
+
+$(TARGET_ST_DDROM): check_core_fom_provider $(ST_DDROM_LINK_OBJ)
+	$(FC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		$(LDFLAGS) \
+		$(DEAD_STRIP_FLAG) \
+		-o $@ $(ST_DDROM_LINK_OBJ) \
+		$(LIBS_BB) $(LIBS_ROM) $(LIBS_ST_DDROM) $(FLUID_CBLAS_LIBS)
+
+
+# =============================================================================
+# Special object rules
+# =============================================================================
+
+# core_NR.c includes Apple's Accelerate headers.  With GNU mpic++ on arm64,
+# MacOSX26 SDK vBasicOps.h requires relaxed NEON vector conversions.
+./fluid_sups_core/core_NR.o: ./fluid_sups_core/core_NR.c
+	$(CC) $(CFLAGS) $(ACCELERATE_CXXFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+# set_matvec.c also uses the MKL/CBLAS compatibility header.
+./fluid_sups_matvec/set_matvec.o: ./fluid_sups_matvec/set_matvec.c
+	$(CC) $(CFLAGS) $(ACCELERATE_CXXFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+# The shared ST model must be compiled only after the exact provider API has
+# been generated.  Both ST-FOM and ST-DDROM depend on this object.
+FLUID_ST_MODEL_PARTS := $(wildcard ./fluid_sups_core/fluid_sups_st_model/*.inc)
+ST_FOM_COMMON_PARTS := $(wildcard ./fluid_sups_core/st_fom_common/*.inc)
+STDD_GENERIC_PARTS := $(wildcard ./fluid_sups_core/rom_std_stddrom/*.inc)
+STDD_FLUID_PARTS := $(wildcard ./fluid_sups_core/rom_std_stddrom_fluid/*.inc)
+ST_FOM_DRIVER_PARTS := $(wildcard ./fluid_sups_main_cavity/main_ST_FOM/*.inc)
+ST_DDROM_DRIVER_PARTS := $(wildcard ./fluid_sups_main_cavity/main_ST_DDROM/*.inc)
+
+./fluid_sups_core/st_fom_common.o: \
+	./fluid_sups_core/st_fom_common.c \
+	./fluid_sups_core/st_fom_common.h \
+	$(ST_FOM_COMMON_PARTS)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+./fluid_sups_core/fluid_sups_st_model.o: \
+	./fluid_sups_core/fluid_sups_st_model.c \
+	./fluid_sups_core/fluid_sups_st_model.h \
+	$(FLUID_ST_MODEL_PARTS) \
+	$(NR_API_HEADER)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+# Explicit ROM rules are kept here so failures are easy to identify in logs.
+
+# Generic distributed ST-DDROM implementation.  This is the same
+# implementation used by the validated convection-diffusion ST-DDROM.
+# It is linked directly because the current librom_std.a in this checkout
+# exposes the header/API but does not yet contain these implementation symbols.
+./fluid_sups_core/rom_std_stddrom.o: \
+	./fluid_sups_core/rom_std_stddrom.c \
+	./fluid_sups_core/rom_std_stddrom.h \
+	$(STDD_GENERIC_PARTS)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+./fluid_sups_core/rom_std_stddrom_hlpod_bridge.o: \
+	./fluid_sups_core/rom_std_stddrom_hlpod_bridge.c \
+	./fluid_sups_core/rom_std_stddrom_hlpod_bridge.h
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+./fluid_sups_core/rom_std_stddrom_fluid.o: \
+	./fluid_sups_core/rom_std_stddrom_fluid.c \
+	./fluid_sups_core/rom_std_stddrom_fluid.h \
+	./fluid_sups_core/fluid_sups_st_model.h \
+	./fluid_sups_core/rom_std_stddrom_hlpod_bridge.h \
+	$(STDD_FLUID_PARTS)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+./fluid_sups_main_cavity/main_ST_DDROM.o: \
+	./fluid_sups_main_cavity/main_ST_DDROM.c \
+	./fluid_sups_core/rom_std_stddrom_fluid.h \
+	./fluid_sups_core/fluid_sups_st_model.h \
+	$(ST_DDROM_DRIVER_PARTS)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+
+./fluid_sups_main_cavity/main_ST_FOM.o: \
+	./fluid_sups_main_cavity/main_ST_FOM.c \
+	./fluid_sups_core/fluid_sups_st_model.h \
+	$(ST_FOM_DRIVER_PARTS)
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+# Generic C/C++-compiled .c rule used throughout this code base.
+%.o: %.c
+	$(CC) $(CFLAGS) \
+		$(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) \
+		-c $< -o $@
+
+
+# =============================================================================
+# Clean
+# =============================================================================
+
+clean_st_ddrom:
+	$(RM) -f \
+		./fluid_sups_core/rom_std_stddrom.o \
+		./fluid_sups_core/rom_std_stddrom_hlpod_bridge.o \
+		./fluid_sups_core/rom_std_stddrom_fluid.o \
+		./fluid_sups_main_cavity/main_ST_DDROM.o \
+		$(TARGET_ST_DDROM)
+
+# clean_st removes ST-only FOM and ROM artifacts but leaves the ordinary
+# future-stack objects intact.
+clean_st: clean_st_ddrom
+	$(RM) -f \
+		$(CORE_FOM_PROVIDER_OBJ) \
+		./fluid_sups_core/st_fom_common.o \
+		./fluid_sups_core/fluid_sups_st_model.o \
+		./fluid_sups_main_cavity/main_ST_FOM.o \
+		$(TARGET_ST_FOM)
+
+clean_future:
+	$(RM) -f $(FUTURE_CORE_OBJ)
+
+clean: clean_st clean_future
+
+clean_data:
+	$(RM) -f \
+		./fluid_sups_core/st_fom_common.o \
+		./fluid_sups_core/fluid_sups_st_model.o \
+		./fluid_sups_core/rom_std_stddrom.o \
+		./fluid_sups_core/rom_std_stddrom_hlpod_bridge.o \
+		./fluid_sups_core/rom_std_stddrom_fluid.o \
+		./fluid_sups_main_cavity/main_ST_FOM.o \
+		./fluid_sups_main_cavity/main_ST_DDROM.o
+
+
+# =============================================================================
+# Refactor/static regression verification
+# =============================================================================
+
+verify_refactor:
+	python3 ./st_refactor_tools/check_refactor.py .
+
