@@ -217,7 +217,17 @@ typedef struct {
 /* ========================================================================== */
 /* Public functions                                                           */
 /* ========================================================================== */
+/*
+void BBFE_fluid_sups_impose_surface_velocity_on_values(
+    const BBFE_DATA* surf,
+    double** v,
+    const double imposed_velocity[3]);
 
+int BBFE_fluid_sups_add_surface_velocity_Dirichlet(
+    BBFE_BC* bc,
+    const BBFE_DATA* surf,
+    const double imposed_velocity[3]);
+*/
 int calc_wall_mesh_diagnostics_tet4_tri3(
     const BBFE_DATA* surf,
     const BBFE_DATA* fe,

@@ -1,41 +1,62 @@
 #pragma once
 
 /*
- * Portable linear-algebra compatibility layer.
+ * Portable BLAS / MKL compatibility layer
  *
- * Linux + Intel MKL:
- *   Compile with:
- *
- *       -DFLUID_USE_MKL=1
- *
- * macOS:
- *   Accelerate CBLAS is used.
- *
- * Other platforms:
- *   Standard CBLAS is used.
+ * Supported:
+ *   Intel oneAPI:       <mkl.h>
+ *   Debian/Ubuntu MKL:  <mkl/mkl.h>
+ *   macOS:              Accelerate
+ *   Generic Linux:      CBLAS
  */
 
 #include <stddef.h>
 #include <stdlib.h>
 
 
-/* ============================================================
+/* =========================================================================
  * Intel MKL
- * ============================================================ */
+ * ========================================================================= */
+
 #if defined(FLUID_USE_MKL) && FLUID_USE_MKL
 
-#include <mkl.h>
+#if defined(__has_include)
 
+#  if __has_include(<mkl.h>)
 
-/* ============================================================
- * Non-MKL
- * ============================================================ */
+#    include <mkl.h>
+#    define FLUID_HAVE_MKL 1
+
+#  elif __has_include(<mkl/mkl.h>)
+
+#    include <mkl/mkl.h>
+#    define FLUID_HAVE_MKL 1
+
+#  else
+
+#    error "FLUID_USE_MKL=1 but MKL headers were not found"
+
+#  endif
+
 #else
 
+/*
+ * Debian/Ubuntu packaged MKL location.
+ */
+#  include <mkl/mkl.h>
+#  define FLUID_HAVE_MKL 1
 
-/* ------------------------------------------------------------
- * macOS Accelerate
- * ------------------------------------------------------------ */
+#endif
+
+
+/* =========================================================================
+ * Non-MKL backend
+ * ========================================================================= */
+
+#else
+
+#define FLUID_HAVE_MKL 0
+
 #if defined(__APPLE__)
 
 #ifndef ACCELERATE_NEW_LAPACK
@@ -44,10 +65,6 @@
 
 #include <Accelerate/Accelerate.h>
 
-
-/* ------------------------------------------------------------
- * Standard CBLAS
- * ------------------------------------------------------------ */
 #else
 
 #include <cblas.h>
@@ -55,9 +72,10 @@
 #endif
 
 
-/* ============================================================
- * MKL-compatible aligned allocation for non-MKL environments
- * ============================================================ */
+/* -------------------------------------------------------------------------
+ * MKL-compatible aligned allocation for non-MKL systems
+ * ------------------------------------------------------------------------- */
+
 static inline void* fluid_aligned_malloc(
     size_t size,
     size_t alignment)
@@ -92,6 +110,5 @@ static inline void fluid_aligned_free(
 
 #define mkl_free(pointer) \
     fluid_aligned_free((pointer))
-
 
 #endif

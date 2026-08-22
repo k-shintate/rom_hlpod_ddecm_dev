@@ -1,6 +1,6 @@
 #include "core_FOM.h"
 #include "core_NR.h"
-#include <mkl.h>
+#include "fluid_linalg_compat.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -800,74 +800,6 @@ int BBFE_fluid_sups_add_zero_velocity_Dirichlet_on_z_plane(
     return 0;
 }
 
-/* Add component-wise strong velocity Dirichlet conditions on all nodes that
- * belong to a TRI3/QUAD4 surface collection.  This is used by the
- * STRONG_NOSLIP mode; pressure is intentionally untouched. */
-int BBFE_fluid_sups_add_surface_velocity_Dirichlet(
-    BBFE_BC* bc,
-    const BBFE_DATA* surf,
-    const double imposed_velocity[3])
-{
-    if (bc == NULL || surf == NULL || imposed_velocity == NULL ||
-        bc->D_bc_exists == NULL || bc->imposed_D_val == NULL ||
-        bc->block_size < 3) {
-        fprintf(stderr, "%s ERROR: invalid surface Dirichlet arguments.\n", CODENAME);
-        return -1;
-    }
-
-    int new_constraints = 0;
-    for (int es = 0; es < surf->total_num_elems; ++es) {
-        for (int a = 0; a < surf->local_num_nodes; ++a) {
-            const int gid = surf->conn[es][a];
-            if (gid < 0 || gid >= bc->total_num_nodes) {
-                fprintf(stderr, "%s ERROR: invalid surface node id=%d.\n", CODENAME, gid);
-                return -1;
-            }
-            for (int d = 0; d < 3; ++d) {
-                const int index = bc->block_size * gid + d;
-                if (!bc->D_bc_exists[index]) ++new_constraints;
-                bc->D_bc_exists[index] = true;
-                bc->imposed_D_val[index] = imposed_velocity[d];
-            }
-        }
-    }
-
-    int total = 0;
-    const int ndof = bc->total_num_nodes * bc->block_size;
-    for (int i = 0; i < ndof; ++i) {
-        if (bc->D_bc_exists[i]) ++total;
-    }
-    bc->num_D_bcs = total;
-
-    if (monolis_mpi_get_global_my_rank() == 0) {
-        printf(
-            "%s Added strong surface velocity BC: new=%d total=%d value=(%.6e, %.6e, %.6e)\n",
-            CODENAME,
-            new_constraints,
-            bc->num_D_bcs,
-            imposed_velocity[0],
-            imposed_velocity[1],
-            imposed_velocity[2]);
-    }
-    return 0;
-}
-
-void BBFE_fluid_sups_impose_surface_velocity_on_values(
-    const BBFE_DATA* surf,
-    double** v,
-    const double imposed_velocity[3])
-{
-    if (surf == NULL || v == NULL || imposed_velocity == NULL) return;
-    for (int es = 0; es < surf->total_num_elems; ++es) {
-        for (int a = 0; a < surf->local_num_nodes; ++a) {
-            const int gid = surf->conn[es][a];
-            for (int d = 0; d < 3; ++d) {
-                v[gid][d] = imposed_velocity[d];
-            }
-        }
-    }
-}
-
 void BBFE_fluid_sups_read_Dirichlet_bc(
                 BBFE_BC*     bc,
                 const char*  filename,
@@ -1320,19 +1252,7 @@ double calc_internal_norm_2d(
     return norm;
 }
 
-void BBFE_fluid_sups_add_velocity_pressure(
-                double**  v,
-                double*   p,
-                double*   sol_vec,
-                const int total_num_nodes)
-{
-        for(int i=0; i<total_num_nodes; i++) {
-                for(int d=0; d<3; d++) {
-                        sol_vec[ 4*i + d ] = v[i][d];
-                }
-                sol_vec[ 4*i + 3 ] = p[i];
-        }
-}
+
 
 void BBFE_fluid_sups_read_Dirichlet_bc_NR(
                 BBFE_BC*     bc,
@@ -16757,4 +16677,5 @@ void solver_fom_VMS(
 
     BB_std_free_1d_double(rvec_old, ndof);
 }
+
 

@@ -23,9 +23,14 @@ const int BUFFER_SIZE = 1024;
 #define T4_WALL_EXCHANGE_WALL_Q            0
 #define T4_WALL_EXCHANGE_OPPOSITE_NODE     1
 
+/*
+ * These two runtime-parameter entry points are implemented with C linkage
+ * in core_FOM.c, so keep C linkage only for them.
+ */
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 void BBFE_fluid_set_nitsche_runtime_parameters(
     double gamma_n,
     double dt_penalty_coeff);
@@ -40,18 +45,107 @@ void BBFE_fluid_set_tet4_wall_runtime_parameters(
     double ut_eps,
     double feature_angle_deg);
 
+#ifdef __cplusplus
+}
+#endif
+
+
+/*
+ * core_FOM.h already declares these two functions with C++ linkage.
+ * Define them here with the same linkage.
+ *
+ * Assumption required by the existing API:
+ * surf->conn stores the same global node IDs used by the volume FE/BC data.
+ */
 int BBFE_fluid_sups_add_surface_velocity_Dirichlet(
     BBFE_BC* bc,
     const BBFE_DATA* surf,
-    const double imposed_velocity[3]);
+    const double imposed_velocity[3])
+{
+    if (
+        bc == NULL ||
+        surf == NULL ||
+        imposed_velocity == NULL ||
+        bc->D_bc_exists == NULL ||
+        bc->imposed_D_val == NULL
+    ) {
+        return -1;
+    }
+
+    if (
+        bc->block_size < 3 ||
+        bc->total_num_nodes <= 0
+    ) {
+        return -1;
+    }
+
+    for (int e = 0; e < surf->total_num_elems; ++e) {
+        for (int a = 0; a < surf->local_num_nodes; ++a) {
+            const int node_id = surf->conn[e][a];
+
+            if (
+                node_id < 0 ||
+                node_id >= bc->total_num_nodes
+            ) {
+                fprintf(
+                    stderr,
+                    "%s ERROR: invalid surface node id %d "
+                    "in BBFE_fluid_sups_add_surface_velocity_Dirichlet().\n",
+                    CODENAME,
+                    node_id);
+
+                return -1;
+            }
+
+            for (int d = 0; d < 3; ++d) {
+                const int index =
+                    bc->block_size * node_id + d;
+
+                /*
+                 * A surface node can appear in several surface elements.
+                 * Count a Dirichlet DOF only when it is newly constrained.
+                 */
+                if (!bc->D_bc_exists[index]) {
+                    bc->num_D_bcs += 1;
+                }
+
+                bc->D_bc_exists[index] = true;
+                bc->imposed_D_val[index] = imposed_velocity[d];
+            }
+        }
+    }
+
+    return 0;
+}
+
 
 void BBFE_fluid_sups_impose_surface_velocity_on_values(
     const BBFE_DATA* surf,
     double** v,
-    const double imposed_velocity[3]);
-#ifdef __cplusplus
+    const double imposed_velocity[3])
+{
+    if (
+        surf == NULL ||
+        v == NULL ||
+        imposed_velocity == NULL
+    ) {
+        return;
+    }
+
+    for (int e = 0; e < surf->total_num_elems; ++e) {
+        for (int a = 0; a < surf->local_num_nodes; ++a) {
+            const int node_id = surf->conn[e][a];
+
+            if (node_id < 0) {
+                continue;
+            }
+
+            v[node_id][0] = imposed_velocity[0];
+            v[node_id][1] = imposed_velocity[1];
+            v[node_id][2] = imposed_velocity[2];
+        }
+    }
 }
-#endif
 
 static double read_t4_nitsche_dt_penalty_coeff_from_env(void);
 
@@ -995,7 +1089,7 @@ if (ground_bc_status != 0) {
             sys.cond.directory,
             "surf_graph.dat",
             sys.vals.num_ip_each_axis);
-    
+
     pre_surface_internal(
         //&(sys.monolis_com_surf),
         &(sys.surf_internal),
@@ -1268,7 +1362,7 @@ printf(
     "[main after solver] C_vms=%.17g cap=%.17g\n",
     sys.vals.C_vms,
     sys.vals.vms_cap_coeff);
-        
+
 t4_diag_trace(
             "after solver_fom_VMS",
             step);
@@ -1496,7 +1590,7 @@ t4_diag_trace(
                     &split_diag,
                     &(sys.mono_com));
             }
-            
+
             /* ================================================================ */
             /* Nitsche residual-row reaction diagnostic                         */
             /* ここへ t4n_nitsche_row_sum_main_patch.c の内容を追加              */
@@ -1586,8 +1680,8 @@ t4_diag_trace(
         /* ================================================================ */
         /* Hot-start output, when enabled                                   */
         /* ================================================================ */
-        
-	BBFE_fluid_sups_add_velocity_pressure(
+
+        BBFE_fluid_sups_add_velocity_pressure(
                         sys.vals.v,
                         sys.vals.p,
                         sys.monolis.mat.R.X,
