@@ -35,6 +35,112 @@ const int BUFFER_SIZE = 10000;
 static double g_t4_nitsche_gamma_n = 100.0;
 static double g_t4_nitsche_dt_penalty_coeff = 0.10;
 
+/* -------------------------------------------------------------------------- */
+/* TET4/TRI3 Ahmed-body wall-treatment modes                                  */
+/*                                                                            */
+/* The numeric values are intentionally public-by-convention so main_FOM can  */
+/* pass the selected mode without requiring a header change.                  */
+/* -------------------------------------------------------------------------- */
+#define T4_WALL_STRONG_NOSLIP              0
+#define T4_WALL_NITSCHE_NOSLIP             1
+#define T4_WALL_NITSCHE_FREESLIP           2
+#define T4_WALL_NITSCHE_SPALDING           3
+#define T4_WALL_STRONG_NORMAL_FREESLIP     4
+#define T4_WALL_STRONG_NORMAL_SPALDING     5
+
+#define T4_WALL_EXCHANGE_WALL_Q            0
+#define T4_WALL_EXCHANGE_OPPOSITE_NODE     1
+
+/* Backward-compatible default: the previous Case-C formulation, but main_FOM
+ * now selects the mode explicitly and defaults the Spalding exchange point to
+ * the owner-TET opposite node. */
+static int    g_t4_wall_mode = T4_WALL_NITSCHE_SPALDING;
+static int    g_t4_wall_exchange_mode = T4_WALL_EXCHANGE_OPPOSITE_NODE;
+static double g_t4_wall_kappa = 0.41;
+static double g_t4_wall_B = 5.2;
+static double g_t4_wall_ut_eps = 1.0e-12;
+static double g_t4_wall_feature_angle_deg = 30.0;
+
+#ifdef __cplusplus
+extern "C"
+#endif
+void BBFE_fluid_set_tet4_wall_runtime_parameters(
+    int wall_mode,
+    int exchange_mode,
+    double gamma_n,
+    double dt_penalty_coeff,
+    double kappa,
+    double B,
+    double ut_eps,
+    double feature_angle_deg)
+{
+    if (wall_mode < T4_WALL_STRONG_NOSLIP ||
+        wall_mode > T4_WALL_STRONG_NORMAL_SPALDING) {
+        fprintf(stderr, "%s ERROR: invalid TET4 wall mode=%d\n", CODENAME, wall_mode);
+        exit(EXIT_FAILURE);
+    }
+
+    if (exchange_mode != T4_WALL_EXCHANGE_WALL_Q &&
+        exchange_mode != T4_WALL_EXCHANGE_OPPOSITE_NODE) {
+        fprintf(stderr, "%s ERROR: invalid wall exchange mode=%d\n", CODENAME, exchange_mode);
+        exit(EXIT_FAILURE);
+    }
+
+    if (!isfinite(gamma_n) || gamma_n <= 0.0 ||
+        !isfinite(dt_penalty_coeff) || dt_penalty_coeff < 0.0 ||
+        !isfinite(kappa) || kappa <= 0.0 ||
+        !isfinite(B) ||
+        !isfinite(ut_eps) || ut_eps <= 0.0 ||
+        !isfinite(feature_angle_deg) || feature_angle_deg <= 0.0 ||
+        feature_angle_deg >= 90.0) {
+        fprintf(
+            stderr,
+            "%s ERROR: invalid wall parameters: mode=%d exch=%d gamma=%.15e "
+            "c_dt=%.15e kappa=%.15e B=%.15e ut_eps=%.15e feature=%.15e\n",
+            CODENAME,
+            wall_mode,
+            exchange_mode,
+            gamma_n,
+            dt_penalty_coeff,
+            kappa,
+            B,
+            ut_eps,
+            feature_angle_deg);
+        exit(EXIT_FAILURE);
+    }
+
+    g_t4_wall_mode = wall_mode;
+    g_t4_wall_exchange_mode = exchange_mode;
+    g_t4_nitsche_gamma_n = gamma_n;
+    g_t4_nitsche_dt_penalty_coeff = dt_penalty_coeff;
+    g_t4_wall_kappa = kappa;
+    g_t4_wall_B = B;
+    g_t4_wall_ut_eps = ut_eps;
+    g_t4_wall_feature_angle_deg = feature_angle_deg;
+}
+
+static int t4_wall_mode_uses_nitsche_normal(void)
+{
+    return (
+        g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP ||
+        g_t4_wall_mode == T4_WALL_NITSCHE_FREESLIP ||
+        g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING);
+}
+
+static int t4_wall_mode_uses_spalding(void)
+{
+    return (
+        g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING ||
+        g_t4_wall_mode == T4_WALL_STRONG_NORMAL_SPALDING);
+}
+
+static int t4_wall_mode_uses_projected_strong_normal(void)
+{
+    return (
+        g_t4_wall_mode == T4_WALL_STRONG_NORMAL_FREESLIP ||
+        g_t4_wall_mode == T4_WALL_STRONG_NORMAL_SPALDING);
+}
+
 #ifdef __cplusplus
 extern "C"
 #endif
@@ -694,6 +800,74 @@ int BBFE_fluid_sups_add_zero_velocity_Dirichlet_on_z_plane(
     return 0;
 }
 
+/* Add component-wise strong velocity Dirichlet conditions on all nodes that
+ * belong to a TRI3/QUAD4 surface collection.  This is used by the
+ * STRONG_NOSLIP mode; pressure is intentionally untouched. */
+int BBFE_fluid_sups_add_surface_velocity_Dirichlet(
+    BBFE_BC* bc,
+    const BBFE_DATA* surf,
+    const double imposed_velocity[3])
+{
+    if (bc == NULL || surf == NULL || imposed_velocity == NULL ||
+        bc->D_bc_exists == NULL || bc->imposed_D_val == NULL ||
+        bc->block_size < 3) {
+        fprintf(stderr, "%s ERROR: invalid surface Dirichlet arguments.\n", CODENAME);
+        return -1;
+    }
+
+    int new_constraints = 0;
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        for (int a = 0; a < surf->local_num_nodes; ++a) {
+            const int gid = surf->conn[es][a];
+            if (gid < 0 || gid >= bc->total_num_nodes) {
+                fprintf(stderr, "%s ERROR: invalid surface node id=%d.\n", CODENAME, gid);
+                return -1;
+            }
+            for (int d = 0; d < 3; ++d) {
+                const int index = bc->block_size * gid + d;
+                if (!bc->D_bc_exists[index]) ++new_constraints;
+                bc->D_bc_exists[index] = true;
+                bc->imposed_D_val[index] = imposed_velocity[d];
+            }
+        }
+    }
+
+    int total = 0;
+    const int ndof = bc->total_num_nodes * bc->block_size;
+    for (int i = 0; i < ndof; ++i) {
+        if (bc->D_bc_exists[i]) ++total;
+    }
+    bc->num_D_bcs = total;
+
+    if (monolis_mpi_get_global_my_rank() == 0) {
+        printf(
+            "%s Added strong surface velocity BC: new=%d total=%d value=(%.6e, %.6e, %.6e)\n",
+            CODENAME,
+            new_constraints,
+            bc->num_D_bcs,
+            imposed_velocity[0],
+            imposed_velocity[1],
+            imposed_velocity[2]);
+    }
+    return 0;
+}
+
+void BBFE_fluid_sups_impose_surface_velocity_on_values(
+    const BBFE_DATA* surf,
+    double** v,
+    const double imposed_velocity[3])
+{
+    if (surf == NULL || v == NULL || imposed_velocity == NULL) return;
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        for (int a = 0; a < surf->local_num_nodes; ++a) {
+            const int gid = surf->conn[es][a];
+            for (int d = 0; d < 3; ++d) {
+                v[gid][d] = imposed_velocity[d];
+            }
+        }
+    }
+}
+
 void BBFE_fluid_sups_read_Dirichlet_bc(
                 BBFE_BC*     bc,
                 const char*  filename,
@@ -1144,6 +1318,20 @@ double calc_internal_norm_2d(
     }
 
     return norm;
+}
+
+void BBFE_fluid_sups_add_velocity_pressure(
+                double**  v,
+                double*   p,
+                double*   sol_vec,
+                const int total_num_nodes)
+{
+        for(int i=0; i<total_num_nodes; i++) {
+                for(int d=0; d<3; d++) {
+                        sol_vec[ 4*i + d ] = v[i][d];
+                }
+                sol_vec[ 4*i + 3 ] = p[i];
+        }
 }
 
 void BBFE_fluid_sups_read_Dirichlet_bc_NR(
@@ -3859,8 +4047,8 @@ static double compute_utau_all_yplus(
     const double Re_y = ut_norm * y_wall / nu;
     if (Re_y <= eps) return 0.0;
 
-    const double kappa = 0.41;
-    const double B     = 5.2;
+    const double kappa = g_t4_wall_kappa;
+    const double B     = g_t4_wall_B;
     const double A     = exp(-kappa * B);
 
     /*
@@ -6084,7 +6272,7 @@ int calc_wall_mesh_diagnostics_tet4_tri3(
             / fmax(beta_mu, 1.0e-30);
 
         /*
-         * Case C diagnostic: ratio of normal-Nitsche penalty stress scale
+         * Wall-mode diagnostic: ratio of normal-Nitsche penalty stress scale
          * to the modeled Spalding tangential wall-shear magnitude.
          * This is a stiffness/scale diagnostic only; the two vectors are
          * orthogonal and must not be added as scalar stresses.
@@ -7845,7 +8033,308 @@ static int t4n_grad_phys_metric(
 }
 
 /* -------------------------------------------------------------------------- */
-/* Local symmetric normal-Nitsche + tangential Spalding wall-law TET helper  */
+/* Feature-aware nodal projector for the STRONG_NORMAL_* modes                */
+/*                                                                            */
+/* MONOLIS' existing Dirichlet wrapper is component-wise in global xyz.       */
+/* Arbitrary no-penetration constraints u.n=0 therefore cannot be expressed   */
+/* directly without changing the global unknown basis / adding MPCs.          */
+/*                                                                            */
+/* For the TET4-only branch we enforce the admissible nodal velocity subspace  */
+/* explicitly: incident face normals are clustered by feature angle, an       */
+/* orthonormal constrained-normal basis is built, and both the state and each  */
+/* Newton velocity correction are projected onto its orthogonal complement.   */
+/*                                                                            */
+/* Rank 1 -> smooth wall: two tangential velocity directions remain.           */
+/* Rank 2 -> sharp edge : only the edge tangent remains.                       */
+/* Rank 3 -> corner     : velocity is fixed to Uw.                             */
+/*                                                                            */
+/* This is exact as a nodal state/update projection.  It is not an algebraic   */
+/* change-of-basis elimination of the sparse matrix, so the code labels this   */
+/* implementation "projected strong normal" in run-time messages.             */
+/* -------------------------------------------------------------------------- */
+
+typedef struct T4WallNodeFeature {
+    int is_wall;
+    int ncluster;
+    int rank;
+    double cluster_sum[3][3];
+    double cluster_weight[3];
+    double qn[3][3];
+    double Pt[3][3];
+} T4WallNodeFeature;
+
+static T4WallNodeFeature* g_t4_wall_node_feature = NULL;
+static int g_t4_wall_node_feature_nnode = 0;
+static const BBFE_DATA* g_t4_wall_projector_surf_ptr = NULL;
+static const BBFE_DATA* g_t4_wall_projector_fe_ptr = NULL;
+static double g_t4_wall_projector_feature_angle = -1.0;
+
+static void t4_wall_projector_release(void)
+{
+    free(g_t4_wall_node_feature);
+    g_t4_wall_node_feature = NULL;
+    g_t4_wall_node_feature_nnode = 0;
+    g_t4_wall_projector_surf_ptr = NULL;
+    g_t4_wall_projector_fe_ptr = NULL;
+    g_t4_wall_projector_feature_angle = -1.0;
+}
+
+static double t4_wall_norm3_local(const double a[3])
+{
+    return sqrt(t4n_dot3(a, a));
+}
+
+static void t4_wall_normalize3_local(double a[3])
+{
+    const double nrm = t4_wall_norm3_local(a);
+    if (nrm > 1.0e-30) {
+        a[0] /= nrm;
+        a[1] /= nrm;
+        a[2] /= nrm;
+    }
+}
+
+static int t4_wall_projector_prepare(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe)
+{
+    if (surf == NULL || fe == NULL) return -1;
+    if (fe->local_num_nodes != 4 || surf->local_num_nodes != 3) return -1;
+
+    if (g_t4_wall_node_feature != NULL &&
+        g_t4_wall_node_feature_nnode == fe->total_num_nodes &&
+        g_t4_wall_projector_surf_ptr == surf &&
+        g_t4_wall_projector_fe_ptr == fe &&
+        fabs(g_t4_wall_projector_feature_angle - g_t4_wall_feature_angle_deg) < 1.0e-12) {
+        return 0;
+    }
+
+    t4_wall_projector_release();
+
+    g_t4_wall_node_feature = (T4WallNodeFeature*)calloc(
+        (size_t)fe->total_num_nodes,
+        sizeof(T4WallNodeFeature));
+    if (g_t4_wall_node_feature == NULL) return -1;
+
+    g_t4_wall_node_feature_nnode = fe->total_num_nodes;
+    g_t4_wall_projector_surf_ptr = surf;
+    g_t4_wall_projector_fe_ptr = fe;
+    g_t4_wall_projector_feature_angle = g_t4_wall_feature_angle_deg;
+
+    const double cos_threshold =
+        cos(g_t4_wall_feature_angle_deg * (3.14159265358979323846 / 180.0));
+
+    for (int es = 0; es < surf->total_num_elems; ++es) {
+        const int g0 = surf->conn[es][0];
+        const int g1 = surf->conn[es][1];
+        const int g2 = surf->conn[es][2];
+
+        if (g0 < 0 || g0 >= fe->total_num_nodes ||
+            g1 < 0 || g1 >= fe->total_num_nodes ||
+            g2 < 0 || g2 >= fe->total_num_nodes) {
+            t4_wall_projector_release();
+            return -1;
+        }
+
+        const double e1[3] = {
+            fe->x[g1][0] - fe->x[g0][0],
+            fe->x[g1][1] - fe->x[g0][1],
+            fe->x[g1][2] - fe->x[g0][2]
+        };
+        const double e2[3] = {
+            fe->x[g2][0] - fe->x[g0][0],
+            fe->x[g2][1] - fe->x[g0][1],
+            fe->x[g2][2] - fe->x[g0][2]
+        };
+
+        double n[3];
+        t4n_cross3(e1, e2, n);
+        const double nraw = t4_wall_norm3_local(n);
+        if (!isfinite(nraw) || nraw <= 1.0e-30) continue;
+        const double area = 0.5 * nraw;
+        n[0] /= nraw;
+        n[1] /= nraw;
+        n[2] /= nraw;
+
+        const int gids[3] = {g0, g1, g2};
+        for (int aa = 0; aa < 3; ++aa) {
+            T4WallNodeFeature* f = &g_t4_wall_node_feature[gids[aa]];
+            f->is_wall = 1;
+
+            int best = -1;
+            double best_abs_dot = -1.0;
+            double best_signed_dot = 1.0;
+
+            for (int k = 0; k < f->ncluster; ++k) {
+                double mean[3] = {
+                    f->cluster_sum[k][0],
+                    f->cluster_sum[k][1],
+                    f->cluster_sum[k][2]
+                };
+                t4_wall_normalize3_local(mean);
+                const double d = t4n_dot3(mean, n);
+                const double ad = fabs(d);
+                if (ad > best_abs_dot) {
+                    best_abs_dot = ad;
+                    best_signed_dot = d;
+                    best = k;
+                }
+            }
+
+            if (best >= 0 && best_abs_dot >= cos_threshold) {
+                const double sgn = (best_signed_dot < 0.0 ? -1.0 : 1.0);
+                for (int d = 0; d < 3; ++d) {
+                    f->cluster_sum[best][d] += area * sgn * n[d];
+                }
+                f->cluster_weight[best] += area;
+            }
+            else if (f->ncluster < 3) {
+                const int k = f->ncluster++;
+                for (int d = 0; d < 3; ++d) {
+                    f->cluster_sum[k][d] = area * n[d];
+                }
+                f->cluster_weight[k] = area;
+            }
+            else {
+                /* More than three geometric clusters cannot add another
+                 * independent constraint in R^3; merge into the closest one. */
+                if (best < 0) best = 0;
+                const double sgn = (best_signed_dot < 0.0 ? -1.0 : 1.0);
+                for (int d = 0; d < 3; ++d) {
+                    f->cluster_sum[best][d] += area * sgn * n[d];
+                }
+                f->cluster_weight[best] += area;
+            }
+        }
+    }
+
+    long long rank_count[4] = {0, 0, 0, 0};
+    for (int gid = 0; gid < fe->total_num_nodes; ++gid) {
+        T4WallNodeFeature* f = &g_t4_wall_node_feature[gid];
+
+        for (int a = 0; a < 3; ++a) {
+            for (int b = 0; b < 3; ++b) {
+                f->Pt[a][b] = (a == b ? 1.0 : 0.0);
+                f->qn[a][b] = 0.0;
+            }
+        }
+
+        if (!f->is_wall) continue;
+
+        int rank = 0;
+        for (int k = 0; k < f->ncluster && rank < 3; ++k) {
+            double q[3] = {
+                f->cluster_sum[k][0],
+                f->cluster_sum[k][1],
+                f->cluster_sum[k][2]
+            };
+            t4_wall_normalize3_local(q);
+
+            for (int j = 0; j < rank; ++j) {
+                const double alpha = t4n_dot3(q, f->qn[j]);
+                for (int d = 0; d < 3; ++d) q[d] -= alpha * f->qn[j][d];
+            }
+
+            const double qnrm = t4_wall_norm3_local(q);
+            if (qnrm <= 1.0e-6) continue;
+            for (int d = 0; d < 3; ++d) f->qn[rank][d] = q[d] / qnrm;
+            ++rank;
+        }
+        f->rank = rank;
+        if (rank >= 0 && rank <= 3) ++rank_count[rank];
+
+        for (int j = 0; j < rank; ++j) {
+            for (int a = 0; a < 3; ++a) {
+                for (int b = 0; b < 3; ++b) {
+                    f->Pt[a][b] -= f->qn[j][a] * f->qn[j][b];
+                }
+            }
+        }
+    }
+
+    if (monolis_mpi_get_global_my_rank() == 0) {
+        printf(
+            "%s projected-strong wall projector built: feature_angle=%.3f deg "
+            "rank1=%lld rank2=%lld rank3=%lld\n",
+            CODENAME,
+            g_t4_wall_feature_angle_deg,
+            rank_count[1],
+            rank_count[2],
+            rank_count[3]);
+    }
+
+    return 0;
+}
+
+static void t4_wall_project_relative_vector_at_node(int gid, double v[3])
+{
+    if (g_t4_wall_node_feature == NULL ||
+        gid < 0 || gid >= g_t4_wall_node_feature_nnode ||
+        !g_t4_wall_node_feature[gid].is_wall) {
+        return;
+    }
+
+    const T4WallNodeFeature* f = &g_t4_wall_node_feature[gid];
+    const double vin[3] = {v[0], v[1], v[2]};
+    for (int a = 0; a < 3; ++a) {
+        v[a] = 0.0;
+        for (int b = 0; b < 3; ++b) v[a] += f->Pt[a][b] * vin[b];
+    }
+}
+
+static void t4_wall_project_velocity_state(
+    double** v,
+    const double Uw[3])
+{
+    if (v == NULL || Uw == NULL || g_t4_wall_node_feature == NULL) return;
+    for (int gid = 0; gid < g_t4_wall_node_feature_nnode; ++gid) {
+        if (!g_t4_wall_node_feature[gid].is_wall) continue;
+        double r[3] = {
+            v[gid][0] - Uw[0],
+            v[gid][1] - Uw[1],
+            v[gid][2] - Uw[2]
+        };
+        t4_wall_project_relative_vector_at_node(gid, r);
+        for (int d = 0; d < 3; ++d) v[gid][d] = Uw[d] + r[d];
+    }
+}
+
+static void t4_wall_project_velocity_increment(double** dv)
+{
+    if (dv == NULL || g_t4_wall_node_feature == NULL) return;
+    for (int gid = 0; gid < g_t4_wall_node_feature_nnode; ++gid) {
+        if (!g_t4_wall_node_feature[gid].is_wall) continue;
+        double q[3] = {dv[gid][0], dv[gid][1], dv[gid][2]};
+        t4_wall_project_relative_vector_at_node(gid, q);
+        dv[gid][0] = q[0];
+        dv[gid][1] = q[1];
+        dv[gid][2] = q[2];
+    }
+}
+
+/* Project momentum residual rows onto the admissible test subspace.  This is
+ * essential for the projected-strong modes: normal test equations are not part
+ * of the constrained variational space and must not enter the Newton residual
+ * norm. */
+static void t4_wall_project_velocity_rhs(double* rhs)
+{
+    if (rhs == NULL || g_t4_wall_node_feature == NULL) return;
+    for (int gid = 0; gid < g_t4_wall_node_feature_nnode; ++gid) {
+        if (!g_t4_wall_node_feature[gid].is_wall) continue;
+        double q[3] = {
+            rhs[4*gid + 0],
+            rhs[4*gid + 1],
+            rhs[4*gid + 2]
+        };
+        t4_wall_project_relative_vector_at_node(gid, q);
+        rhs[4*gid + 0] = q[0];
+        rhs[4*gid + 1] = q[1];
+        rhs[4*gid + 2] = q[2];
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Local wall operators for all selectable wall modes                         */
 /* -------------------------------------------------------------------------- */
 
 /* -------------------------------------------------------------------------- */
@@ -7870,42 +8359,38 @@ static int t4n_grad_phys_metric(
 /* viscosity.  beta_w is frozen in the tangent matrix (Picard/Newton hybrid). */
 /* -------------------------------------------------------------------------- */
 
-static void t4n_caseC_wall_coefficients(
-    const double u_q[3],
+static void t4n_spalding_wall_coefficients(
+    const double u_exchange[3],
     const double Uw[3],
     const double n[3],
     double rho,
     double mu_wall_law,
-    double y_wall,
-    double ut[3],
-    double* rn_out,
+    double y_exchange,
+    double ut_exchange[3],
     double* ut_norm_out,
     double* u_tau_out,
     double* beta_wall_out)
 {
     const double eps = 1.0e-30;
-    const double y_eff = fmax(y_wall, 1.0e-12);
+    const double y_eff = fmax(y_exchange, 1.0e-12);
     const double mu_eff = fmax(mu_wall_law, eps);
     const double rho_eff = fmax(rho, eps);
 
-    double r[3];
-    for (int a = 0; a < 3; ++a) {
-        r[a] = u_q[a] - Uw[a];
-    }
-
+    const double r[3] = {
+        u_exchange[0] - Uw[0],
+        u_exchange[1] - Uw[1],
+        u_exchange[2] - Uw[2]
+    };
     const double rn = t4n_dot3(r, n);
-
     for (int a = 0; a < 3; ++a) {
-        ut[a] = r[a] - rn * n[a];
+        ut_exchange[a] = r[a] - rn * n[a];
     }
 
-    const double ut_norm = sqrt(t4n_dot3(ut, ut));
-
-    /* Viscous-sublayer limiting value; also keeps the Robin coefficient finite. */
+    const double ut_norm = sqrt(t4n_dot3(ut_exchange, ut_exchange));
     double beta_wall = mu_eff / y_eff;
     double u_tau = 0.0;
 
-    if (ut_norm > 1.0e-14) {
+    if (ut_norm > g_t4_wall_ut_eps) {
         u_tau = compute_utau_all_yplus(
             ut_norm,
             y_eff,
@@ -7913,7 +8398,7 @@ static void t4n_caseC_wall_coefficients(
             mu_eff);
 
         if (isfinite(u_tau) && u_tau > 0.0) {
-            beta_wall = rho_eff * u_tau * u_tau / ut_norm;
+            beta_wall = rho_eff * u_tau * u_tau / fmax(ut_norm, g_t4_wall_ut_eps);
         }
     }
 
@@ -7921,165 +8406,253 @@ static void t4n_caseC_wall_coefficients(
         beta_wall = mu_eff / y_eff;
     }
 
-    if (rn_out != NULL)       *rn_out = rn;
-    if (ut_norm_out != NULL)  *ut_norm_out = ut_norm;
-    if (u_tau_out != NULL)    *u_tau_out = u_tau;
-    if (beta_wall_out != NULL)*beta_wall_out = beta_wall;
+    if (ut_norm_out != NULL)   *ut_norm_out = ut_norm;
+    if (u_tau_out != NULL)     *u_tau_out = u_tau;
+    if (beta_wall_out != NULL) *beta_wall_out = beta_wall;
 }
 
-static void t4n_wall_sym_nitsche_local_vecmat(
-    double       vec_i[4],
-    double       mat_ij[4][4],
-    double       Ni,
-    double       Nj,
+static void t4n_wall_fullvec_nitsche_local_vecmat(
+    double vec_i[4],
+    double mat_ij[4][4],
+    double Ni,
+    double Nj,
     const double gradNi[3],
     const double gradNj[3],
     const double n[3],
     const double u_q[3],
-    double       p_q,
+    double p_q,
     const double grad_u_q[3][3],
     const double Uw[3],
-    double       rho,
-    double       mu_eff,
-    double       mu_wall_law,
-    double       h_n,
-    double       y_wall,
-    double       dt,
-    double       gamma_n)
+    double rho,
+    double mu_eff,
+    double h_n,
+    double dt,
+    double gamma_n)
 {
-    for (int a = 0; a < 4; ++a) {
-        vec_i[a] = 0.0;
-        for (int b = 0; b < 4; ++b) {
-            mat_ij[a][b] = 0.0;
-        }
-    }
-
     const double eps = 1.0e-30;
     const double dt_eff = fmax(dt, eps);
-    const double h_eff  = fmax(h_n, 1.0e-12);
+    const double h_eff = fmax(h_n, 1.0e-12);
 
-    double ut[3] = {0.0, 0.0, 0.0};
-    double rn = 0.0;
-    double beta_wall = 0.0;
+    double r[3];
+    for (int a = 0; a < 3; ++a) r[a] = u_q[a] - Uw[a];
+    const double rn = t4n_dot3(r, n);
 
-    t4n_caseC_wall_coefficients(
-        u_q,
-        Uw,
-        n,
-        rho,
-        mu_wall_law,
-        y_wall,
-        ut,
-        &rn,
-        NULL,
-        NULL,
-        &beta_wall);
-
-    double beta_n = 0.0;
-
-    /* Keep exactly the Case-B normal penalty scaling, including runtime c_dt. */
+    double beta = 0.0;
     t4n_get_penalty_coefficients(
-        rho,
-        mu_eff,
-        h_eff,
-        dt_eff,
-        gamma_n,
-        &beta_n,
-        NULL,
-        NULL);
+        rho, mu_eff, h_eff, dt_eff, gamma_n, &beta, NULL, NULL);
 
-    /*
-     * Traction consistent with the current volume viscous form
-     *
-     *   mu grad(u):grad(w) + mu div(u) div(w),
-     *
-     * namely
-     *
-     *   t(u,p) = -p n + mu [grad(u)n + n div(u)].
-     *
-     * Only its normal component participates in the normal essential BC.
-     */
     const double div_u =
         grad_u_q[0][0] + grad_u_q[1][1] + grad_u_q[2][2];
 
     double grad_u_n[3] = {0.0, 0.0, 0.0};
     for (int a = 0; a < 3; ++a) {
-        for (int b = 0; b < 3; ++b) {
-            grad_u_n[a] += grad_u_q[a][b] * n[b];
-        }
+        for (int b = 0; b < 3; ++b) grad_u_n[a] += grad_u_q[a][b] * n[b];
     }
 
-    const double grad_u_n_dot_n = t4n_dot3(grad_u_n, n);
-    const double traction_n =
-        -p_q
-        + mu_eff * (grad_u_n_dot_n + div_u);
+    double traction[3];
+    for (int a = 0; a < 3; ++a) {
+        traction[a] = -p_q*n[a] + mu_eff*(grad_u_n[a] + n[a]*div_u);
+    }
 
     const double gni = t4n_dot3(gradNi, n);
     const double gnj = t4n_dot3(gradNj, n);
 
-    /*
-     * Residual:
-     *   (1) same symmetric normal Nitsche terms as Case B,
-     *   (2) tangential Spalding wall-law Robin term.
-     *
-     * The wall-law term is +w_t . beta_w u_t in the weak residual because
-     * the traction exerted on the fluid is -beta_w u_t.  The body reaction
-     * is therefore +beta_w u_t.
-     */
     for (int a = 0; a < 3; ++a) {
-        const double test_normal = Ni * n[a];
-        const double test_traction_normal =
-            mu_eff * (n[a] * gni + gradNi[a]);
-
-        vec_i[a] += dt * (-test_normal * traction_n);
-        vec_i[a] += dt * (-test_traction_normal * rn);
-        vec_i[a] += dt * ( beta_n * test_normal * rn);
-
-        /* Tangential modeled wall shear. */
-        vec_i[a] += dt * (Ni * beta_wall * ut[a]);
+        vec_i[a] += dt * (-Ni * traction[a]);
+        vec_i[a] += dt * (-mu_eff * (gni*r[a] + gradNi[a]*rn));
+        vec_i[a] += dt * ( Ni * beta * r[a]);
     }
-
-    /* Pressure-test contribution from the normal essential constraint. */
     vec_i[3] += dt * Ni * rn;
 
-    /*
-     * Tangent matrix. beta_n and beta_wall are frozen.
-     * The wall-law block is beta_wall P_t with P_t = I - n tensor n.
-     */
     for (int a = 0; a < 3; ++a) {
         for (int b = 0; b < 3; ++b) {
-            const double dtraction_n_du =
-                mu_eff * (n[b] * gnj + gradNj[b]);
-
-            mat_ij[a][b] +=
-                dt * (-Ni * n[a] * dtraction_n_du);
-
-            mat_ij[a][b] +=
-                dt * (-mu_eff
-                    * (n[a] * gni + gradNi[a])
-                    * Nj * n[b]);
-
-            mat_ij[a][b] +=
-                dt * (beta_n * Ni * n[a] * Nj * n[b]);
-
-            const double Pt_ab =
-                (a == b ? 1.0 : 0.0) - n[a] * n[b];
-
-            mat_ij[a][b] +=
-                dt * (Ni * Nj * beta_wall * Pt_ab);
+            const double delta_ab = (a == b ? 1.0 : 0.0);
+            const double dtraction_du =
+                mu_eff * (delta_ab*gnj + n[a]*gradNj[b]);
+            mat_ij[a][b] += dt * (-Ni * dtraction_du);
+            mat_ij[a][b] += dt * (-mu_eff *
+                (gni*Nj*delta_ab + gradNi[a]*Nj*n[b]));
+            mat_ij[a][b] += dt * (Ni*Nj*beta*delta_ab);
         }
-
-        /* traction_n contains -p. */
-        mat_ij[a][3] +=
-            dt * (Ni * Nj * n[a]);
+        mat_ij[a][3] += dt * (Ni*Nj*n[a]);
     }
-
     for (int b = 0; b < 3; ++b) {
-        mat_ij[3][b] +=
-            dt * (Ni * Nj * n[b]);
+        mat_ij[3][b] += dt * (Ni*Nj*n[b]);
+    }
+}
+
+static void t4n_wall_normal_nitsche_local_vecmat(
+    double vec_i[4],
+    double mat_ij[4][4],
+    double Ni,
+    double Nj,
+    const double gradNi[3],
+    const double gradNj[3],
+    const double n[3],
+    const double u_q[3],
+    double p_q,
+    const double grad_u_q[3][3],
+    const double Uw[3],
+    double rho,
+    double mu_eff,
+    double h_n,
+    double dt,
+    double gamma_n)
+{
+    const double eps = 1.0e-30;
+    const double dt_eff = fmax(dt, eps);
+    const double h_eff = fmax(h_n, 1.0e-12);
+
+    const double r[3] = {
+        u_q[0]-Uw[0], u_q[1]-Uw[1], u_q[2]-Uw[2]
+    };
+    const double rn = t4n_dot3(r, n);
+
+    double beta = 0.0;
+    t4n_get_penalty_coefficients(
+        rho, mu_eff, h_eff, dt_eff, gamma_n, &beta, NULL, NULL);
+
+    const double div_u =
+        grad_u_q[0][0] + grad_u_q[1][1] + grad_u_q[2][2];
+    double grad_u_n[3] = {0.0,0.0,0.0};
+    for (int a=0;a<3;++a) for (int b=0;b<3;++b) grad_u_n[a] += grad_u_q[a][b]*n[b];
+    const double traction_n =
+        -p_q + mu_eff*(t4n_dot3(grad_u_n,n) + div_u);
+
+    const double gni = t4n_dot3(gradNi,n);
+    const double gnj = t4n_dot3(gradNj,n);
+
+    for (int a=0;a<3;++a) {
+        const double wn = Ni*n[a];
+        const double twn = mu_eff*(n[a]*gni + gradNi[a]);
+        vec_i[a] += dt*(-wn*traction_n);
+        vec_i[a] += dt*(-twn*rn);
+        vec_i[a] += dt*( beta*wn*rn);
+    }
+    vec_i[3] += dt*Ni*rn;
+
+    for (int a=0;a<3;++a) {
+        for (int b=0;b<3;++b) {
+            const double dtn = mu_eff*(n[b]*gnj + gradNj[b]);
+            mat_ij[a][b] += dt*(-Ni*n[a]*dtn);
+            mat_ij[a][b] += dt*(-mu_eff*(n[a]*gni + gradNi[a])*Nj*n[b]);
+            mat_ij[a][b] += dt*( beta*Ni*n[a]*Nj*n[b]);
+        }
+        mat_ij[a][3] += dt*(Ni*Nj*n[a]);
+    }
+    for (int b=0;b<3;++b) mat_ij[3][b] += dt*(Ni*Nj*n[b]);
+}
+
+static void t4n_add_spalding_walllaw_local_vecmat(
+    double vec_i[4],
+    double mat_ij[4][4],
+    double Ni,
+    double exchange_Nj,
+    const double n[3],
+    const double u_exchange[3],
+    const double Uw[3],
+    double rho,
+    double mu_wall_law,
+    double y_exchange,
+    double dt)
+{
+    double ut[3] = {0.0,0.0,0.0};
+    double beta_wall = 0.0;
+    t4n_spalding_wall_coefficients(
+        u_exchange,
+        Uw,
+        n,
+        rho,
+        mu_wall_law,
+        y_exchange,
+        ut,
+        NULL,
+        NULL,
+        &beta_wall);
+
+    for (int a=0;a<3;++a) {
+        vec_i[a] += dt * Ni * beta_wall * ut[a];
     }
 
-    /* Pressure-pressure wall block is zero. */
+    /* beta_wall is frozen.  For opposite-node exchange, exchange_Nj is 1 only
+     * for the owner-TET node opposite the wall face; for legacy wall-q exchange
+     * it is the usual face-interpolated Nj. */
+    for (int a=0;a<3;++a) {
+        for (int b=0;b<3;++b) {
+            const double Pt_ab = (a==b ? 1.0 : 0.0) - n[a]*n[b];
+            mat_ij[a][b] += dt * Ni * beta_wall * Pt_ab * exchange_Nj;
+        }
+    }
+}
+
+static void t4n_wall_local_vecmat(
+    double vec_i[4],
+    double mat_ij[4][4],
+    double Ni,
+    double Nj,
+    double exchange_Nj,
+    const double gradNi[3],
+    const double gradNj[3],
+    const double n[3],
+    const double u_q[3],
+    const double u_exchange[3],
+    double p_q,
+    const double grad_u_q[3][3],
+    const double Uw[3],
+    double rho,
+    double mu_eff,
+    double mu_wall_law,
+    double h_n,
+    double y_exchange,
+    double dt,
+    double gamma_n)
+{
+    for (int a=0;a<4;++a) {
+        vec_i[a]=0.0;
+        for (int b=0;b<4;++b) mat_ij[a][b]=0.0;
+    }
+
+    switch (g_t4_wall_mode) {
+    case T4_WALL_STRONG_NOSLIP:
+        /* Component-wise strong Dirichlet is applied by main_FOM. */
+        return;
+
+    case T4_WALL_NITSCHE_NOSLIP:
+        t4n_wall_fullvec_nitsche_local_vecmat(
+            vec_i, mat_ij, Ni, Nj, gradNi, gradNj, n, u_q, p_q,
+            grad_u_q, Uw, rho, mu_eff, h_n, dt, gamma_n);
+        return;
+
+    case T4_WALL_NITSCHE_FREESLIP:
+        t4n_wall_normal_nitsche_local_vecmat(
+            vec_i, mat_ij, Ni, Nj, gradNi, gradNj, n, u_q, p_q,
+            grad_u_q, Uw, rho, mu_eff, h_n, dt, gamma_n);
+        return;
+
+    case T4_WALL_NITSCHE_SPALDING:
+        t4n_wall_normal_nitsche_local_vecmat(
+            vec_i, mat_ij, Ni, Nj, gradNi, gradNj, n, u_q, p_q,
+            grad_u_q, Uw, rho, mu_eff, h_n, dt, gamma_n);
+        t4n_add_spalding_walllaw_local_vecmat(
+            vec_i, mat_ij, Ni, exchange_Nj, n, u_exchange, Uw,
+            rho, mu_wall_law, y_exchange, dt);
+        return;
+
+    case T4_WALL_STRONG_NORMAL_FREESLIP:
+        /* Projected strong normal: no additional surface traction. */
+        return;
+
+    case T4_WALL_STRONG_NORMAL_SPALDING:
+        /* Projected strong normal + modeled tangential traction only. */
+        t4n_add_spalding_walllaw_local_vecmat(
+            vec_i, mat_ij, Ni, exchange_Nj, n, u_exchange, Uw,
+            rho, mu_wall_law, y_exchange, dt);
+        return;
+
+    default:
+        fprintf(stderr, "%s ERROR: unsupported TET4 wall mode=%d\n", CODENAME, g_t4_wall_mode);
+        exit(EXIT_FAILURE);
+    }
 }
 
 /*
@@ -8829,6 +9402,20 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                 ke);
         }
 
+        /* For a TET4 face the local node opposite the TRI3 is the one not
+         * present in s2v[].  0+1+2+3 = 6. */
+        const int opposite_local_node =
+            6 - s2v[0] - s2v[1] - s2v[2];
+
+        if (opposite_local_node < 0 || opposite_local_node >= nv) {
+            T4N_FAIL(
+                "invalid opposite local node: es=%d owner=%d opp=%d",
+                es, ke, opposite_local_node);
+        }
+
+        const int opposite_gid =
+            fe->conn[ke][opposite_local_node];
+
         /*
          * TET4 metricと物理勾配。
          */
@@ -9140,8 +9727,20 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                     Jacobian_face,
                     Jface_raw);
 
-            const double y_wall =
+            const double y_exchange =
                 h_n;
+
+            double u_exchange[3];
+            if (g_t4_wall_exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE) {
+                u_exchange[0] = vals->v[opposite_gid][0];
+                u_exchange[1] = vals->v[opposite_gid][1];
+                u_exchange[2] = vals->v[opposite_gid][2];
+            }
+            else {
+                u_exchange[0] = u_q[0];
+                u_exchange[1] = u_q[1];
+                u_exchange[2] = u_q[2];
+            }
 
             const double w =
                 basis_surf->integ_weight[p]
@@ -9285,64 +9884,35 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
             }
 
             /*
-             * y+節点投影。
+             * y+ nodal projection.  Spalding modes use the selected exchange
+             * velocity (opposite-node by default), not the wall-face DOF.
              */
             if (do_yplus) {
-                const double un =
-                    t4n_dot3(
-                        r,
-                        n);
-
-                const double ut[3] = {
-                    r[0] - un*n[0],
-                    r[1] - un*n[1],
-                    r[2] - un*n[2]
-                };
-
-                const double ut_norm =
-                    sqrt(
-                        t4n_dot3(
-                            ut,
-                            ut));
-
-                const double u_tau =
-                    compute_utau_all_yplus(
-                        ut_norm,
-                        y_wall,
-                        rho,
-                        mu_molecular);
+                double ut_exchange_diag[3] = {0.0, 0.0, 0.0};
+                double u_tau = 0.0;
+                t4n_spalding_wall_coefficients(
+                    u_exchange,
+                    Uw,
+                    n,
+                    rho,
+                    mu_molecular,
+                    y_exchange,
+                    ut_exchange_diag,
+                    NULL,
+                    &u_tau,
+                    NULL);
 
                 double yplus_q = 0.0;
-
-                if (
-                    u_tau > 0.0 &&
-                    rho > 0.0 &&
-                    mu_molecular > 0.0
-                ) {
-                    yplus_q =
-                        rho
-                        * u_tau
-                        * y_wall
-                        / mu_molecular;
+                if (u_tau > 0.0 && rho > 0.0 && mu_molecular > 0.0) {
+                    yplus_q = rho * u_tau * y_exchange / mu_molecular;
                 }
 
                 for (int a = 0; a < ns; ++a) {
-                    const int gid =
-                        surf->conn[es][a];
-
-                    const double nodal_weight =
-                        w
-                        * basis_surf->N[p][a];
-
-                    vals->y_plus[gid] +=
-                        nodal_weight
-                        * yplus_q;
-
-                    yplus_weight[gid] +=
-                        nodal_weight;
-
-                    vals->y_plus_count[gid] +=
-                        1;
+                    const int gid = surf->conn[es][a];
+                    const double nodal_weight = w * basis_surf->N[p][a];
+                    vals->y_plus[gid] += nodal_weight * yplus_q;
+                    yplus_weight[gid] += nodal_weight;
+                    vals->y_plus_count[gid] += 1;
                 }
             }
 
@@ -9362,15 +9932,17 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                     0.0
                 };
 
-                t4n_wall_sym_nitsche_local_vecmat(
+                t4n_wall_local_vecmat(
                     vec_i,
                     dummy_mat,
                     Nv[i],
+                    0.0,
                     0.0,
                     dN_dx[i],
                     zero_grad,
                     n,
                     u_q,
+                    u_exchange,
                     p_q,
                     grad_u_q,
                     Uw,
@@ -9378,7 +9950,7 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                     mu_eff_face,
                     mu_molecular,
                     h_n,
-                    y_wall,
+                    y_exchange,
                     vals->dt,
                     gamma_n);
 
@@ -9410,15 +9982,22 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                     double dummy_vec[4];
                     double mat_ij[4][4];
 
-                    t4n_wall_sym_nitsche_local_vecmat(
+                    const double exchange_Nj =
+                        (g_t4_wall_exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE)
+                        ? (j == opposite_local_node ? 1.0 : 0.0)
+                        : Nv[j];
+
+                    t4n_wall_local_vecmat(
                         dummy_vec,
                         mat_ij,
                         Nv[i],
                         Nv[j],
+                        exchange_Nj,
                         dN_dx[i],
                         dN_dx[j],
                         n,
                         u_q,
+                        u_exchange,
                         p_q,
                         grad_u_q,
                         Uw,
@@ -9426,7 +10005,7 @@ void set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
                         mu_eff_face,
                         mu_molecular,
                         h_n,
-                        y_wall,
+                        y_exchange,
                         vals->dt,
                         gamma_n);
 
@@ -9756,6 +10335,13 @@ void set_wall_face_vecmat_symmetric_nitsche_hex_or_tet(
             return;
         }
 
+        /* Strong no-slip is handled by the component-wise Dirichlet wrapper.
+         * Projected-strong free-slip has no tangential traction. */
+        if (g_t4_wall_mode == T4_WALL_STRONG_NOSLIP ||
+            g_t4_wall_mode == T4_WALL_STRONG_NORMAL_FREESLIP) {
+            return;
+        }
+
         set_wall_face_vecmat_symmetric_nitsche_tet4_tri3(
             monolis,
             fe,
@@ -10047,7 +10633,16 @@ static void t4_cd_normal_nitsche_penalty_force_density(
     const double rn = t4n_dot3(r, n);
 
     for (int a = 0; a < 3; ++a) {
-        f_body[a] = -beta * rn * n[a];
+        if (g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP) {
+            f_body[a] = -beta * r[a];
+        }
+        else if (g_t4_wall_mode == T4_WALL_NITSCHE_FREESLIP ||
+                 g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING) {
+            f_body[a] = -beta * rn * n[a];
+        }
+        else {
+            f_body[a] = 0.0;
+        }
     }
 
     if (beta_out)    *beta_out    = beta;
@@ -10307,8 +10902,6 @@ static int calc_Cd_v_tet4_tri3_core(
                         Jacobian_face,
                         Jraw);
 
-                const double y_wall = h_n;
-
                 double f_nit_q[3];
 
                 t4_cd_normal_nitsche_penalty_force_density(
@@ -10540,6 +11133,13 @@ int calc_ahmed_body_support_diagnostics_tet4_tri3_local(
             continue;
         }
 
+        const int opposite_local_node =
+            6 - s2v[0] - s2v[1] - s2v[2];
+        if (opposite_local_node < 0 || opposite_local_node >= 4) {
+            continue;
+        }
+        const int opposite_gid = fe->conn[ke][opposite_local_node];
+
         double xf[3] = {0.0, 0.0, 0.0};
         for (int a = 0; a < 3; ++a) {
             xf[0] += xtri[a][0];
@@ -10737,44 +11337,68 @@ int calc_ahmed_body_support_diagnostics_tet4_tri3_local(
                         Jacobian_face,
                         Jraw);
 
-                const double y_wall = h_n;
+                const double y_exchange = h_n;
+
+                double u_exchange[3];
+                if (g_t4_wall_exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE) {
+                    u_exchange[0] = vals->v[opposite_gid][0];
+                    u_exchange[1] = vals->v[opposite_gid][1];
+                    u_exchange[2] = vals->v[opposite_gid][2];
+                } else {
+                    u_exchange[0] = u_q[0];
+                    u_exchange[1] = u_q[1];
+                    u_exchange[2] = u_q[2];
+                }
 
                 double ut[3] = {0.0, 0.0, 0.0};
-                double rn = 0.0;
                 double beta_wall = 0.0;
+                if (t4_wall_mode_uses_spalding()) {
+                    t4n_spalding_wall_coefficients(
+                        u_exchange,
+                        Uw,
+                        n,
+                        rho,
+                        mu_molecular,
+                        y_exchange,
+                        ut,
+                        NULL,
+                        NULL,
+                        &beta_wall);
+                }
 
-                t4n_caseC_wall_coefficients(
-                    u_q,
-                    Uw,
-                    n,
-                    rho,
-                    mu_molecular,
-                    y_wall,
-                    ut,
-                    &rn,
-                    NULL,
-                    NULL,
-                    &beta_wall);
+                const double rwall[3] = {
+                    u_q[0]-Uw[0], u_q[1]-Uw[1], u_q[2]-Uw[2]
+                };
+                const double rn = t4n_dot3(rwall, n);
 
                 double beta_n = 0.0;
-                t4n_get_penalty_coefficients(
-                    rho,
-                    mu_eff_face,
-                    fmax(h_n, 1.0e-12),
-                    fmax(vals->dt, 1.0e-30),
-                    gamma_n,
-                    &beta_n,
-                    NULL,
-                    NULL);
+                if (t4_wall_mode_uses_nitsche_normal()) {
+                    t4n_get_penalty_coefficients(
+                        rho,
+                        mu_eff_face,
+                        fmax(h_n, 1.0e-12),
+                        fmax(vals->dt, 1.0e-30),
+                        gamma_n,
+                        &beta_n,
+                        NULL,
+                        NULL);
+                }
 
                 for (int c = 0; c < 3; ++c) {
-                    /* Physical/modelled tangential body reaction. */
-                    diag->force_walllaw[region][c] +=
-                        beta_wall * ut[c] * w;
+                    if (t4_wall_mode_uses_spalding()) {
+                        diag->force_walllaw[region][c] +=
+                            beta_wall * ut[c] * w;
+                    }
 
-                    /* Discrete normal-penalty row-sum reaction diagnostic. */
-                    diag->force_normal_penalty_reaction[region][c] +=
-                        beta_n * rn * n[c] * w;
+                    if (g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP) {
+                        diag->force_normal_penalty_reaction[region][c] +=
+                            beta_n * rwall[c] * w;
+                    }
+                    else if (g_t4_wall_mode == T4_WALL_NITSCHE_FREESLIP ||
+                             g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING) {
+                        diag->force_normal_penalty_reaction[region][c] +=
+                            beta_n * rn * n[c] * w;
+                    }
                 }
             }
         }
@@ -10988,14 +11612,29 @@ void output_ahmed_body_support_drag_diagnostics(
             sizeof(fname),
             "%s_Cd_modelled_total.txt",
             prefix[r]);
+
+        double D_modelled = D_pressure;
+        if (g_t4_wall_mode == T4_WALL_STRONG_NOSLIP ||
+            g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP) {
+            D_modelled += D_molecular;
+        }
+        else if (g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING ||
+                 g_t4_wall_mode == T4_WALL_STRONG_NORMAL_SPALDING) {
+            D_modelled += D_normal_molecular + D_walllaw;
+        }
+        else {
+            /* free-slip: zero modeled tangential traction */
+            D_modelled += D_normal_molecular;
+        }
+
         t4_output_split_scalar(
-            (D_pressure + D_normal_molecular + D_walllaw) / qA,
+            D_modelled / qA,
             t,
             fname,
             directory);
     }
 
-    /* Global Case-C quantities over main body + support legs. */
+    /* Global wall-model quantities over main body + support legs. */
     t4_output_split_scalar(
         total_D_walllaw / qA,
         t,
@@ -11008,8 +11647,21 @@ void output_ahmed_body_support_drag_diagnostics(
         "cylinder_drag_coeff_pressure_plus_walllaw.txt",
         directory);
 
+    double total_D_modelled = total_D_pressure;
+    if (g_t4_wall_mode == T4_WALL_STRONG_NOSLIP ||
+        g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP) {
+        total_D_modelled += total_D_molecular;
+    }
+    else if (g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING ||
+             g_t4_wall_mode == T4_WALL_STRONG_NORMAL_SPALDING) {
+        total_D_modelled += total_D_normal_molecular + total_D_walllaw;
+    }
+    else {
+        total_D_modelled += total_D_normal_molecular;
+    }
+
     t4_output_split_scalar(
-        (total_D_pressure + total_D_normal_molecular + total_D_walllaw) / qA,
+        total_D_modelled / qA,
         t,
         "cylinder_drag_coeff_modelled_total.txt",
         directory);
@@ -15189,6 +15841,12 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
         return 0;
     }
 
+    /* Row-sum reaction is a Nitsche diagnostic.  Strong/projected-strong
+     * modes have no Nitsche boundary row to report. */
+    if (!t4_wall_mode_uses_nitsche_normal()) {
+        return 0;
+    }
+
     const double Uw[3] = {
         Uw_in != NULL ? Uw_in[0] : 0.0,
         Uw_in != NULL ? Uw_in[1] : 0.0,
@@ -15295,6 +15953,14 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
             diag->invalid_faces += 1.0;
             continue;
         }
+
+        const int opposite_local_node =
+            6 - s2v[0] - s2v[1] - s2v[2];
+        if (opposite_local_node < 0 || opposite_local_node >= nv) {
+            diag->invalid_faces += 1.0;
+            continue;
+        }
+        const int opposite_gid = fe->conn[ke][opposite_local_node];
 
         double dN_dx[4][3];
         double J_inv_face[3][3];
@@ -15482,16 +16148,25 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
                     Jacobian_face,
                     Jface_raw);
 
-            const double y_wall = h_n;
+            const double y_exchange = h_n;
+
+            double u_exchange[3];
+            if (g_t4_wall_exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE) {
+                u_exchange[0] = vals->v[opposite_gid][0];
+                u_exchange[1] = vals->v[opposite_gid][1];
+                u_exchange[2] = vals->v[opposite_gid][2];
+            } else {
+                u_exchange[0] = u_q[0];
+                u_exchange[1] = u_q[1];
+                u_exchange[2] = u_q[2];
+            }
 
             const double w =
                 basis_surf->integ_weight[p]
                 * area_factor
                 * Jface_raw;
 
-            /*
-             * Direct sum of the four local momentum residual rows.
-             */
+            /* Direct sum of the four local momentum residual rows. */
             double row_q[3] = {0.0, 0.0, 0.0};
 
             for (int i = 0; i < nv; ++i) {
@@ -15499,15 +16174,17 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
                 double dummy_mat[4][4];
                 const double zero_grad[3] = {0.0, 0.0, 0.0};
 
-                t4n_wall_sym_nitsche_local_vecmat(
+                t4n_wall_local_vecmat(
                     vec_i,
                     dummy_mat,
                     Nv[i],
+                    0.0,
                     0.0,
                     dN_dx[i],
                     zero_grad,
                     n,
                     u_q,
+                    u_exchange,
                     p_q,
                     grad_u_q,
                     Uw,
@@ -15515,7 +16192,7 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
                     mu_eff_face,
                     mu_molecular,
                     h_n,
-                    y_wall,
+                    y_exchange,
                     vals->dt,
                     gamma_n);
 
@@ -15567,19 +16244,19 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
 
             double ut_row[3] = {0.0, 0.0, 0.0};
             double beta_wall_row = 0.0;
-
-            t4n_caseC_wall_coefficients(
-                u_q,
-                Uw,
-                n,
-                rho,
-                mu_molecular,
-                y_wall,
-                ut_row,
-                NULL,
-                NULL,
-                NULL,
-                &beta_wall_row);
+            if (g_t4_wall_mode == T4_WALL_NITSCHE_SPALDING) {
+                t4n_spalding_wall_coefficients(
+                    u_exchange,
+                    Uw,
+                    n,
+                    rho,
+                    mu_molecular,
+                    y_exchange,
+                    ut_row,
+                    NULL,
+                    NULL,
+                    &beta_wall_row);
+            }
 
             double pressure_body_q[3];
             double weak_viscous_body_q[3];
@@ -15589,20 +16266,18 @@ int calc_nitsche_row_sum_reaction_tet4_tri3_local(
             for (int a = 0; a < 3; ++a) {
                 pressure_body_q[a] = p_q * n[a];
 
-                /*
-                 * Normal viscous consistency contribution plus the modeled
-                 * tangential wall-law body reaction.  It is stored in the
-                 * existing weak-viscous bucket only so the legacy row-sum
-                 * diagnostics structure does not need to change.
-                 */
-                weak_viscous_body_q[a] =
-                    -mu_eff_face
-                    * n[a]
-                    * (grad_u_n_dot_n + div_u)
-                    + beta_wall_row * ut_row[a];
-
-                /* Legacy sign used by cylinder_drag_coeff_Nitsche.txt. */
-                penalty_file_q[a] = -beta * rn * n[a];
+                if (g_t4_wall_mode == T4_WALL_NITSCHE_NOSLIP) {
+                    /* full-vector Nitsche row sum */
+                    weak_viscous_body_q[a] =
+                        -mu_eff_face * (grad_u_n[a] + n[a] * div_u);
+                    penalty_file_q[a] = -beta * r[a];
+                } else {
+                    /* normal Nitsche, with optional modeled wall-law shear */
+                    weak_viscous_body_q[a] =
+                        -mu_eff_face * n[a] * (grad_u_n_dot_n + div_u)
+                        + beta_wall_row * ut_row[a];
+                    penalty_file_q[a] = -beta * rn * n[a];
+                }
 
                 reference_q[a] =
                     pressure_body_q[a]
@@ -15803,6 +16478,18 @@ void solver_fom_VMS(
     */
     const double gamma_n = g_t4_nitsche_gamma_n;
 
+    if (t4_wall_mode_uses_projected_strong_normal()) {
+        if (t4_wall_projector_prepare(surf_wall, &(sys.fe)) != 0) {
+            fprintf(stderr, "%s ERROR: failed to build projected-strong wall projector.\n", CODENAME);
+            exit(EXIT_FAILURE);
+        }
+
+        /* Put hot-start/current and previous-time states on the admissible
+         * wall manifold before any volume residual is evaluated. */
+        t4_wall_project_velocity_state(sys.vals.v, Uw);
+        t4_wall_project_velocity_state(sys.vals.v_old, Uw);
+    }
+
     for (int it = 0; it < max_iter_NR; ++it) {
         if (myrank == 0) {
             printf("\n%s ----------------- Time step %d : NR step %d ----------------\n",
@@ -15850,10 +16537,10 @@ void solver_fom_VMS(
             &(sys.vals));
 
         /*
-          Case C 壁面境界：
-            法線速度のみ symmetric Nitsche で拘束
-            接線方向は Spalding all-y+ wall law (Robin traction)
-          Dirichlet BC を入れる前に追加する。
+          Runtime-selectable Ahmed wall terms.
+          Depending on g_t4_wall_mode this assembles full-vector Nitsche,
+          normal-only Nitsche, Spalding tangential traction, or no surface
+          term for strong/projected-strong modes.  Add before Dirichlet BC.
         */
 
         set_wall_face_vecmat_symmetric_nitsche_hex_or_tet(
@@ -15867,6 +16554,10 @@ void solver_fom_VMS(
             sys.vals.viscosity,
             Uw,
             gamma_n);
+
+        if (t4_wall_mode_uses_projected_strong_normal()) {
+            t4_wall_project_velocity_rhs(sys.monolis.mat.R.B);
+        }
 
         /*
           強制 Dirichlet 条件
@@ -15910,12 +16601,25 @@ void solver_fom_VMS(
             sys.monolis.mat.R.X,
             sys.fe.total_num_nodes);
 
+        if (t4_wall_mode_uses_projected_strong_normal()) {
+            /* Restrict every Newton correction to the local tangent/edge
+             * subspace.  This is the strong-normal enforcement used by the
+             * TET4-only projected modes. */
+            t4_wall_project_velocity_increment(sys.vals.delta_v);
+        }
+
         update_velocity_pressure_NR(
             sys.vals.v,
             sys.vals.delta_v,
             sys.vals.p,
             sys.vals.delta_p,
             sys.fe.total_num_nodes);
+
+        if (t4_wall_mode_uses_projected_strong_normal()) {
+            /* Re-project to remove round-off and keep the iterate exactly on
+             * the nodal admissible subspace before residual re-evaluation. */
+            t4_wall_project_velocity_state(sys.vals.v, Uw);
+        }
 
         /*
           更新後の残差を再評価する。
@@ -15953,6 +16657,10 @@ void solver_fom_VMS(
             sys.vals.viscosity,
             Uw,
             gamma_n);
+
+        if (t4_wall_mode_uses_projected_strong_normal()) {
+            t4_wall_project_velocity_rhs(sys.monolis.mat.R.B);
+        }
 
         BBFE_sys_monowrap_set_Dirichlet_bc(
             &(sys.monolis),

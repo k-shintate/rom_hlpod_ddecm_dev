@@ -12,16 +12,288 @@ static const char* INPUT_FILENAME_D_BC_P  = "D_bc_p.dat";
 const int BUFFER_SIZE = 1024;
 
 
-/* Runtime Nitsche parameters are owned by the core solver. */
+/* TET4/TRI3 wall-mode configuration is owned by the core solver. */
+#define T4_WALL_STRONG_NOSLIP              0
+#define T4_WALL_NITSCHE_NOSLIP             1
+#define T4_WALL_NITSCHE_FREESLIP           2
+#define T4_WALL_NITSCHE_SPALDING           3
+#define T4_WALL_STRONG_NORMAL_FREESLIP     4
+#define T4_WALL_STRONG_NORMAL_SPALDING     5
+
+#define T4_WALL_EXCHANGE_WALL_Q            0
+#define T4_WALL_EXCHANGE_OPPOSITE_NODE     1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 void BBFE_fluid_set_nitsche_runtime_parameters(
     double gamma_n,
     double dt_penalty_coeff);
+
+void BBFE_fluid_set_tet4_wall_runtime_parameters(
+    int wall_mode,
+    int exchange_mode,
+    double gamma_n,
+    double dt_penalty_coeff,
+    double kappa,
+    double B,
+    double ut_eps,
+    double feature_angle_deg);
+
+int BBFE_fluid_sups_add_surface_velocity_Dirichlet(
+    BBFE_BC* bc,
+    const BBFE_DATA* surf,
+    const double imposed_velocity[3]);
+
+void BBFE_fluid_sups_impose_surface_velocity_on_values(
+    const BBFE_DATA* surf,
+    double** v,
+    const double imposed_velocity[3]);
 #ifdef __cplusplus
 }
 #endif
+
+static double read_t4_nitsche_dt_penalty_coeff_from_env(void);
+
+typedef struct T4WallOptions {
+    int mode;
+    int exchange_mode;
+    double gamma_n;
+    double c_dt;
+    double kappa;
+    double B;
+    double ut_eps;
+    double feature_angle_deg;
+} T4WallOptions;
+
+static const char* t4_wall_mode_name(int mode)
+{
+    switch (mode) {
+    case T4_WALL_STRONG_NOSLIP:          return "strong-noslip";
+    case T4_WALL_NITSCHE_NOSLIP:         return "nitsche-noslip";
+    case T4_WALL_NITSCHE_FREESLIP:       return "nitsche-freeslip";
+    case T4_WALL_NITSCHE_SPALDING:       return "nitsche-spalding";
+    case T4_WALL_STRONG_NORMAL_FREESLIP: return "strong-normal-freeslip";
+    case T4_WALL_STRONG_NORMAL_SPALDING: return "strong-normal-spalding";
+    default:                              return "unknown";
+    }
+}
+
+static int t4_parse_wall_mode_name(const char* text)
+{
+    if (text == NULL) return -1;
+    if (strcmp(text, "strong-noslip") == 0)          return T4_WALL_STRONG_NOSLIP;
+    if (strcmp(text, "nitsche-noslip") == 0)         return T4_WALL_NITSCHE_NOSLIP;
+    if (strcmp(text, "nitsche-freeslip") == 0)       return T4_WALL_NITSCHE_FREESLIP;
+    if (strcmp(text, "nitsche-spalding") == 0)       return T4_WALL_NITSCHE_SPALDING;
+    if (strcmp(text, "strong-normal-freeslip") == 0 ||
+        strcmp(text, "projected-strong-normal-freeslip") == 0)
+        return T4_WALL_STRONG_NORMAL_FREESLIP;
+    if (strcmp(text, "strong-normal-spalding") == 0 ||
+        strcmp(text, "projected-strong-normal-spalding") == 0)
+        return T4_WALL_STRONG_NORMAL_SPALDING;
+    return -1;
+}
+
+static const char* t4_get_option_value(
+    int argc,
+    char* argv[],
+    const char* name)
+{
+    const size_t nlen = strlen(name);
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], name) == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "%s ERROR: option %s requires a value.\n", CODENAME, name);
+                exit(EXIT_FAILURE);
+            }
+            return argv[i + 1];
+        }
+        if (strncmp(argv[i], name, nlen) == 0 && argv[i][nlen] == '=') {
+            return argv[i] + nlen + 1;
+        }
+    }
+    return NULL;
+}
+
+static int t4_has_flag(int argc, char* argv[], const char* name)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], name) == 0) return 1;
+    }
+    return 0;
+}
+
+static int t4_is_wall_option_name(const char* arg, int* consumes_next)
+{
+    static const char* names[] = {
+        "--wall-mode",
+        "--ahmed-wall-mode",
+        "--wall-exchange",
+        "--wall-gamma",
+        "--wall-cdt",
+        "--wall-kappa",
+        "--wall-B",
+        "--wall-ut-eps",
+        "--wall-feature-angle"
+    };
+
+    if (consumes_next != NULL) *consumes_next = 0;
+    if (arg == NULL) return 0;
+
+    const int n = (int)(sizeof(names) / sizeof(names[0]));
+    for (int i = 0; i < n; ++i) {
+        const size_t len = strlen(names[i]);
+        if (strcmp(arg, names[i]) == 0) {
+            if (consumes_next != NULL) *consumes_next = 1;
+            return 1;
+        }
+        if (strncmp(arg, names[i], len) == 0 && arg[len] == '=') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Remove wall-specific options before passing argc/argv to the pre-existing
+ * BBFE command-line parser.  This avoids relying on that parser to ignore
+ * options it does not know about.  The strings themselves remain owned by the
+ * original argv; only the pointer array is allocated here. */
+static char** t4_build_framework_argv(int argc, char* argv[], int* framework_argc)
+{
+    char** out = (char**)calloc((size_t)argc + 1u, sizeof(char*));
+    if (out == NULL) {
+        fprintf(stderr, "%s ERROR: failed to allocate filtered argv.\n", CODENAME);
+        exit(EXIT_FAILURE);
+    }
+
+    int nout = 0;
+    if (argc > 0) out[nout++] = argv[0];
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--wall-help") == 0) continue;
+
+        int consumes_next = 0;
+        if (t4_is_wall_option_name(argv[i], &consumes_next)) {
+            if (consumes_next && i + 1 < argc) ++i;
+            continue;
+        }
+
+        out[nout++] = argv[i];
+    }
+
+    out[nout] = NULL;
+    if (framework_argc != NULL) *framework_argc = nout;
+    return out;
+}
+
+static void t4_print_wall_help_and_exit(void)
+{
+    printf(
+        "TET4 Ahmed wall options:\n"
+        "  --wall-mode MODE  (alias: --ahmed-wall-mode)\n"
+        "    strong-noslip\n"
+        "    nitsche-noslip\n"
+        "    nitsche-freeslip\n"
+        "    nitsche-spalding\n"
+        "    strong-normal-freeslip\n"
+        "    strong-normal-spalding\n"
+        "  --wall-exchange opposite-node|wall-q\n"
+        "  --wall-gamma VALUE\n"
+        "  --wall-cdt VALUE\n"
+        "  --wall-kappa VALUE\n"
+        "  --wall-B VALUE\n"
+        "  --wall-ut-eps VALUE\n"
+        "  --wall-feature-angle DEG\n"
+        "\n"
+        "Default: --wall-mode nitsche-spalding --wall-exchange opposite-node\n"
+        "Ground z=0 remains component-wise strong no-slip in this executable.\n"
+        "Modes strong-normal-* use the experimental feature-aware projected-strong implementation.\n");
+    exit(EXIT_SUCCESS);
+}
+
+static double t4_parse_double_option(
+    int argc,
+    char* argv[],
+    const char* name,
+    double default_value)
+{
+    const char* text = t4_get_option_value(argc, argv, name);
+    if (text == NULL) return default_value;
+    char* endptr = NULL;
+    const double value = strtod(text, &endptr);
+    if (endptr == text || endptr == NULL || *endptr != '\0' || !isfinite(value)) {
+        fprintf(stderr, "%s ERROR: invalid %s=\"%s\".\n", CODENAME, name, text);
+        exit(EXIT_FAILURE);
+    }
+    return value;
+}
+
+static T4WallOptions t4_read_wall_options(int argc, char* argv[])
+{
+    if (t4_has_flag(argc, argv, "--wall-help")) {
+        t4_print_wall_help_and_exit();
+    }
+
+    T4WallOptions o;
+    /* Keep the previous Case-C family as the default, but fix its exchange
+     * velocity to the owner-TET opposite node. */
+    o.mode = T4_WALL_NITSCHE_SPALDING;
+    o.exchange_mode = T4_WALL_EXCHANGE_OPPOSITE_NODE;
+    o.gamma_n = 100.0;
+    o.c_dt = read_t4_nitsche_dt_penalty_coeff_from_env();
+    o.kappa = 0.41;
+    o.B = 5.2;
+    o.ut_eps = 1.0e-12;
+    o.feature_angle_deg = 30.0;
+
+    const char* mode_text = t4_get_option_value(argc, argv, "--wall-mode");
+    if (mode_text == NULL) {
+        mode_text = t4_get_option_value(argc, argv, "--ahmed-wall-mode");
+    }
+    if (mode_text != NULL) {
+        o.mode = t4_parse_wall_mode_name(mode_text);
+        if (o.mode < 0) {
+            fprintf(stderr,
+                "%s ERROR: unsupported --wall-mode=%s.\n"
+                "  allowed: strong-noslip, nitsche-noslip, nitsche-freeslip, "
+                "nitsche-spalding, strong-normal-freeslip, strong-normal-spalding\n",
+                CODENAME,
+                mode_text);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    const char* exch = t4_get_option_value(argc, argv, "--wall-exchange");
+    if (exch != NULL) {
+        if (strcmp(exch, "opposite-node") == 0) {
+            o.exchange_mode = T4_WALL_EXCHANGE_OPPOSITE_NODE;
+        }
+        else if (strcmp(exch, "wall-q") == 0) {
+            o.exchange_mode = T4_WALL_EXCHANGE_WALL_Q;
+        }
+        else {
+            fprintf(stderr, "%s ERROR: --wall-exchange must be opposite-node or wall-q.\n", CODENAME);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    o.gamma_n = t4_parse_double_option(argc, argv, "--wall-gamma", o.gamma_n);
+    o.c_dt = t4_parse_double_option(argc, argv, "--wall-cdt", o.c_dt);
+    o.kappa = t4_parse_double_option(argc, argv, "--wall-kappa", o.kappa);
+    o.B = t4_parse_double_option(argc, argv, "--wall-B", o.B);
+    o.ut_eps = t4_parse_double_option(argc, argv, "--wall-ut-eps", o.ut_eps);
+    o.feature_angle_deg = t4_parse_double_option(
+        argc, argv, "--wall-feature-angle", o.feature_angle_deg);
+
+    if (o.gamma_n <= 0.0 || o.c_dt < 0.0 || o.kappa <= 0.0 || o.ut_eps <= 0.0 ||
+        o.feature_angle_deg <= 0.0 || o.feature_angle_deg >= 90.0) {
+        fprintf(stderr, "%s ERROR: invalid wall option range.\n", CODENAME);
+        exit(EXIT_FAILURE);
+    }
+
+    return o;
+}
 
 #ifndef T4_AHMED_SPLIT_NUM_REGIONS
 #define T4_AHMED_SPLIT_NUM_REGIONS 2
@@ -625,14 +897,36 @@ int main (
     double t1 = monolis_get_time();
         double FOM_t1 = monolis_get_time();
 
-        sys.cond.directory = BBFE_fluid_get_directory_name(argc, argv, CODENAME);
+        const T4WallOptions wall_options = t4_read_wall_options(argc, argv);
+
+        int framework_argc = 0;
+        char** framework_argv =
+            t4_build_framework_argv(argc, argv, &framework_argc);
+
+        sys.cond.directory =
+            BBFE_fluid_get_directory_name(framework_argc, framework_argv, CODENAME);
+
+        const double Uw[3] = {0.0, 0.0, 0.0};
+
+        BBFE_fluid_set_tet4_wall_runtime_parameters(
+            wall_options.mode,
+            wall_options.exchange_mode,
+            wall_options.gamma_n,
+            wall_options.c_dt,
+            wall_options.kappa,
+            wall_options.B,
+            wall_options.ut_eps,
+            wall_options.feature_angle_deg);
 
         read_calc_conditions(&(sys.vals), sys.cond.directory);
 
         BBFE_fluid_pre(
                         &(sys.fe), &(sys.basis),
-                        argc, argv, sys.cond.directory,
+                        framework_argc, framework_argv, sys.cond.directory,
                         sys.vals.num_ip_each_axis);
+
+        free(framework_argv);
+        framework_argv = NULL;
 
         const char* filename;
 
@@ -692,7 +986,7 @@ if (ground_bc_status != 0) {
 
         exit(EXIT_FAILURE);
     }
-        */
+    */
 
     pre_surface(
             //&(sys.monolis_com_surf),
@@ -710,6 +1004,17 @@ if (ground_bc_status != 0) {
         "surf_graph.dat",
         sys.vals.num_ip_each_axis);
 
+    if (wall_options.mode == T4_WALL_STRONG_NOSLIP) {
+        const double zero_increment[3] = {0.0, 0.0, 0.0};
+        if (BBFE_fluid_sups_add_surface_velocity_Dirichlet(
+                &(sys.bc), &(sys.surf), Uw) != 0 ||
+            BBFE_fluid_sups_add_surface_velocity_Dirichlet(
+                &(sys.bc_NR), &(sys.surf), zero_increment) != 0) {
+            fprintf(stderr, "%s ERROR: failed to add strong Ahmed no-slip BC.\n", CODENAME);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     FILE* fp;
 
    if(monolis_mpi_get_global_my_rank() == 0){
@@ -726,7 +1031,7 @@ if (ground_bc_status != 0) {
             fp = BBFE_sys_write_fopen(fp, "cylinder_lift_coeff_pressure.txt", sys.cond.directory);
             fclose(fp);
 
-            const char* caseC_diag_files[] = {
+            const char* wall_mode_diag_files[] = {
                 "cylinder_drag_coeff_walllaw.txt",
                 "cylinder_drag_coeff_pressure_plus_walllaw.txt",
                 "cylinder_drag_coeff_modelled_total.txt",
@@ -766,13 +1071,13 @@ if (ground_bc_status != 0) {
                 "ahmed_support_Cd_modelled_total.txt"
             };
 
-            const int n_caseC_diag_files =
-                (int)(sizeof(caseC_diag_files) / sizeof(caseC_diag_files[0]));
+            const int n_wall_mode_diag_files =
+                (int)(sizeof(wall_mode_diag_files) / sizeof(wall_mode_diag_files[0]));
 
-            for (int i = 0; i < n_caseC_diag_files; ++i) {
+            for (int i = 0; i < n_wall_mode_diag_files; ++i) {
                 fp = BBFE_sys_write_fopen(
                     fp,
-                    caseC_diag_files[i],
+                    wall_mode_diag_files[i],
                     sys.cond.directory);
                 fclose(fp);
             }
@@ -781,11 +1086,11 @@ if (ground_bc_status != 0) {
     }
 
     BBFE_elemmat_set_Jacobi_mat(&(sys.fe), &(sys.basis));
-    BBFE_elemmat_set_shapefunc_derivative(&(sys.fe), &(sys.basis));
+        BBFE_elemmat_set_shapefunc_derivative(&(sys.fe), &(sys.basis));
 
-    BBFE_sys_monowrap_init_monomat(&(sys.monolis) , &(sys.mono_com), &(sys.fe), 4, sys.cond.directory);
+        BBFE_sys_monowrap_init_monomat(&(sys.monolis) , &(sys.mono_com), &(sys.fe), 4, sys.cond.directory);
 
-    //intialize for velocity and pressure
+        //intialize for velocity and pressure
     initialize_velocity_pressure_karman_vortex(sys.vals.v, sys.vals.p, sys.fe.total_num_nodes);
     //initialize_velocity_pressure_ahmedbody(&(sys.surf), sys.vals.v, sys.vals.p, sys.fe.total_num_nodes);
     double* vec = BB_std_calloc_1d_double(vec, sys.fe.total_num_nodes*4);
@@ -827,7 +1132,7 @@ output_files(&sys, 0, 0);
 
         t = 0.0; step = 0;
 
-/*
+        /*
         //if(sys.rom_prm_p.hot_start == 1){
             char fname[BUFFER_SIZE];
             snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
@@ -848,7 +1153,17 @@ output_files(&sys, 0, 0);
 
             BB_std_free_1d_double(val, 4*sys.fe.total_num_nodes);
         //}
-*/
+        */
+
+if (wall_options.mode == T4_WALL_STRONG_NOSLIP) {
+    BBFE_fluid_sups_impose_surface_velocity_on_values(
+        &(sys.surf), sys.vals.v, Uw);
+    BBFE_fluid_sups_impose_surface_velocity_on_values(
+        &(sys.surf), sys.vals.v_old, Uw);
+}
+
+//const double U_ref = 60.0;
+//const double A_ref = 0.112032;
 
 const double U_ref = 1.0;
 const double A_ref = 0.08;
@@ -872,34 +1187,47 @@ const double eP[3] = {
     0.0
 };
 
-const double Uw[3] = {
-    0.0,
-    0.0,
-    0.0
-};
-
-/*
- * solverが実際に使用する値と一致させる。
- */
-const double gamma_n = 100.0;
-const double nitsche_dt_penalty_coeff =
-    read_t4_nitsche_dt_penalty_coeff_from_env();
-
-BBFE_fluid_set_nitsche_runtime_parameters(
-    gamma_n,
-    nitsche_dt_penalty_coeff);
+/* Solver and force diagnostics use the same run-time wall configuration. */
+const double gamma_n = wall_options.gamma_n;
 
 if (monolis_mpi_get_global_my_rank() == 0) {
-    printf(
-        "%s Nitsche wall mode: Case C = normal Nitsche + tangential Spalding wall law\n",
-        CODENAME);
-    printf(
-        "%s   constrained: (u-Uw).n = 0; modeled: t_t = -rho*u_tau^2*u_t/|u_t|\n",
-        CODENAME);
+    printf("%s Ahmed wall mode: %s\n", CODENAME, t4_wall_mode_name(wall_options.mode));
+    printf("%s   exchange=%s gamma=%.6g c_dt=%.6g kappa=%.6g B=%.6g feature_angle=%.3f deg\n",
+        CODENAME,
+        wall_options.exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE ? "opposite-node" : "wall-q",
+        wall_options.gamma_n,
+        wall_options.c_dt,
+        wall_options.kappa,
+        wall_options.B,
+        wall_options.feature_angle_deg);
+
+    if (wall_options.mode == T4_WALL_STRONG_NORMAL_FREESLIP ||
+        wall_options.mode == T4_WALL_STRONG_NORMAL_SPALDING) {
+        printf("%s   strong-normal implementation: feature-aware nodal state/update projection\n", CODENAME);
+    }
+
     printf(
         "%s Ahmed force split: face-centroid z < %.6f m -> supports; otherwise main body\n",
         CODENAME,
         support_z_cut);
+
+    FILE* wall_cfg_fp = NULL;
+    wall_cfg_fp = BBFE_sys_write_fopen(
+        wall_cfg_fp,
+        "wall_runtime_config.txt",
+        sys.cond.directory);
+    fprintf(wall_cfg_fp, "wall_mode %s\n", t4_wall_mode_name(wall_options.mode));
+    fprintf(wall_cfg_fp, "wall_mode_id %d\n", wall_options.mode);
+    fprintf(wall_cfg_fp, "exchange %s\n",
+        wall_options.exchange_mode == T4_WALL_EXCHANGE_OPPOSITE_NODE ? "opposite-node" : "wall-q");
+    fprintf(wall_cfg_fp, "gamma_n %.17e\n", wall_options.gamma_n);
+    fprintf(wall_cfg_fp, "c_dt %.17e\n", wall_options.c_dt);
+    fprintf(wall_cfg_fp, "kappa %.17e\n", wall_options.kappa);
+    fprintf(wall_cfg_fp, "B %.17e\n", wall_options.B);
+    fprintf(wall_cfg_fp, "ut_eps %.17e\n", wall_options.ut_eps);
+    fprintf(wall_cfg_fp, "feature_angle_deg %.17e\n", wall_options.feature_angle_deg);
+    fprintf(wall_cfg_fp, "ground_wall strong-noslip\n");
+    fclose(wall_cfg_fp);
 }
 
 /*
@@ -1268,7 +1596,7 @@ t4_diag_trace(
         if(step%1 == 0){
                 char fname[BUFFER_SIZE];
                 snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
-                hot_start_write_initialize_val(sys.monolis.mat.R.X, sys.fe.total_num_nodes, 4, t, fname, sys.cond.directory);
+                //hot_start_write_initialize_val(sys.monolis.mat.R.X, sys.fe.total_num_nodes, 4, t, fname, sys.cond.directory);
             }
         else{
         }
@@ -1291,4 +1619,3 @@ t4_diag_trace(
 
         return 0;
 }
-
