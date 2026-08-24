@@ -545,20 +545,15 @@ static void pri6_fullvec_nitsche_local(
 
     double r[3]={u[0]-Uw[0],u[1]-Uw[1],u[2]-Uw[2]};
     const double rn=pri6_dot3(r,n);
+
     /*
-     * Cauchy traction:
+     * Symmetric Newtonian Cauchy stress:
      *
      *   sigma = -p I + mu (grad(u) + grad(u)^T)
-     *   t     = sigma n
-     *
-     * grad_u[a][b] = du_a/dx_b.
-     *
-     * The previous implementation incorrectly used n[a]*div(u) for the
-     * grad(u)^T n contribution.  That is not equivalent and, on the curved
-     * cylinder wall, corrupts the y/z momentum coupling.
+     *   traction = sigma n
      */
-    double gun[3]  = {0.0,0.0,0.0};  /* grad(u)   n */
-    double gTun[3] = {0.0,0.0,0.0};  /* grad(u)^T n */
+    double gun[3]  ={0.0,0.0,0.0};  /* grad(u)   n */
+    double gTun[3] ={0.0,0.0,0.0};  /* grad(u)^T n */
 
     for(int a=0;a<3;++a) {
         for(int b=0;b<3;++b) {
@@ -572,32 +567,34 @@ static void pri6_fullvec_nitsche_local(
         traction[a] = -p*n[a] + mu*(gun[a] + gTun[a]);
     }
 
-    const double gni = pri6_dot3(gradNi,n);
-    const double gnj = pri6_dot3(gradNj,n);
-    const double gradNi_dot_r =
-        gradNi[0]*r[0] + gradNi[1]*r[1] + gradNi[2]*r[2];
+    const double gni=pri6_dot3(gradNi,n);
+    const double gnj=pri6_dot3(gradNj,n);
+    const double gradNi_dot_r=pri6_dot3(gradNi,r);
 
     for(int a=0;a<3;++a) {
-        /*
-         * -(sigma(u,p)n, w)
-         * -(sigma(w,0)n, u-Uw)
-         * + penalty
-         */
+        /* consistency */
         vec[a] += dt*(-Ni*traction[a]);
+
+        /*
+         * adjoint consistency:
+         * -(sigma(v,0)n) . (u-Uw)
+         */
         vec[a] += dt*(-mu*(gni*r[a] + n[a]*gradNi_dot_r));
-        vec[a] += dt*( Ni*beta*r[a]);
+
+        /* penalty */
+        vec[a] += dt*(Ni*beta*r[a]);
     }
 
-    /* pressure-test-function part of the symmetric Nitsche term */
+    /* pressure-test part of adjoint consistency */
     vec[3] += dt*Ni*rn;
 
     for(int a=0;a<3;++a) {
         for(int b=0;b<3;++b) {
-            const double dab = (a==b) ? 1.0 : 0.0;
+            const double dab=(a==b)?1.0:0.0;
 
             /*
-             * d/du_b [ sigma(u,p)n ]_a
-             * = mu [delta_ab grad(Nj).n + gradNj[a] n[b]]
+             * d[(sigma(u,p)n)_a]/d U_{j,b}
+             * = mu [delta_ab (gradNj.n) + gradNj[a] n[b]]
              */
             const double dtr =
                 mu*(dab*gnj + gradNj[a]*n[b]);
@@ -605,17 +602,16 @@ static void pri6_fullvec_nitsche_local(
             mat[a][b] += dt*(-Ni*dtr);
 
             /*
-             * derivative of the adjoint-consistency term:
-             * -mu[(gradNi.n) r_a + n_a (gradNi.r)]
+             * derivative of adjoint-consistency term
              */
-            mat[a][b] += dt*(
-                -mu*(
-                    gni*Nj*dab
-                    + n[a]*gradNi[b]*Nj));
+            mat[a][b] += dt*(-mu*(
+                gni*Nj*dab
+                + n[a]*gradNi[b]*Nj));
 
             mat[a][b] += dt*(Ni*Nj*beta*dab);
         }
 
+        /* derivative of consistency traction wrt pressure */
         mat[a][3] += dt*(Ni*Nj*n[a]);
     }
 
@@ -638,19 +634,21 @@ static void pri6_normal_nitsche_local(
 
     const double r[3]={u[0]-Uw[0],u[1]-Uw[1],u[2]-Uw[2]};
     const double rn=pri6_dot3(r,n);
+
+    /*
+     * Normal component of symmetric Cauchy traction:
+     *
+     *   n.sigma.n = -p + 2 mu n.grad(u).n
+     */
     double gun[3]={0.0,0.0,0.0};
     for(int a=0;a<3;++a) {
         for(int b=0;b<3;++b) {
-            gun[a] += grad_u[a][b]*n[b];
+            gun[a]+=grad_u[a][b]*n[b];
         }
     }
 
-    /*
-     * n.sigma.n = -p + 2 mu n.grad(u).n
-     * because n.grad(u)^T.n is the same scalar.
-     */
-    const double n_grad_u_n = pri6_dot3(gun,n);
-    const double traction_n = -p + 2.0*mu*n_grad_u_n;
+    const double traction_n =
+        -p + 2.0*mu*pri6_dot3(gun,n);
 
     const double gni=pri6_dot3(gradNi,n);
     const double gnj=pri6_dot3(gradNj,n);
@@ -659,23 +657,28 @@ static void pri6_normal_nitsche_local(
         const double wn = Ni*n[a];
 
         /*
-         * Normal component of sigma(Ni e_a,0)n:
-         *   n.sigma(w,0).n = 2 mu n_a grad(Ni).n
+         * n.sigma(v,0).n for v = Ni e_a:
+         *   2 mu n[a] (gradNi.n)
          */
-        const double adj_n = 2.0*mu*n[a]*gni;
+        const double twn =
+            2.0*mu*n[a]*gni;
 
-        vec[a] += dt*(-wn*traction_n - adj_n*rn + beta*wn*rn);
+        vec[a] += dt*(
+            -wn*traction_n
+            -twn*rn
+            +beta*wn*rn);
     }
 
     vec[3] += dt*Ni*rn;
 
     for(int a=0;a<3;++a) {
         for(int b=0;b<3;++b) {
-            const double dtn = 2.0*mu*n[b]*gnj;
+            const double dtn =
+                2.0*mu*n[b]*gnj;
 
             mat[a][b] += dt*(-Ni*n[a]*dtn);
             mat[a][b] += dt*(-2.0*mu*n[a]*gni*Nj*n[b]);
-            mat[a][b] += dt*( beta*Ni*n[a]*Nj*n[b]);
+            mat[a][b] += dt*(beta*Ni*n[a]*Nj*n[b]);
         }
 
         mat[a][3] += dt*(Ni*Nj*n[a]);
@@ -1268,14 +1271,14 @@ void solver_fom_NR_mixed_prism_nitsche(
             sys->vals.delta_p,
             nnode);
 
-        /* Make the updated state consistent before diagnostics/residual. */
+        /* Make the updated state consistent before residual re-evaluation. */
         BBFE_fluid_mixed_sync_state(
             &(sys->mono_com), &(sys->vals), nnode);
 
         /*
          * Report the UPDATED state.  In v8 this was called before
-         * update_velocity_pressure_NR(), so "state uy=0" at NR0 was merely
-         * the old initial condition and was easy to misinterpret.
+         * update_velocity_pressure_NR(), which made NR=0 look like
+         * uy=uz=p=0 even when the Newton increment was nonzero.
          */
         BBFE_fluid_mixed_report_prism_components(sys, step, it);
 
@@ -1355,3 +1358,5 @@ void solver_fom_NR_mixed_prism_nitsche(
     free(r0);
 }
 
+/* PRI6 Karman force diagnostics: keep this include at EOF. */
+#include "core_Nitsche_prism_diagnostics.inc"

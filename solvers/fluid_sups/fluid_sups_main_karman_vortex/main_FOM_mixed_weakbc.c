@@ -47,7 +47,6 @@ int main(int argc, char* argv[])
     BBFE_fluid_sups_read_Dirichlet_bc_NR(
         &(sys.bc_NR), filename, sys.cond.directory, nnode, 4);
 
-    /* Verify that PRI6 uy is not accidentally constrained by D_bc_v.dat. */
     BBFE_fluid_mixed_report_prism_bc(&sys);
 
     /* ------------------------------------------------------------ */
@@ -203,8 +202,44 @@ int main(int argc, char* argv[])
 
     wall.wall_mode = PRI6_WALL_NITSCHE_NOSLIP;
     wall.exchange_mode = PRI6_WALL_EXCHANGE_OPPOSITE_FACE;
-    wall.gamma_n = 10000.0;
-    wall.dt_penalty_coeff = 0.10;
+    /*
+     * Current stabilized no-slip Nitsche setting.
+     * With the present mesh this gives beta = O(10^4) and
+     * max|u.n| = O(10^-5).
+     */
+    wall.gamma_n = 1.0e4;
+    wall.dt_penalty_coeff = 1.0;
+
+    /* ------------------------------------------------------------ */
+    /* Karman drag / lift diagnostics.                              */
+    /* ------------------------------------------------------------ */
+
+    const double U_ref = 1.0;
+    const double A_ref = 0.08;  /* D=1 x span=0.08 */
+
+    const double eU[3] = {
+        1.0, 0.0, 0.0
+    };
+
+    const double eL[3] = {
+        0.0, 1.0, 0.0
+    };
+
+    const double Uw_diag[3] = {
+        0.0, 0.0, 0.0
+    };
+
+    const int diagnostic_interval = 10;
+
+    /*
+     * Only rank 0 creates/truncates the output files.
+     * The actual diagnostic below is called by ALL ranks because it uses
+     * MPI allreduce internally.
+     */
+    if(monolis_mpi_get_global_my_rank() == 0) {
+        BBFE_pri6_reset_karman_force_files(
+            sys.cond.directory);
+    }
 
     double t = 0.0;
     int step = 0;
@@ -225,6 +260,49 @@ int main(int argc, char* argv[])
             &wall,
             t,
             step);
+
+        /*
+         * IMPORTANT:
+         * BBFE_pri6_force_diagnostics_global() contains MPI allreduce calls,
+         * therefore every rank must enter this block on the same step.
+         */
+        if(step == 1 || step % diagnostic_interval == 0) {
+            PRI6ForceDiagnostics fdiag;
+
+            const int status =
+                BBFE_pri6_force_diagnostics_global(
+                    &(sys.surf),
+                    &(sys.fe_pri),
+                    &(sys.basis_surf),
+                    &(sys.vals),
+                    sys.vals.density,
+                    sys.vals.viscosity,
+                    Uw_diag,
+                    &wall,
+                    &(sys.mono_com),
+                    &fdiag);
+
+            if(status != 0) {
+                if(monolis_mpi_get_global_my_rank() == 0) {
+                    fprintf(
+                        stderr,
+                        "%s PRI6 force diagnostics failed at step=%d\n",
+                        CODENAME,
+                        step);
+                }
+            }
+            else if(monolis_mpi_get_global_my_rank() == 0) {
+                BBFE_pri6_output_karman_force_diagnostics(
+                    &fdiag,
+                    t,
+                    sys.vals.density,
+                    U_ref,
+                    A_ref,
+                    eU,
+                    eL,
+                    sys.cond.directory);
+            }
+        }
 
         if(step % sys.vals.output_interval == 0) {
             output_files_mixed(&sys, file_num, t);

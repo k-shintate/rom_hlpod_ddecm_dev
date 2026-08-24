@@ -110,6 +110,60 @@ void solver_fom_NR_mixed_prism_nitsche(
     double t,
     int step);
 
+
+/* -------------------------------------------------------------------------- */
+/* Karman drag/lift diagnostics on TRI3 wall faces owned by PRI6 cells.       */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    double area;
+    double face_count;
+    double face_qp_count;
+
+    /* Body-force contributions in global x/y/z coordinates. */
+    double force_pressure[3];
+
+    /*
+     * Legacy FOM viscous-force convention, consistent with the existing
+     * SUPS volume viscous form.
+     */
+    double force_viscous[3];
+
+    /* Symmetric physical Cauchy viscous-stress comparison. */
+    double force_cauchy_viscous[3];
+
+    /* Numerical Nitsche penalty reaction; intentionally reported separately. */
+    double force_nitsche[3];
+
+    /* Tangential Spalding wall-law reaction, when that mode is selected. */
+    double force_walllaw[3];
+} PRI6ForceDiagnostics;
+
+int BBFE_pri6_force_diagnostics_global(
+    const BBFE_DATA* surf,
+    const BBFE_DATA* fe_pri,
+    const BBFE_BASIS* basis_surf,
+    const VALUES* vals,
+    double rho,
+    double mu_molecular,
+    const double Uw[3],
+    const PRI6WallOptions* opt,
+    MONOLIS_COM* mono_com,
+    PRI6ForceDiagnostics* diag);
+
+void BBFE_pri6_reset_karman_force_files(
+    const char* directory);
+
+void BBFE_pri6_output_karman_force_diagnostics(
+    const PRI6ForceDiagnostics* diag,
+    double t,
+    double rho,
+    double U_ref,
+    double A_ref,
+    const double eU[3],
+    const double eL[3],
+    const char* directory);
+
 #ifdef __cplusplus
 }
 #endif

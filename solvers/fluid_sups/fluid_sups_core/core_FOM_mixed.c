@@ -580,8 +580,9 @@ void BBFE_fluid_init_monomat_mixed(
     monolis_initialize(monolis);
 
     /*
-     * The partition communication table belongs to graph.dat.
-     * node.dat contains coordinates only and has no .send/.recv files.
+     * The communication table (.recv/.send) is generated from graph.dat.
+     * node.dat contains coordinates only and must not be used as the
+     * communication-table base name.
      */
     monolis_com_initialize_by_parted_files(
         monolis_com,
