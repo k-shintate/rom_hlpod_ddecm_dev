@@ -2448,67 +2448,295 @@ void memory_allocation_nodal_values_AB2(
 }
 
 
-
-void read_connectivity_graph_surf(
-    BBFE_DATA *fe,
-    const char *filename,
-    const char *directory,
+int read_connectivity_graph_surf(
+    BBFE_DATA* fe,
+    const char* filename,
+    const char* directory,
     int num_integ_points)
 {
-    FILE* fp;
-    char fname_n_internal_graph[BUFFER_SIZE];
-    char char_n_internal[BUFFER_SIZE];
-    int graph_ndof;
-    int tmp;
-/*
-    snprintf(fname_n_internal_graph, BUFFER_SIZE, "parted.0/%s.n_internal.%d", filename, monolis_mpi_get_global_my_rank());
-    fp = BBFE_sys_read_fopen(fp, fname_n_internal_graph, directory);
-    fscanf(fp, "%s %d", char_n_internal, &(tmp));
-    fscanf(fp, "%d", &(graph_ndof));
-    fclose(fp);
-*/
-    snprintf(fname_n_internal_graph, BUFFER_SIZE, "parted.0/%s.%d", filename, monolis_mpi_get_global_my_rank());
-    fp = BBFE_sys_read_fopen(fp, fname_n_internal_graph, directory);
-    // read the num of elements
+    FILE* fp = NULL;
+    char fname[BUFFER_SIZE];
 
-    fe->local_num_nodes = 3;
-    BB_std_scan_line(&fp, BUFFER_SIZE, "%d", &(fe->total_num_elems));
+    const int rank = monolis_mpi_get_global_my_rank();
 
-    graph_ndof = fe->total_num_elems;
+    snprintf(
+        fname,
+        BUFFER_SIZE,
+        "parted.0/%s.%d",
+        filename,
+        rank
+    );
 
-    //fe->total_num_elems = graph_ndof;
-    printf("%s Num. elements: %d\n", CODENAME, graph_ndof);
-    //fe->local_num_nodes = 4; // 1st-order rectangle
-    BBFE_sys_memory_allocation_elem(fe, num_integ_points, 3);
-    if (fe->total_num_elems < 0)
-    {
-        exit(EXIT_FAILURE);
+    /*
+     * initialize first
+     */
+    fe->total_num_elems = 0;
+    fe->local_num_nodes = 0;
+
+    fp = BBFE_sys_read_fopen(
+        fp,
+        fname,
+        directory
+    );
+
+    /* ========================================================
+     * Number of elements
+     * ======================================================== */
+    if(fscanf(fp, "%d", &(fe->total_num_elems)) != 1) {
+
+        fprintf(
+            stderr,
+            "%s rank=%d ERROR: "
+            "failed to read element count from %s\n",
+            CODENAME,
+            rank,
+            fname
+        );
+
+        fclose(fp);
+        return -1;
     }
-    if (fe->total_num_elems == 0)
-    {
-        return;
+
+    printf(
+        "%s rank=%d: %s Num. elements = %d\n",
+        CODENAME,
+        rank,
+        filename,
+        fe->total_num_elems
+    );
+
+    if(fe->total_num_elems < 0) {
+
+        fprintf(
+            stderr,
+            "%s rank=%d ERROR: "
+            "negative element count in %s\n",
+            CODENAME,
+            rank,
+            fname
+        );
+
+        fclose(fp);
+        return -1;
     }
-    fe->conn[0][0] = 1;
-    int id = 0; // 　elem id (not used)
-    for (int e = 0; e < graph_ndof; e++)
-    {
-        if (fscanf(fp, "%d ", &id) != 1)
-        {
-            exit(EXIT_FAILURE);
+
+
+    /* ========================================================
+     * Empty element family on this MPI rank
+     *
+     * file:
+     *
+     * 0
+     *
+     * is valid.
+     * ======================================================== */
+    if(fe->total_num_elems == 0) {
+
+        fe->local_num_nodes = 0;
+
+        fclose(fp);
+
+        printf(
+            "%s rank=%d: %s is empty -> skip\n",
+            CODENAME,
+            rank,
+            filename
+        );
+
+        return 0;
+    }
+
+
+    /* ========================================================
+     * First element
+     *
+     * format:
+     *
+     * elem_id NEN node0 node1 ...
+     * ======================================================== */
+    int elem_id = -1;
+    int nen = 0;
+
+    if(fscanf(
+        fp,
+        "%d %d",
+        &elem_id,
+        &nen
+    ) != 2) {
+
+        fprintf(
+            stderr,
+            "%s rank=%d ERROR: "
+            "failed to read first element header from %s\n",
+            CODENAME,
+            rank,
+            fname
+        );
+
+        fclose(fp);
+        return -1;
+    }
+
+    if(nen <= 0) {
+
+        fprintf(
+            stderr,
+            "%s rank=%d ERROR: "
+            "invalid NEN=%d in %s\n",
+            CODENAME,
+            rank,
+            nen,
+            fname
+        );
+
+        fclose(fp);
+        return -1;
+    }
+
+    /*
+     * TET -> 4
+     * PRI -> 6
+     * TRI -> 3
+     *
+     * automatically detected
+     */
+    fe->local_num_nodes = nen;
+
+
+    /* ========================================================
+     * Allocation
+     *
+     * IMPORTANT:
+     * local_num_nodes must be set BEFORE this call.
+     * ======================================================== */
+    BBFE_sys_memory_allocation_elem(
+        fe,
+        num_integ_points,
+        3
+    );
+
+
+    /* ========================================================
+     * First element connectivity
+     * ======================================================== */
+    for(int i = 0; i < fe->local_num_nodes; i++) {
+
+        if(fscanf(
+            fp,
+            "%d",
+            &(fe->conn[0][i])
+        ) != 1) {
+
+            fprintf(
+                stderr,
+                "%s rank=%d ERROR: "
+                "failed to read connectivity "
+                "e=0 i=%d from %s\n",
+                CODENAME,
+                rank,
+                i,
+                fname
+            );
+
+            fclose(fp);
+            return -1;
         }
-        if (fscanf(fp, "%d ", &(fe->local_num_nodes)) != 1)
-        {
-            exit(EXIT_FAILURE);
+    }
+
+
+    /* ========================================================
+     * Remaining elements
+     * ======================================================== */
+    for(int e = 1; e < fe->total_num_elems; e++) {
+
+        int current_id = -1;
+        int current_nen = 0;
+
+        if(fscanf(
+            fp,
+            "%d %d",
+            &current_id,
+            &current_nen
+        ) != 2) {
+
+            fprintf(
+                stderr,
+                "%s rank=%d ERROR: "
+                "failed element header e=%d in %s\n",
+                CODENAME,
+                rank,
+                e,
+                fname
+            );
+
+            fclose(fp);
+            return -1;
         }
-        for (int i = 0; i < (fe->local_num_nodes); i++)
-        {
-            if(fscanf(fp, "%d", &(fe->conn[e][i])) != 1)
-            {
-                exit(EXIT_FAILURE);
+
+        /*
+         * One graph_elem file must contain
+         * only one element type.
+         */
+        if(current_nen != fe->local_num_nodes) {
+
+            fprintf(
+                stderr,
+                "%s rank=%d ERROR: "
+                "different NEN in one file\n"
+                "  file      = %s\n"
+                "  element   = %d\n"
+                "  first NEN = %d\n"
+                "  this NEN  = %d\n",
+                CODENAME,
+                rank,
+                fname,
+                e,
+                fe->local_num_nodes,
+                current_nen
+            );
+
+            fclose(fp);
+            return -1;
+        }
+
+        for(int i = 0; i < fe->local_num_nodes; i++) {
+
+            if(fscanf(
+                fp,
+                "%d",
+                &(fe->conn[e][i])
+            ) != 1) {
+
+                fprintf(
+                    stderr,
+                    "%s rank=%d ERROR: "
+                    "connectivity read failure "
+                    "e=%d i=%d\n",
+                    CODENAME,
+                    rank,
+                    e,
+                    i
+                );
+
+                fclose(fp);
+                return -1;
             }
         }
     }
+
     fclose(fp);
+
+    printf(
+        "%s rank=%d: loaded %s "
+        "elements=%d NEN=%d\n",
+        CODENAME,
+        rank,
+        filename,
+        fe->total_num_elems,
+        fe->local_num_nodes
+    );
+
+    return 0;
 }
 
 void read_connectivity_graph_surf_internal(

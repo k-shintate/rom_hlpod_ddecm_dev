@@ -13,8 +13,9 @@ const char* CODENAME = "fluid >";
 /*
  * These filenames are private to fluid_core.c.
  */
-static const char* INPUT_FILENAME_NODE = "node.dat";
-static const char* INPUT_FILENAME_ELEM = "elem.dat";
+static const char* INPUT_FILENAME_NODE  = "node.dat";
+static const char* INPUT_FILENAME_GRAPH = "graph.dat";
+static const char* INPUT_FILENAME_ELEM  = "elem.dat";
 
 
 /* ==========================================================================

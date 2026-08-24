@@ -1,95 +1,294 @@
-import os
-import sys
-import numpy as np
-import meshio
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Convert an ASCII Gmsh MSH2 mesh to the mixed-element BBFE/Monolis files.
 
-# コマンドライン引数で入力ファイルを取得
-if len(sys.argv) < 2:
-    print("Usage: python script_name.py <input_mesh_file>")
-    sys.exit(1)
+Canonical outputs in --output-dir:
+  node.dat          : shared compact 0-based node coordinates
+  elem_tet.dat      : first-order tetra connectivity (NEN=4)
+  elem_prism.dat    : first-order prism/wedge connectivity (NEN=6)
+  surf.dat          : Cylinder_wall connectivity if it has one face type
+  <group>_<type>_connectivity.dat
+  <group>_node_ids.dat
+  conversion_report.txt
 
-input_file = sys.argv[1]  # コマンドライン引数から入力ファイルを取得
+The same compact node numbering is used by every output file.
+"""
+from __future__ import annotations
 
-# 出力ディレクトリを指定
-output_dir = "./mesh_tmp/"  # 出力先ディレクトリ
-combined_output_file = os.path.join(output_dir, "combined_mesh_connectivity.dat")  # 全体メッシュデータの出力ファイル
+import argparse
+import shlex
+from collections import defaultdict
+from pathlib import Path
 
-# 出力ディレクトリが存在しない場合は作成
-os.makedirs(output_dir, exist_ok=True)
+ELEMENT_TYPES = {
+    1: ("line", 1, 2),
+    2: ("triangle", 2, 3),
+    3: ("quad", 2, 4),
+    4: ("tetra", 3, 4),
+    5: ("hexahedron", 3, 8),
+    6: ("wedge", 3, 6),  # Gmsh prism; meshio name is wedge
+    7: ("pyramid", 3, 5),
+    15: ("vertex", 0, 1),
+}
 
-# メッシュを読み込む
-try:
-    mesh = meshio.read(input_file)
-except Exception as e:
-    print(f"Error reading mesh file '{input_file}': {e}")
-    sys.exit(1)
 
-# 2Dデータに3Dの0成分を追加（必要な場合）
-if mesh.points.shape[1] == 2:
-    mesh.points = np.hstack([mesh.points, np.zeros((mesh.points.shape[0], 1))])
+def section(lines: list[str], name: str, required: bool = True) -> list[str]:
+    start = f"${name}"
+    end = f"$End{name}"
+    try:
+        i0 = next(i for i, line in enumerate(lines) if line.strip() == start)
+        i1 = next(i for i, line in enumerate(lines[i0 + 1 :], i0 + 1) if line.strip() == end)
+    except StopIteration:
+        if required:
+            raise ValueError(f"section {start} ... {end} not found")
+        return []
+    return lines[i0 + 1 : i1]
 
-# ラベル番号と名前のマッピング（`field_data`から取得）
-if mesh.field_data:
-    label_names = {v[0]: k for k, v in mesh.field_data.items()}
-else:
-    print("No field data found. Ensure Physical Names are properly defined.")
-    label_names = {}
 
-# 全体メッシュデータを統合して保存する準備
-combined_data = []
+def parse_mesh_format(lines: list[str]) -> None:
+    sec = section(lines, "MeshFormat")
+    p = sec[0].split()
+    if not p[0].startswith("2.") or int(p[1]) != 0:
+        raise ValueError("converter requires ASCII MSH2; run gmsh with '-format msh2'")
 
-# メッシュデータをラベルごとに分離して保存
-if "gmsh:physical" in mesh.cell_data:
-    for cell_block, labels in zip(mesh.cells, mesh.cell_data["gmsh:physical"]):
-        cell_type = cell_block.type  # セルタイプ（例: triangle, tetra）
 
-        # ラベルごとにコネクティビティデータを出力
-        for label in np.unique(labels):
-            if label in label_names:
-                # 該当ラベルの要素をフィルタ
-                element_indices = np.where(labels == label)[0]
-                elements = cell_block.data[element_indices]
+def parse_physical_names(lines: list[str]) -> dict[tuple[int, int], str]:
+    sec = section(lines, "PhysicalNames", required=False)
+    if not sec:
+        return {}
+    n = int(sec[0])
+    out: dict[tuple[int, int], str] = {}
+    for raw in sec[1 : 1 + n]:
+        p = shlex.split(raw)
+        if len(p) < 3:
+            raise ValueError(f"invalid PhysicalNames line: {raw}")
+        out[(int(p[0]), int(p[1]))] = p[2]
+    return out
 
-                # 出力ファイル名を設定
-                connectivity_filename = f"{output_dir}{label_names[label]}_{cell_type}_connectivity.dat"
 
-                # ラベルごとのコネクティビティデータを書き込む
-                with open(connectivity_filename, "w") as f:
-                    # 総要素数と要素内節点数
-                    total_elements = len(elements)
-                    nodes_per_element = elements.shape[1]
-                    f.write(f"{total_elements} {nodes_per_element}\n")
+def parse_nodes(lines: list[str]) -> dict[int, tuple[float, float, float]]:
+    sec = section(lines, "Nodes")
+    n = int(sec[0])
+    nodes: dict[int, tuple[float, float, float]] = {}
+    for raw in sec[1 : 1 + n]:
+        p = raw.split()
+        nodes[int(p[0])] = (float(p[1]), float(p[2]), float(p[3]))
+    if len(nodes) != n:
+        raise ValueError(f"node count mismatch: expected {n}, parsed {len(nodes)}")
+    return nodes
 
-                    # 要素コネクティビティ情報
-                    for element in elements:
-                        f.write(" ".join(map(str, element)) + "\n")
 
-                print(f"Saved connectivity file: {connectivity_filename}")
+def parse_elements(lines: list[str], physical_names: dict[tuple[int, int], str]):
+    sec = section(lines, "Elements")
+    n = int(sec[0])
+    groups: dict[str, dict[str, list[list[int]]]] = defaultdict(lambda: defaultdict(list))
+    unknown: dict[int, int] = defaultdict(int)
+    no_physical = 0
 
-                # Fluidの場合は節点座標も出力
-                if label_names[label] == "Fluid":
-                    nodes_in_elements = np.unique(elements)
-                    node_coords = mesh.points[nodes_in_elements]
+    for raw in sec[1 : 1 + n]:
+        p = raw.split()
+        etype = int(p[1])
+        ntags = int(p[2])
+        tags = list(map(int, p[3 : 3 + ntags]))
+        conn = list(map(int, p[3 + ntags :]))
+        info = ELEMENT_TYPES.get(etype)
+        if info is None:
+            unknown[etype] += 1
+            continue
+        cell_name, dim, nen = info
+        if len(conn) != nen:
+            raise ValueError(f"Gmsh element type {etype} expects {nen} nodes, got {len(conn)}")
+        physical_tag = tags[0] if tags else 0
+        if physical_tag == 0:
+            no_physical += 1
+            continue
+        name = physical_names.get((dim, physical_tag), f"Physical_{dim}_{physical_tag}")
+        groups[name][cell_name].append(conn)
+    return groups, dict(unknown), no_physical
 
-                    # 節点座標ファイル
-                    node_coords_filename = f"{output_dir}{label_names[label]}_node_coordinates.dat"
-                    with open(node_coords_filename, "w") as f:
-                        f.write(f"{len(nodes_in_elements)}\n")  # 節点数と次元数
-                        # 節点座標情報（IDなしで座標のみ）
-                        for coord in node_coords:
-                            f.write(" ".join(map(str, coord)) + "\n")
 
-                    print(f"Saved node coordinates file: {node_coords_filename}")
+def write_nodes(path: Path, tags: list[int], nodes: dict[int, tuple[float, float, float]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        f.write(f"{len(tags)}\n")
+        for tag in tags:
+            x, y, z = nodes[tag]
+            f.write(f"{x:.16g} {y:.16g} {z:.16g}\n")
 
-                # 全体データに追加
-                combined_data.append((label_names[label], cell_type, elements))
-else:
-    print("No 'gmsh:physical' data found in cell_data. Verify the mesh file.")
 
-# 全体メッシュデータを1つのファイルに保存
-with open(combined_output_file, "w") as f:
-    for label, cell_type, elements in combined_data:
-        f.write(f"# Label: {label}, Type: {cell_type}\n")
-        for element in elements:
-            f.write(" ".join(map(str, element)) + "\n")
-print(f"Saved combined mesh data to {combined_output_file}")
+def write_connectivity(path: Path, elems: list[list[int]], node_map: dict[int, int]) -> None:
+    if not elems:
+        return
+    nen = len(elems[0])
+    if any(len(e) != nen for e in elems):
+        raise ValueError(f"mixed NEN in {path}")
+    with path.open("w", encoding="utf-8") as f:
+        f.write(f"{len(elems)} {nen}\n")
+        for elem in elems:
+            f.write(" ".join(str(node_map[n]) for n in elem) + "\n")
+
+
+def write_node_ids(path: Path, ids: set[int]) -> None:
+    vals = sorted(ids)
+    with path.open("w", encoding="utf-8") as f:
+        f.write(f"{len(vals)}\n")
+        for n in vals:
+            f.write(f"{n}\n")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("input_mesh", type=Path)
+    ap.add_argument("--output-dir", type=Path, default=Path("mesh_karman_vortex"))
+    ap.add_argument("--fluid-name", default="Fluid")
+    ap.add_argument("--wall-name", default="Cylinder_wall")
+    ap.add_argument(
+        "--project-cylinder-radius",
+        type=float,
+        default=None,
+        help=(
+            "Project nodes in the Cylinder_wall Physical Surface onto this exact "
+            "xy radius before node.dat is written. Useful because Gmsh topological "
+            "boundary-layer extrusion uses smoothed discrete normals."
+        ),
+    )
+    args = ap.parse_args()
+
+    lines = args.input_mesh.read_text(encoding="utf-8").splitlines()
+    parse_mesh_format(lines)
+    phys = parse_physical_names(lines)
+    nodes = parse_nodes(lines)
+    groups, unknown, no_physical = parse_elements(lines, phys)
+
+    if args.fluid_name not in groups:
+        raise SystemExit(
+            f"Physical Volume '{args.fluid_name}' not found. Available groups: "
+            + ", ".join(sorted(groups))
+        )
+
+    fluid = groups[args.fluid_name]
+    tets = fluid.get("tetra", [])
+    prisms = fluid.get("wedge", [])
+    unsupported_vol = {
+        k: len(v) for k, v in fluid.items() if k in {"hexahedron", "pyramid"} and v
+    }
+    if not tets:
+        raise SystemExit("Fluid contains no first-order tetrahedra")
+    if not prisms:
+        raise SystemExit("Fluid contains no first-order prisms/wedges")
+    if unsupported_vol:
+        raise SystemExit(f"Fluid also contains unsupported volume types: {unsupported_vol}")
+
+    fluid_tags = sorted({n for elems in (tets, prisms) for e in elems for n in e})
+    node_map = {tag: i for i, tag in enumerate(fluid_tags)}
+
+    # Gmsh topological boundary-layer extrusion follows a Gouraud-smoothed
+    # discrete normal field. When an outer cylindrical interface is extruded
+    # inward, the generated top surface is therefore only approximately r=d/2.
+    # For the CFD geometry the wall position is more important than preserving
+    # that small normal-field error, so optionally project only wall nodes onto
+    # the exact cylinder. Connectivity and the shared compact node IDs are not
+    # changed.
+    nodes_out = dict(nodes)
+    projection_stats = None
+    if args.project_cylinder_radius is not None:
+        target = args.project_cylinder_radius
+        if target <= 0:
+            raise SystemExit("--project-cylinder-radius must be positive")
+        wall_group = groups.get(args.wall_name, {})
+        wall_tags = {
+            n
+            for cell_name in ("triangle", "quad")
+            for elem in wall_group.get(cell_name, [])
+            for n in elem
+            if n in node_map
+        }
+        if not wall_tags:
+            raise SystemExit(
+                f"Cannot project cylinder: Physical Surface '{args.wall_name}' "
+                "has no triangle/quad nodes belonging to Fluid"
+            )
+        before = []
+        max_shift = 0.0
+        for tag in wall_tags:
+            x, y, z = nodes_out[tag]
+            r = (x*x + y*y) ** 0.5
+            if r <= 1.0e-14:
+                raise SystemExit(f"Cylinder wall node {tag} lies on the axis")
+            before.append(r)
+            scale = target / r
+            xn, yn = x * scale, y * scale
+            max_shift = max(max_shift, ((xn-x)**2 + (yn-y)**2) ** 0.5)
+            nodes_out[tag] = (xn, yn, z)
+        projection_stats = (len(wall_tags), min(before), max(before), max_shift, target)
+
+    out = args.output_dir
+    out.mkdir(parents=True, exist_ok=True)
+    write_nodes(out / "node.dat", fluid_tags, nodes_out)
+    write_connectivity(out / "elem_tet.dat", tets, node_map)
+    write_connectivity(out / "elem_prism.dat", prisms, node_map)
+
+    report: list[str] = []
+    for group_name in sorted(groups):
+        local_nodes: set[int] = set()
+        for cell_name in sorted(groups[group_name]):
+            elems = groups[group_name][cell_name]
+            valid = [e for e in elems if all(n in node_map for n in e)]
+            if not valid:
+                continue
+            path = out / f"{group_name}_{cell_name}_connectivity.dat"
+            write_connectivity(path, valid, node_map)
+            for e in valid:
+                local_nodes.update(node_map[n] for n in e)
+            report.append(f"{group_name:24s} {cell_name:12s} {len(valid):9d}  {path.name}")
+        if local_nodes:
+            write_node_ids(out / f"{group_name}_node_ids.dat", local_nodes)
+
+    # Legacy surface reader supports one NEN only. For a wall-normal wedge layer,
+    # Cylinder_wall is normally triangular. Keep mixed wall faces explicit instead.
+    wall = groups.get(args.wall_name, {})
+    wall_tri = [e for e in wall.get("triangle", []) if all(n in node_map for n in e)]
+    wall_quad = [e for e in wall.get("quad", []) if all(n in node_map for n in e)]
+    if wall_tri and not wall_quad:
+        write_connectivity(out / "surf.dat", wall_tri, node_map)
+    elif wall_quad and not wall_tri:
+        write_connectivity(out / "surf.dat", wall_quad, node_map)
+    elif wall_tri and wall_quad:
+        write_connectivity(out / "surf_triangle.dat", wall_tri, node_map)
+        write_connectivity(out / "surf_quad.dat", wall_quad, node_map)
+
+    with (out / "conversion_report.txt").open("w", encoding="utf-8") as f:
+        f.write("Karman mixed tetra/prism conversion\n")
+        f.write("===================================\n")
+        f.write(f"mesh       : {args.input_mesh}\n")
+        f.write(f"nodes      : {len(fluid_tags)}\n")
+        f.write(f"tetra      : {len(tets)}\n")
+        f.write(f"prism      : {len(prisms)}\n")
+        f.write(f"wall tri   : {len(wall_tri)}\n")
+        f.write(f"wall quad  : {len(wall_quad)}\n")
+        if projection_stats is not None:
+            nw, rmin, rmax, max_shift, target = projection_stats
+            f.write(
+                f"wall projection: nodes={nw}, before_r=[{rmin:.16g}, {rmax:.16g}], "
+                f"target_r={target:.16g}, max_shift={max_shift:.16g}\n"
+            )
+        f.write("\nPhysical-group connectivity\n")
+        for line in report:
+            f.write(line + "\n")
+        if unknown:
+            f.write(f"\nIgnored unsupported Gmsh element types: {unknown}\n")
+        if no_physical:
+            f.write(f"Elements without Physical tag ignored: {no_physical}\n")
+
+    print(f"[convert] nodes={len(fluid_tags)} tetra={len(tets)} prism={len(prisms)}")
+    if projection_stats is not None:
+        nw, rmin, rmax, max_shift, target = projection_stats
+        print(
+            f"[convert] projected Cylinder_wall nodes={nw}: "
+            f"r_before=[{rmin:.6g},{rmax:.6g}] -> {target:.6g}, "
+            f"max_shift={max_shift:.6g}"
+        )
+    print(f"[convert] output={out}")
+
+
+if __name__ == "__main__":
+    main()
