@@ -49,6 +49,89 @@ static double BBFE_metric_tensor_trace(
     return G[0][0] + G[1][1] + G[2][2];
 }
 
+/*
+ * Largest eigenvalue of a real symmetric 3x3 matrix.
+ * G = J^{-T}J^{-1} is symmetric positive definite for a valid element.
+ */
+static double BBFE_metric_tensor_lambda_max_sym3(const double G[3][3])
+{
+    const double a00 = G[0][0];
+    const double a11 = G[1][1];
+    const double a22 = G[2][2];
+    const double a01 = 0.5*(G[0][1] + G[1][0]);
+    const double a02 = 0.5*(G[0][2] + G[2][0]);
+    const double a12 = 0.5*(G[1][2] + G[2][1]);
+
+    const double p1 = a01*a01 + a02*a02 + a12*a12;
+    if (p1 <= 1.0e-60) {
+        return fmax(a00, fmax(a11, a22));
+    }
+
+    const double q = (a00 + a11 + a22) / 3.0;
+    const double b00 = a00 - q;
+    const double b11 = a11 - q;
+    const double b22 = a22 - q;
+    const double p2 = b00*b00 + b11*b11 + b22*b22 + 2.0*p1;
+    const double p = sqrt(fmax(p2/6.0, 0.0));
+    if (!(p > 0.0) || !isfinite(p)) {
+        return fmax(a00, fmax(a11, a22));
+    }
+
+    const double c00 = b00/p;
+    const double c11 = b11/p;
+    const double c22 = b22/p;
+    const double c01 = a01/p;
+    const double c02 = a02/p;
+    const double c12 = a12/p;
+    const double detC =
+          c00*(c11*c22 - c12*c12)
+        - c01*(c01*c22 - c12*c02)
+        + c02*(c01*c12 - c11*c02);
+
+    double r = 0.5*detC;
+    if (r < -1.0) r = -1.0;
+    if (r >  1.0) r =  1.0;
+
+    const double phi = acos(r)/3.0;
+    const double lambda_max = q + 2.0*p*cos(phi);
+    return lambda_max;
+}
+
+/*
+ * Anisotropy-aware VMS filter length.
+ *
+ * The old residual-viscosity model used only h_vol = V^(1/3).  That is too
+ * large for a boundary-layer PRI6 with one very thin direction.  Retain the
+ * volume scale as an upper bound, but cap it with the shortest metric length
+ *
+ *     h_metric = 2 / sqrt(lambda_max(J^{-T}J^{-1})).
+ *
+ * Thus isotropic TET4/PRI6 elements preserve the historical scale while a
+ * stretched prism automatically uses its thin physical dimension.
+ */
+static double BBFE_vms_filter_length_anisotropic(
+    const double J_inv[3][3],
+    const double h_volume)
+{
+    const double eps = 1.0e-30;
+    if (!(h_volume > eps) || !isfinite(h_volume)) return eps;
+
+    double G[3][3];
+    BBFE_metric_tensor_G(G, J_inv);
+    const double lambda_max = BBFE_metric_tensor_lambda_max_sym3(G);
+
+    if (!(lambda_max > eps) || !isfinite(lambda_max)) {
+        return h_volume;
+    }
+
+    const double h_metric = 2.0/sqrt(lambda_max);
+    if (!(h_metric > eps) || !isfinite(h_metric)) {
+        return h_volume;
+    }
+
+    return fmin(h_volume, h_metric);
+}
+
 static void BBFE_metric_tensor_Gv(
     double       Gv[3],
     const double G[3][3],
@@ -5281,6 +5364,12 @@ void HROM_set_element_vec_NR_p(
 
 
 
+/*
+ * Quasi-static momentum/continuity strong residual used by the residual-based
+ * subscale model.  For the current first-order TET4/PRI6 implementation the
+ * viscous strong term requiring physical Hessians is not reconstructed here;
+ * diffusion is nevertheless retained in tau_m and in the resolved weak form.
+ */
 static void BBFE_vms_strong_residual_qs(
     double       rM[3],
     double*      rC,
@@ -5345,10 +5434,15 @@ static double BBFE_vms_nu_quasistatic_residual(
         u[1]*u[1] +
         u[2]*u[2] + eps);
 
-    const double nu_cap = cap_coeff * h_e * u_norm;
-
-    if (nu_vms > nu_cap) nu_vms = nu_cap;
-    if (nu_vms < 0.0)    nu_vms = 0.0;
+    /*
+     * cap_coeff <= 0 means "no cap".  This is intentionally different from
+     * the old behavior, where cap_coeff=0 silently forced nu_vms to zero.
+     */
+    if (cap_coeff > 0.0) {
+        const double nu_cap = cap_coeff * h_e * u_norm;
+        if (nu_vms > nu_cap) nu_vms = nu_cap;
+    }
+    if (nu_vms < 0.0) nu_vms = 0.0;
 
     return nu_vms;
 }
@@ -5384,9 +5478,12 @@ void BBFE_vms_mu_eff_tau(
     BBFE_vms_strong_residual_qs(
         rM, &rC, u, u_old, grad_u, grad_p, rho, dt);
 
+    const double h_vms =
+        BBFE_vms_filter_length_anisotropic(J_inv, h_e);
+
     const double nu_vms =
         BBFE_vms_nu_quasistatic_residual(
-            tau0, h_e, rM, u, C_vms, cap_coeff);
+            tau0, h_vms, rM, u, C_vms, cap_coeff);
 
     *mu_eff = mu + rho * nu_vms;
 
@@ -5427,7 +5524,10 @@ static void BBFE_vms_mu_eff_derivative_qs(
     }
     *dmu_dpj = 0.0;
 
-    if (rho <= eps || dt <= eps || h_e <= eps || C_vms <= 0.0) {
+    const double h_vms =
+        BBFE_vms_filter_length_anisotropic(J_inv, h_e);
+
+    if (rho <= eps || dt <= eps || h_vms <= eps || C_vms <= 0.0) {
         return;
     }
 
@@ -5485,10 +5585,12 @@ static void BBFE_vms_mu_eff_derivative_qs(
         dt,
         N_j);
 
-    const double nu_raw = C_vms * h_e * tau0 * r_norm;
-    const double nu_cap = cap_coeff * h_e * u_norm;
+    const double nu_raw = C_vms * h_vms * tau0 * r_norm;
+    const double nu_cap =
+        (cap_coeff > 0.0) ? cap_coeff * h_vms * u_norm : HUGE_VAL;
 
-    const int use_cap = (nu_raw > nu_cap);
+    const int use_cap =
+        (cap_coeff > 0.0) && (nu_raw > nu_cap);
 
     const double inv_dt = 1.0 / fmax(dt, eps);
 
@@ -5519,15 +5621,15 @@ static void BBFE_vms_mu_eff_derivative_qs(
                  rM[2]*drM[2]) / r_norm;
 
             dnu =
-                C_vms * h_e *
+                C_vms * h_vms *
                 (dtau0_duj[k] * r_norm + tau0 * dr_norm);
         }
         else {
             /*
               cap branch:
-              nu_vms = cap_coeff * h_e * |u|
+              nu_vms = cap_coeff * h_vms * |u|
             */
-            dnu = cap_coeff * h_e * N_j * u[k] / u_norm;
+            dnu = cap_coeff * h_vms * N_j * u[k] / u_norm;
         }
 
         dmu_duj[k] = rho * dnu;
@@ -5549,7 +5651,7 @@ static void BBFE_vms_mu_eff_derivative_qs(
              rM[2]*drM_dp[2]) / r_norm;
 
         const double dnu_dp =
-            C_vms * h_e * tau0 * dr_norm_dp;
+            C_vms * h_vms * tau0 * dr_norm_dp;
 
         *dmu_dpj = rho * dnu_dp;
     }
@@ -5839,7 +5941,7 @@ void set_element_mat_NR_linear_VMS(
             basis->integ_weight,
             Jacobian_ip);
 
-        const double h_e = cbrt(vol);
+        const double h_e = cbrt(fabs(vol));
 
         /*
           quasi-static residual-based VMS:
@@ -6025,7 +6127,7 @@ void set_element_vec_NR_linear_VMS(
             basis->integ_weight,
             Jacobian_ip);
 
-        const double h_e = cbrt(vol);
+        const double h_e = cbrt(fabs(vol));
 
         for (int p = 0; p < np; ++p) {
             BB_calc_mat3d_inverse(
@@ -6194,7 +6296,7 @@ void set_element_mat_NR_nonlinear_VMS(
             basis->integ_weight,
             Jacobian_ip);
 
-        const double h_e = cbrt(vol);
+        const double h_e = cbrt(fabs(vol));
 
         for (int p = 0; p < np; ++p) {
             BB_calc_mat3d_inverse(
@@ -6403,7 +6505,7 @@ void set_element_vec_NR_nonlinear_VMS(
             basis->integ_weight,
             Jacobian_ip);
 
-        const double h_e = cbrt(vol);
+        const double h_e = cbrt(fabs(vol));
 
         for (int p = 0; p < np; ++p) {
             BB_calc_mat3d_inverse(

@@ -10,9 +10,11 @@ mkdir -p mesh_tmp
 mkdir -p mesh_karman_vortex
 
 gmsh -3 -format msh2 -0 gmsh/karman_vortex_2d.geo -o ./mesh_karman_vortex/karman_vortex_2d.msh
-gmsh ./mesh_karman_vortex/karman_vortex_2d.msh
+#gmsh ./mesh_karman_vortex/karman_vortex_2d.msh
 
 python3 mesh_io/save_physical_groups.py ./mesh_karman_vortex/karman_vortex_2d.msh
+
+#python3 mesh_io/save_physical_groups.py ahmed_groundprism_L3_finer_prism_tet_groups_orientation_fixed.msh
 
 ### for node.dat
 mv ./mesh_tmp/Fluid_node_coordinates.dat ./mesh_karman_vortex/node.dat                      #node.dat

@@ -46,12 +46,12 @@ mv cond.dat rom_cond.dat
 
 ./../../../test_thermal/bin/cmd2cond "#time_spacing" double 1 0.005 "#output_interval" int 1 1000  "#finish_time" double 1 200 "#mat_max_iter" int 1 10000 "#mat_epsilon" double 1 1.0e-8
 
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh_partitioner -n $np
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh_partitioner -n $np
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_simple_mesh2graph_convertor
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_nodal_graph_partitioner -n $np
 ./../../utils/bin/elem2graph -ie surf.dat -og surf_graph.dat
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_connectivity_graph_partitioner -n $np -i surf_graph.dat -ig graph.dat
-./../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_bc_partitioner_R -n $np -i D_bc_v.dat -ig node.dat
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_connectivity_graph_partitioner -n $np -i surf_graph.dat -ig graph.dat
+./../../../../test_thermal/submodule/monolis/submodule/gedatsu/bin/gedatsu_bc_partitioner_R -n $np -i D_bc_v.dat -ig node.dat
 
 cd ../..
 

@@ -4,12 +4,6 @@ def elem_to_bc(connectivity_file, output_file, block_length, values):
     """
     要素コネクティビティファイルから、全要素を構成するユニークな節点を抽出し、
     それらの節点に境界条件を付与したファイルを出力する。
-
-    Parameters:
-        connectivity_file (str): 入力コネクティビティファイルのパス
-        output_file (str): 出力境界条件ファイルのパス
-        block_length (int): ブロック長さ、自由度数
-        values (list of float): 各自由度に対応する値
     """
 
     try:
@@ -34,7 +28,6 @@ def elem_to_bc(connectivity_file, output_file, block_length, values):
 
             node_ids = list(map(int, parts))
 
-            # 必要なら節点数チェック
             if len(node_ids) != nodes_per_element:
                 raise ValueError(
                     f"Line {i + 1}: expected {nodes_per_element} nodes, "
@@ -45,21 +38,24 @@ def elem_to_bc(connectivity_file, output_file, block_length, values):
 
         unique_nodes = sorted(nodes)
 
-        boundary_condition_dofs = len(unique_nodes)
+        # 各節点につき block_length 個のBCを書くので、
+        # ヘッダーにはBCデータの総行数を書く
+        boundary_condition_dofs = len(unique_nodes) * block_length
 
         with open(output_file, "w") as f_out:
-            # ヘッダー
             f_out.write(f"{boundary_condition_dofs} {block_length}\n")
 
-            # 境界条件データ
             for node_id in unique_nodes:
                 for block_index in range(block_length):
                     value = values[block_index]
-                    f_out.write(f"{node_id} {block_index} {value:.6f}\n")
+                    f_out.write(
+                        f"{node_id} {block_index} {value:.6f}\n"
+                    )
 
         print(f"Boundary condition file saved to: {output_file}")
         print(f"Total unique nodes: {len(unique_nodes)}")
         print(f"Block length: {block_length}")
+        print(f"Total BCs: {boundary_condition_dofs}")
 
     except Exception as e:
         print(f"Error: {e}")
@@ -68,10 +64,17 @@ def elem_to_bc(connectivity_file, output_file, block_length, values):
 if __name__ == "__main__":
     if len(sys.argv) < 5:
         print("Usage:")
-        print("  python elem_to_bc.py <connectivity_file> <output_file> <block_length> <values>")
+        print(
+            "  python elem_to_bc.py "
+            "<connectivity_file> <output_file> "
+            "<block_length> <values>"
+        )
         print()
         print("Example:")
-        print("  python elem_to_bc.py elem.dat bc.dat 3 0.0 1.0 1.0")
+        print(
+            "  python elem_to_bc.py "
+            "elem.dat bc.dat 3 0.0 1.0 1.0"
+        )
         sys.exit(1)
 
     connectivity_file = sys.argv[1]
@@ -91,4 +94,9 @@ if __name__ == "__main__":
         print(f"Value Error: {e}")
         sys.exit(1)
 
-    elem_to_bc(connectivity_file, output_file, block_length, values)
+    elem_to_bc(
+        connectivity_file,
+        output_file,
+        block_length,
+        values,
+    )

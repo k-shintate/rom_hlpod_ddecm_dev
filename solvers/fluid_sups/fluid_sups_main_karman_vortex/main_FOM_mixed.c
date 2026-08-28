@@ -160,7 +160,23 @@ int main(int argc, char* argv[])
                 t,
                 sys.cond.directory);
         }
+
+	        BBFE_fluid_sups_add_velocity_pressure(
+                        sys.vals.v,
+                        sys.vals.p,
+                        sys.monolis.mat.R.X,
+                        sys.fe.total_num_nodes);
+
+        if(step%1 == 0){
+                char fname[BUFFER_SIZE];
+                snprintf(fname, BUFFER_SIZE, "hot_start/%s.%lf.%d.dat", "velosity_pressure", sys.vals.density, monolis_mpi_get_global_my_rank());
+                hot_start_write_initialize_val(sys.monolis.mat.R.X, sys.fe.total_num_nodes, 4, t, fname, sys.cond.directory);
+            }
+        else{
+        }
     }
+
+
 
     BBFE_fluid_finalize_mixed(
         &(sys.fe_tet), &(sys.basis_tet),

@@ -91,6 +91,12 @@ void BBFE_fluid_mixed_report_prism_update(
     int                          step,
     int                          newton_iteration);
 
+/* Physical-owner Newton increment diagnostics over the full mixed domain. */
+void BBFE_fluid_mixed_report_newton_diagnostics(
+    const FE_SYSTEM_FLUID_MIXED* sys,
+    int                          step,
+    int                          newton_iteration);
+
 void BBFE_fluid_mixed_check_positive_jacobian(
     const BBFE_DATA*  fe,
     const BBFE_BASIS* basis,
@@ -99,6 +105,19 @@ void BBFE_fluid_mixed_check_positive_jacobian(
 
 /* Empty surf_graph.dat.<rank> files containing only 0 are valid. */
 void BBFE_fluid_pre_surface_mixed(
+    BBFE_DATA*   surf,
+    BBFE_BASIS*  basis,
+    const char*  directory,
+    const char*  filename,
+    int          num_integ_points_each_axis);
+
+/*
+ * Read the same surface file as BBFE_fluid_pre_surface_mixed(), but keep only
+ * the first N_internal entries described by
+ * parted.0/<filename>.n_internal.<rank>.  Use this for physical SUM-type
+ * diagnostics/forces where each face must occur once globally.
+ */
+void BBFE_fluid_pre_surface_internal_mixed(
     BBFE_DATA*   surf,
     BBFE_BASIS*  basis,
     const char*  directory,
@@ -142,14 +161,51 @@ void BBFE_fluid_pre_mixed(
 
 /* Read the unified tetra+prism graph and create one 4x4-block sparse matrix. */
 void BBFE_fluid_init_monomat_mixed(
-    MONOLIS*     monolis,
-    MONOLIS_COM* monolis_com,
-    BBFE_DATA*   fe_ref,
-    const char*  directory);
+    MONOLIS*          monolis,
+    MONOLIS_COM*      monolis_com,
+    const BBFE_DATA*  fe_tet,
+    const BBFE_DATA*  fe_pri,
+    const char*       directory);
 
 /* Mixed SUPS/NR assembly.  Existing element kernels are called twice and
    accumulate into the same Monolis matrix/RHS. */
 void set_element_mat_NR_Tezuer_mixed(
+    MONOLIS*    monolis,
+    BBFE_DATA*  fe_tet,
+    BBFE_BASIS* basis_tet,
+    BBFE_DATA*  fe_pri,
+    BBFE_BASIS* basis_pri,
+    VALUES*     vals);
+
+
+/* Mixed VMS/NR assembly. The element kernels themselves are provided by
+ * core_NR; these wrappers accumulate TET4 and PRI6 contributions into one
+ * unified Monolis matrix/RHS. */
+void set_element_mat_NR_linear_VMS_mixed(
+    MONOLIS*    monolis,
+    BBFE_DATA*  fe_tet,
+    BBFE_BASIS* basis_tet,
+    BBFE_DATA*  fe_pri,
+    BBFE_BASIS* basis_pri,
+    VALUES*     vals);
+
+void set_element_vec_NR_linear_VMS_mixed(
+    MONOLIS*    monolis,
+    BBFE_DATA*  fe_tet,
+    BBFE_BASIS* basis_tet,
+    BBFE_DATA*  fe_pri,
+    BBFE_BASIS* basis_pri,
+    VALUES*     vals);
+
+void set_element_mat_NR_nonlinear_VMS_mixed(
+    MONOLIS*    monolis,
+    BBFE_DATA*  fe_tet,
+    BBFE_BASIS* basis_tet,
+    BBFE_DATA*  fe_pri,
+    BBFE_BASIS* basis_pri,
+    VALUES*     vals);
+
+void set_element_vec_NR_nonlinear_VMS_mixed(
     MONOLIS*    monolis,
     BBFE_DATA*  fe_tet,
     BBFE_BASIS* basis_tet,
@@ -181,3 +237,4 @@ void BBFE_fluid_finalize_mixed(
     BBFE_BASIS* basis_tet,
     BBFE_DATA*  fe_pri,
     BBFE_BASIS* basis_pri);
+

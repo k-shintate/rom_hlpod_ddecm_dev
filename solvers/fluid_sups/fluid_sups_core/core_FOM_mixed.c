@@ -450,6 +450,195 @@ void BBFE_fluid_pre_surface_mixed(
         basis, surf->local_num_nodes, n_axis);
 }
 
+
+/*
+ * Read the same partitioned surface file as BBFE_fluid_pre_surface_mixed(),
+ * but keep only the first N_internal surface elements specified by
+ *
+ *   parted.0/<filename_base>.n_internal.<rank>
+ *
+ * This mirrors the existing TET4 pre_surface_internal() convention:
+ * the full surface file may contain overlap copies for distributed assembly,
+ * while the first N_internal entries are the globally non-duplicated/owned
+ * surface faces used by SUM-type diagnostics (area, force, Cd/Cl, ...).
+ *
+ * Required ordering contract:
+ *   the first N_internal entries of <filename_base>.<rank> must be the owned
+ *   surface faces on that rank.
+ */
+void BBFE_fluid_pre_surface_internal_mixed(
+        BBFE_DATA*   surf,
+        BBFE_BASIS*  basis,
+        const char*  directory,
+        const char*  filename_base,
+        int          num_integ_points_each_axis)
+{
+    if(surf == NULL || basis == NULL || directory == NULL ||
+       filename_base == NULL || num_integ_points_each_axis <= 0) {
+        fprintf(stderr, "%s ERROR: invalid mixed internal-surface input.\n", CODENAME);
+        exit(EXIT_FAILURE);
+    }
+
+    memset(surf, 0, sizeof(*surf));
+    memset(basis, 0, sizeof(*basis));
+
+    const int rank = monolis_mpi_get_global_my_rank();
+    const int n_axis = num_integ_points_each_axis;
+    const int np_elem = n_axis*n_axis;
+    const int np_alloc = n_axis*n_axis*n_axis;
+
+    char n_internal_name[FLUID_MIXED_IO_BUFFER];
+    snprintf(
+        n_internal_name,
+        sizeof(n_internal_name),
+        "parted.0/%s.n_internal.%d",
+        filename_base,
+        rank);
+
+    FILE* fp = NULL;
+    fp = BBFE_sys_read_fopen(fp, n_internal_name, directory);
+    if(fp == NULL) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: cannot open internal-surface metadata %s\n",
+            CODENAME, rank, n_internal_name);
+        exit(EXIT_FAILURE);
+    }
+
+    char label[FLUID_MIXED_IO_BUFFER];
+    int metadata_aux = 0;
+    int n_internal = -1;
+
+    if(fscanf(fp, "%4095s %d", label, &metadata_aux) != 2 ||
+       fscanf(fp, "%d", &n_internal) != 1) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: invalid internal-surface metadata %s\n",
+            CODENAME, rank, n_internal_name);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    if(n_internal < 0) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: negative internal-surface count %d in %s\n",
+            CODENAME, rank, n_internal, n_internal_name);
+        exit(EXIT_FAILURE);
+    }
+
+    const char* filename = monolis_get_global_input_file_name(
+        MONOLIS_DEFAULT_TOP_DIR,
+        MONOLIS_DEFAULT_PART_DIR,
+        filename_base);
+
+    fp = BBFE_sys_read_fopen(fp, filename, directory);
+    if(fp == NULL) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: cannot open surface file %s\n",
+            CODENAME, rank, filename);
+        exit(EXIT_FAILURE);
+    }
+
+    int n_all = -1;
+    if(fscanf(fp, "%d", &n_all) != 1 || n_all < 0) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: invalid element count in %s\n",
+            CODENAME, rank, filename);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+
+    if(n_internal > n_all) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: internal surface count exceeds full count: "
+            "internal=%d full=%d file=%s\n",
+            CODENAME, rank, n_internal, n_all, filename);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+
+    surf->total_num_elems = n_internal;
+
+    if(n_internal == 0) {
+        surf->local_num_nodes = 0;
+        fclose(fp);
+        printf(
+            "%s rank=%d: %s internal Num. elements: 0 -> skip TRI3 basis.\n",
+            CODENAME, rank, filename_base);
+        return;
+    }
+
+    int elem_id = -1;
+    int nen = 0;
+    if(fscanf(fp, "%d %d", &elem_id, &nen) != 2 || nen <= 0) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: invalid first internal surface element in %s\n",
+            CODENAME, rank, filename);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+
+    surf->local_num_nodes = nen;
+    if(surf->local_num_nodes != 3) {
+        fprintf(stderr,
+            "%s rank=%d ERROR: active internal %s must contain TRI3; NEN=%d\n",
+            CODENAME, rank, filename_base, surf->local_num_nodes);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+
+    /* local_num_nodes MUST be known before element allocation. */
+    BBFE_sys_memory_allocation_elem(surf, np_elem, 3);
+
+    for(int a=0; a<surf->local_num_nodes; ++a) {
+        if(fscanf(fp, "%d", &(surf->conn[0][a])) != 1) {
+            fprintf(stderr,
+                "%s rank=%d ERROR: truncated first internal surface element in %s\n",
+                CODENAME, rank, filename);
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    for(int e=1; e<n_internal; ++e) {
+        int current_id = -1;
+        int current_nen = 0;
+        if(fscanf(fp, "%d %d", &current_id, &current_nen) != 2 ||
+           current_nen != surf->local_num_nodes) {
+            fprintf(stderr,
+                "%s rank=%d ERROR: invalid internal surface header e=%d in %s "
+                "(expected NEN=%d got=%d)\n",
+                CODENAME, rank, e, filename,
+                surf->local_num_nodes, current_nen);
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+
+        for(int a=0; a<surf->local_num_nodes; ++a) {
+            if(fscanf(fp, "%d", &(surf->conn[e][a])) != 1) {
+                fprintf(stderr,
+                    "%s rank=%d ERROR: truncated internal surface connectivity "
+                    "e=%d a=%d in %s\n",
+                    CODENAME, rank, e, a, filename);
+                fclose(fp);
+                exit(EXIT_FAILURE);
+            }
+        }
+    }
+
+    fclose(fp);
+
+    BBFE_sys_memory_allocation_integ(basis, np_alloc, 2);
+    BBFE_sys_memory_allocation_shapefunc(
+        basis, surf->local_num_nodes, 1, np_alloc);
+    BBFE_convdiff_set_basis_surface(
+        basis, surf->local_num_nodes, n_axis);
+
+    printf(
+        "%s rank=%d: loaded INTERNAL %s elements=%d/%d NEN=%d\n",
+        CODENAME, rank, filename_base,
+        surf->total_num_elems, n_all, surf->local_num_nodes);
+}
+
 void BBFE_fluid_finalize_surface_mixed(
         BBFE_DATA*  surf,
         BBFE_BASIS* basis)
@@ -571,11 +760,160 @@ static void fluid_mixed_read_nodal_graph(
     *item_out = item;
 }
 
+static int fluid_mixed_graph_has_directed_edge(
+        int row,
+        int col,
+        const int* index,
+        const int* item)
+{
+    if(index == NULL || item == NULL || row < 0 || col < 0) return 0;
+    for(int k = index[row]; k < index[row+1]; ++k) {
+        if(item[k] == col) return 1;
+    }
+    return 0;
+}
+
+static void fluid_mixed_check_graph_family_local(
+        const BBFE_DATA* fe,
+        int              family_code,
+        const int*       index,
+        const int*       item,
+        int              nnode,
+        double*          required_pair_occurrences,
+        double*          missing_pair_occurrences,
+        int*             first_family,
+        int*             first_elem,
+        int*             first_a,
+        int*             first_b,
+        int*             first_gi,
+        int*             first_gj)
+{
+    if(fe == NULL || !BBFE_fluid_mixed_has_elements(fe)) return;
+
+    const int nl = fe->local_num_nodes;
+    for(int e = 0; e < fe->total_num_elems; ++e) {
+        for(int a = 0; a < nl; ++a) {
+            const int gi = fe->conn[e][a];
+            for(int b = 0; b < nl; ++b) {
+                if(a == b) continue; /* diagonal is created by Monolis itself */
+                const int gj = fe->conn[e][b];
+                *required_pair_occurrences += 1.0;
+
+                const int bad_node =
+                    (gi < 0 || gi >= nnode || gj < 0 || gj >= nnode);
+                const int missing =
+                    bad_node || !fluid_mixed_graph_has_directed_edge(gi, gj, index, item);
+
+                if(missing) {
+                    *missing_pair_occurrences += 1.0;
+                    if(*first_family == 0) {
+                        *first_family = family_code;
+                        *first_elem = e;
+                        *first_a = a;
+                        *first_b = b;
+                        *first_gi = gi;
+                        *first_gj = gj;
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void fluid_mixed_check_graph_completeness(
+        const BBFE_DATA* fe_tet,
+        const BBFE_DATA* fe_pri,
+        int              nnode,
+        const int*       index,
+        const int*       item)
+{
+    double local_required_tet = 0.0;
+    double local_missing_tet = 0.0;
+    double local_required_pri = 0.0;
+    double local_missing_pri = 0.0;
+
+    int first_family = 0;
+    int first_elem = -1;
+    int first_a = -1;
+    int first_b = -1;
+    int first_gi = -1;
+    int first_gj = -1;
+
+    fluid_mixed_check_graph_family_local(
+        fe_tet, 1, index, item, nnode,
+        &local_required_tet, &local_missing_tet,
+        &first_family, &first_elem, &first_a, &first_b, &first_gi, &first_gj);
+
+    fluid_mixed_check_graph_family_local(
+        fe_pri, 2, index, item, nnode,
+        &local_required_pri, &local_missing_pri,
+        &first_family, &first_elem, &first_a, &first_b, &first_gi, &first_gj);
+
+    double global_required_tet = local_required_tet;
+    double global_missing_tet = local_missing_tet;
+    double global_required_pri = local_required_pri;
+    double global_missing_pri = local_missing_pri;
+
+    const int comm = monolis_mpi_get_global_comm();
+    monolis_allreduce_R(1, &global_required_tet, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_missing_tet,  MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_required_pri, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_missing_pri,  MONOLIS_MPI_SUM, comm);
+
+    if(monolis_mpi_get_global_my_rank() == 0) {
+        printf(
+            "%s graph completeness: "
+            "TET4 pair_occurrences=%.0f missing=%.0f; "
+            "PRI6 pair_occurrences=%.0f missing=%.0f\n",
+            CODENAME,
+            global_required_tet, global_missing_tet,
+            global_required_pri, global_missing_pri);
+    }
+
+    if(global_missing_tet + global_missing_pri <= 0.0) return;
+
+    /* Choose the lowest MPI rank that owns at least one missing pair. */
+    const int rank = monolis_mpi_get_global_my_rank();
+    double rank_key = (first_family != 0) ? -(double)(rank + 1) : -1.0e30;
+    monolis_allreduce_R(1, &rank_key, MONOLIS_MPI_MAX, comm);
+    const int selected_rank = (int)(-rank_key + 0.5) - 1;
+    const int selected = (rank == selected_rank && first_family != 0);
+
+    int detail[6] = {0,0,0,0,0,0};
+    if(selected) {
+        detail[0] = first_family;
+        detail[1] = first_elem;
+        detail[2] = first_a;
+        detail[3] = first_b;
+        detail[4] = first_gi;
+        detail[5] = first_gj;
+    }
+    for(int q = 0; q < 6; ++q) {
+        monolis_allreduce_I(1, &detail[q], MONOLIS_MPI_SUM, comm);
+    }
+
+    if(rank == 0) {
+        const char* family =
+            (detail[0] == 1) ? "TET4" :
+            (detail[0] == 2) ? "PRI6" : "UNKNOWN";
+        fprintf(stderr,
+            "%s ERROR: unified graph is incomplete for element assembly.\n"
+            "  first missing directed pair: rank=%d family=%s elem=%d "
+            "local_pair=(%d,%d) nodes=(%d,%d)\n"
+            "  graph.dat must contain every off-diagonal node pair used by "
+            "the dense element blocks.\n",
+            CODENAME, selected_rank, family, detail[1],
+            detail[2], detail[3], detail[4], detail[5]);
+    }
+    exit(EXIT_FAILURE);
+}
+
 void BBFE_fluid_init_monomat_mixed(
-        MONOLIS*     monolis,
-        MONOLIS_COM* monolis_com,
-        BBFE_DATA*   fe_ref,
-        const char*  directory)
+        MONOLIS*          monolis,
+        MONOLIS_COM*      monolis_com,
+        const BBFE_DATA*  fe_tet,
+        const BBFE_DATA*  fe_pri,
+        const char*       directory)
 {
     monolis_initialize(monolis);
 
@@ -602,13 +940,23 @@ void BBFE_fluid_init_monomat_mixed(
     fluid_mixed_read_nodal_graph(
         directory, filename, &nnode, &index, &item);
 
-    if(nnode != fe_ref->total_num_nodes) {
+    const int tet_nodes = (fe_tet != NULL) ? fe_tet->total_num_nodes : 0;
+    const int pri_nodes = (fe_pri != NULL) ? fe_pri->total_num_nodes : 0;
+    const int ref_nodes = (tet_nodes > 0) ? tet_nodes : pri_nodes;
+
+    if(ref_nodes <= 0 || nnode != ref_nodes ||
+       (tet_nodes > 0 && pri_nodes > 0 && tet_nodes != pri_nodes)) {
         fprintf(stderr,
-            "%s ERROR: graph/node mismatch: graph=%d node.dat=%d file=%s\n",
-            CODENAME, nnode, fe_ref->total_num_nodes, filename);
+            "%s ERROR: graph/node mismatch: graph=%d tet_nodes=%d "
+            "pri_nodes=%d file=%s\n",
+            CODENAME, nnode, tet_nodes, pri_nodes, filename);
         free(index); free(item);
         exit(EXIT_FAILURE);
     }
+
+    /* Verify the actual element assembly stencil before constructing Monolis. */
+    fluid_mixed_check_graph_completeness(
+        fe_tet, fe_pri, nnode, index, item);
 
     monolis_get_nonzero_pattern_by_nodal_graph_R(
         monolis,
@@ -942,6 +1290,236 @@ void BBFE_fluid_mixed_report_prism_update(
     }
 }
 
+static const char* fluid_mixed_family_name(int family_bits)
+{
+    switch(family_bits) {
+        case 1: return "TET4";
+        case 2: return "PRI6";
+        case 3: return "TET4+PRI6";
+        default: return "none";
+    }
+}
+
+static int fluid_mixed_node_family_bits_local(
+        const FE_SYSTEM_FLUID_MIXED* sys,
+        int                          node)
+{
+    int bits = 0;
+    if(sys == NULL || node < 0) return bits;
+
+    if(BBFE_fluid_mixed_has_elements(&(sys->fe_tet))) {
+        for(int e = 0; e < sys->fe_tet.total_num_elems && !(bits & 1); ++e) {
+            for(int a = 0; a < sys->fe_tet.local_num_nodes; ++a) {
+                if(sys->fe_tet.conn[e][a] == node) { bits |= 1; break; }
+            }
+        }
+    }
+    if(BBFE_fluid_mixed_has_elements(&(sys->fe_pri))) {
+        for(int e = 0; e < sys->fe_pri.total_num_elems && !(bits & 2); ++e) {
+            for(int a = 0; a < sys->fe_pri.local_num_nodes; ++a) {
+                if(sys->fe_pri.conn[e][a] == node) { bits |= 2; break; }
+            }
+        }
+    }
+    return bits;
+}
+
+static int fluid_mixed_select_rank_for_max(
+        double local_max,
+        int    local_node,
+        double global_max,
+        int    comm)
+{
+    const int rank = monolis_mpi_get_global_my_rank();
+    const double tol = 1.0e-12 * fmax(1.0, fabs(global_max));
+    const int is_candidate =
+        (local_node >= 0 && fabs(local_max - global_max) <= tol);
+    double rank_key = is_candidate ? -(double)(rank + 1) : -1.0e30;
+    monolis_allreduce_R(1, &rank_key, MONOLIS_MPI_MAX, comm);
+    if(rank_key < -1.0e20) return -1;
+    return (int)(-rank_key + 0.5) - 1;
+}
+
+void BBFE_fluid_mixed_report_newton_diagnostics(
+        const FE_SYSTEM_FLUID_MIXED* sys,
+        int                          step,
+        int                          newton_iteration)
+{
+    if(sys == NULL) return;
+
+    const int nnode = sys->fe_tet.total_num_nodes;
+    const int comm_size = monolis_mpi_get_global_comm_size();
+    const int nint =
+        (comm_size == 1) ? nnode : sys->mono_com.n_internal_vertex;
+    if(nnode <= 0 || nint < 0 || nint > nnode) return;
+
+    const int comm = sys->mono_com.comm;
+    const int rank = monolis_mpi_get_global_my_rank();
+
+    double local_max_dv = -1.0;
+    double local_max_dp = -1.0;
+    int local_dv_node = -1;
+    int local_dv_comp = -1;
+    int local_dp_node = -1;
+
+    double local_p_sum = 0.0;
+    double local_p_sum2 = 0.0;
+    double local_p_min = DBL_MAX;
+    double local_p_max = -DBL_MAX;
+    int local_count = 0;
+
+    for(int i = 0; i < nint; ++i) {
+        for(int d = 0; d < 3; ++d) {
+            const double a = fabs(sys->vals.delta_v[i][d]);
+            if(a > local_max_dv) {
+                local_max_dv = a;
+                local_dv_node = i;
+                local_dv_comp = d;
+            }
+        }
+
+        const double dp = sys->vals.delta_p[i];
+        const double adp = fabs(dp);
+        if(adp > local_max_dp) {
+            local_max_dp = adp;
+            local_dp_node = i;
+        }
+
+        local_p_sum += dp;
+        local_p_sum2 += dp*dp;
+        if(dp < local_p_min) local_p_min = dp;
+        if(dp > local_p_max) local_p_max = dp;
+        ++local_count;
+    }
+
+    double global_max_dv = fmax(local_max_dv, 0.0);
+    double global_max_dp = fmax(local_max_dp, 0.0);
+    monolis_allreduce_R(1, &global_max_dv, MONOLIS_MPI_MAX, comm);
+    monolis_allreduce_R(1, &global_max_dp, MONOLIS_MPI_MAX, comm);
+
+    const int dv_rank = fluid_mixed_select_rank_for_max(
+        local_max_dv, local_dv_node, global_max_dv, comm);
+    const int dp_rank = fluid_mixed_select_rank_for_max(
+        local_max_dp, local_dp_node, global_max_dp, comm);
+
+    /* Gather one owner/internal location for max |delta_v|. */
+    int dv_i[3] = {0,0,0}; /* local node, component, family bits */
+    double dv_r[8] = {0,0,0,0,0,0,0,0}; /* xyz, du[3], dp, |du|_2 */
+    if(rank == dv_rank && local_dv_node >= 0) {
+        const int i = local_dv_node;
+        dv_i[0] = i;
+        dv_i[1] = local_dv_comp;
+        dv_i[2] = fluid_mixed_node_family_bits_local(sys, i);
+        dv_r[0] = sys->fe_tet.x[i][0];
+        dv_r[1] = sys->fe_tet.x[i][1];
+        dv_r[2] = sys->fe_tet.x[i][2];
+        dv_r[3] = sys->vals.delta_v[i][0];
+        dv_r[4] = sys->vals.delta_v[i][1];
+        dv_r[5] = sys->vals.delta_v[i][2];
+        dv_r[6] = sys->vals.delta_p[i];
+        dv_r[7] = sqrt(
+            dv_r[3]*dv_r[3] + dv_r[4]*dv_r[4] + dv_r[5]*dv_r[5]);
+    }
+    for(int q = 0; q < 3; ++q)
+        monolis_allreduce_I(1, &dv_i[q], MONOLIS_MPI_SUM, comm);
+    for(int q = 0; q < 8; ++q)
+        monolis_allreduce_R(1, &dv_r[q], MONOLIS_MPI_SUM, comm);
+
+    /* Gather one owner/internal location for max |delta_p|. */
+    int dp_i[2] = {0,0}; /* local node, family bits */
+    double dp_r[7] = {0,0,0,0,0,0,0}; /* xyz, du[3], dp */
+    if(rank == dp_rank && local_dp_node >= 0) {
+        const int i = local_dp_node;
+        dp_i[0] = i;
+        dp_i[1] = fluid_mixed_node_family_bits_local(sys, i);
+        dp_r[0] = sys->fe_tet.x[i][0];
+        dp_r[1] = sys->fe_tet.x[i][1];
+        dp_r[2] = sys->fe_tet.x[i][2];
+        dp_r[3] = sys->vals.delta_v[i][0];
+        dp_r[4] = sys->vals.delta_v[i][1];
+        dp_r[5] = sys->vals.delta_v[i][2];
+        dp_r[6] = sys->vals.delta_p[i];
+    }
+    for(int q = 0; q < 2; ++q)
+        monolis_allreduce_I(1, &dp_i[q], MONOLIS_MPI_SUM, comm);
+    for(int q = 0; q < 7; ++q)
+        monolis_allreduce_R(1, &dp_r[q], MONOLIS_MPI_SUM, comm);
+
+    int global_count = local_count;
+    double global_p_sum = local_p_sum;
+    double global_p_sum2 = local_p_sum2;
+    double global_p_max =
+        (local_count > 0) ? local_p_max : -DBL_MAX;
+    double neg_global_p_min =
+        (local_count > 0) ? -local_p_min : -DBL_MAX;
+
+    monolis_allreduce_I(1, &global_count, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_p_sum, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_p_sum2, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_p_max, MONOLIS_MPI_MAX, comm);
+    monolis_allreduce_R(1, &neg_global_p_min, MONOLIS_MPI_MAX, comm);
+
+    const double mean =
+        (global_count > 0) ? global_p_sum/(double)global_count : 0.0;
+
+    /* A second pass avoids cancellation in RMS(delta_p - mean). */
+    double local_centered2 = 0.0;
+    double local_abs_sum = 0.0;
+    for(int i = 0; i < nint; ++i) {
+        const double dp = sys->vals.delta_p[i];
+        const double c = dp - mean;
+        local_centered2 += c*c;
+        local_abs_sum += fabs(dp);
+    }
+    double global_centered2 = local_centered2;
+    double global_abs_sum = local_abs_sum;
+    monolis_allreduce_R(1, &global_centered2, MONOLIS_MPI_SUM, comm);
+    monolis_allreduce_R(1, &global_abs_sum, MONOLIS_MPI_SUM, comm);
+
+    const double rms = (global_count > 0)
+        ? sqrt(fmax(global_p_sum2/(double)global_count, 0.0)) : 0.0;
+    const double centered_rms = (global_count > 0)
+        ? sqrt(fmax(global_centered2/(double)global_count, 0.0)) : 0.0;
+    const double mean_abs = (global_count > 0)
+        ? global_abs_sum/(double)global_count : 0.0;
+    const double pmin = (neg_global_p_min > -DBL_MAX)
+        ? -neg_global_p_min : 0.0;
+    const double pmax = (global_p_max > -DBL_MAX)
+        ? global_p_max : 0.0;
+    const double centered_ratio = centered_rms/fmax(rms, 1.0e-300);
+
+    if(rank == 0) {
+        static const char* comp_name[3] = {"ux","uy","uz"};
+        const char* max_comp =
+            (dv_i[1] >= 0 && dv_i[1] < 3) ? comp_name[dv_i[1]] : "?";
+        printf(
+            "[Newton max-dv step=%d NR=%d] |delta_%s|=%e rank=%d local_node=%d "
+            "owner=internal family=%s xyz=(%.9e,%.9e,%.9e) "
+            "delta_u=(%.9e,%.9e,%.9e) |delta_u|2=%.9e delta_p=%.9e\n",
+            step, newton_iteration, max_comp,
+            global_max_dv, dv_rank, dv_i[0], fluid_mixed_family_name(dv_i[2]),
+            dv_r[0], dv_r[1], dv_r[2],
+            dv_r[3], dv_r[4], dv_r[5], dv_r[7], dv_r[6]);
+
+        printf(
+            "[Newton max-dp step=%d NR=%d] |delta_p|=%e rank=%d local_node=%d "
+            "owner=internal family=%s xyz=(%.9e,%.9e,%.9e) "
+            "delta_u=(%.9e,%.9e,%.9e) delta_p=%.9e\n",
+            step, newton_iteration,
+            global_max_dp, dp_rank, dp_i[0], fluid_mixed_family_name(dp_i[1]),
+            dp_r[0], dp_r[1], dp_r[2],
+            dp_r[3], dp_r[4], dp_r[5], dp_r[6]);
+
+        printf(
+            "[delta_p stats step=%d NR=%d] internal_nodes=%d "
+            "min=%.9e mean=%.9e max=%.9e mean_abs=%.9e "
+            "rms=%.9e centered_rms=%.9e centered/rms=%.9e\n",
+            step, newton_iteration, global_count,
+            pmin, mean, pmax, mean_abs, rms, centered_rms, centered_ratio);
+    }
+
+}
+
 void BBFE_fluid_mixed_check_positive_jacobian(
         const BBFE_DATA*  fe,
         const BBFE_BASIS* basis,
@@ -1000,6 +1578,80 @@ void set_element_mat_NR_Tezuer_mixed(
     }
     if(BBFE_fluid_mixed_has_elements(fe_pri)) {
         set_element_mat_NR_Tezuer(monolis, fe_pri, basis_pri, vals);
+    }
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Mixed VMS / Newton assembly wrappers                                       */
+/*                                                                            */
+/* The original solver_fom_VMS() applies the four VMS kernels in this order:  */
+/*   linear matrix -> linear residual -> nonlinear matrix -> nonlinear residual*/
+/* These wrappers preserve that operator split while accumulating TET4 and     */
+/* PRI6 contributions into the same 4-DOF/node Monolis system.                 */
+/* -------------------------------------------------------------------------- */
+
+void set_element_mat_NR_linear_VMS_mixed(
+        MONOLIS*    monolis,
+        BBFE_DATA*  fe_tet,
+        BBFE_BASIS* basis_tet,
+        BBFE_DATA*  fe_pri,
+        BBFE_BASIS* basis_pri,
+        VALUES*     vals)
+{
+    if(BBFE_fluid_mixed_has_elements(fe_tet)) {
+        set_element_mat_NR_linear_VMS(monolis, fe_tet, basis_tet, vals);
+    }
+    if(BBFE_fluid_mixed_has_elements(fe_pri)) {
+        set_element_mat_NR_linear_VMS(monolis, fe_pri, basis_pri, vals);
+    }
+}
+
+void set_element_vec_NR_linear_VMS_mixed(
+        MONOLIS*    monolis,
+        BBFE_DATA*  fe_tet,
+        BBFE_BASIS* basis_tet,
+        BBFE_DATA*  fe_pri,
+        BBFE_BASIS* basis_pri,
+        VALUES*     vals)
+{
+    if(BBFE_fluid_mixed_has_elements(fe_tet)) {
+        set_element_vec_NR_linear_VMS(monolis, fe_tet, basis_tet, vals);
+    }
+    if(BBFE_fluid_mixed_has_elements(fe_pri)) {
+        set_element_vec_NR_linear_VMS(monolis, fe_pri, basis_pri, vals);
+    }
+}
+
+void set_element_mat_NR_nonlinear_VMS_mixed(
+        MONOLIS*    monolis,
+        BBFE_DATA*  fe_tet,
+        BBFE_BASIS* basis_tet,
+        BBFE_DATA*  fe_pri,
+        BBFE_BASIS* basis_pri,
+        VALUES*     vals)
+{
+    if(BBFE_fluid_mixed_has_elements(fe_tet)) {
+        set_element_mat_NR_nonlinear_VMS(monolis, fe_tet, basis_tet, vals);
+    }
+    if(BBFE_fluid_mixed_has_elements(fe_pri)) {
+        set_element_mat_NR_nonlinear_VMS(monolis, fe_pri, basis_pri, vals);
+    }
+}
+
+void set_element_vec_NR_nonlinear_VMS_mixed(
+        MONOLIS*    monolis,
+        BBFE_DATA*  fe_tet,
+        BBFE_BASIS* basis_tet,
+        BBFE_DATA*  fe_pri,
+        BBFE_BASIS* basis_pri,
+        VALUES*     vals)
+{
+    if(BBFE_fluid_mixed_has_elements(fe_tet)) {
+        set_element_vec_NR_nonlinear_VMS(monolis, fe_tet, basis_tet, vals);
+    }
+    if(BBFE_fluid_mixed_has_elements(fe_pri)) {
+        set_element_vec_NR_nonlinear_VMS(monolis, fe_pri, basis_pri, vals);
     }
 }
 
@@ -1262,10 +1914,15 @@ void output_files_mixed(
     BBFE_fluid_mixed_sync_state(
         &(sys->mono_com), &(sys->vals), sys->fe_tet.total_num_nodes);
 
-    const int myrank = monolis_mpi_get_global_my_rank();
+    /*
+     * monolis_get_global_output_file_name() appends the MPI-rank suffix.
+     * Therefore the base name itself must NOT contain myrank; otherwise the
+     * output becomes e.g. result_mixed_000000.67.vtk.67.  Keep the legacy
+     * Monolis convention: result_mixed_000000.vtk.67.
+     */
     char local_name[FLUID_MIXED_IO_BUFFER];
     snprintf(local_name, sizeof(local_name),
-             "result_mixed_%06d.%d.vtk", file_num, myrank);
+             "result_mixed_%06d.vtk", file_num);
 
     const char* filename = monolis_get_global_output_file_name(
         MONOLIS_DEFAULT_TOP_DIR,
@@ -1301,3 +1958,4 @@ void BBFE_fluid_finalize_mixed(
         BBFE_sys_memory_free_node(fe_pri, 3);
     }
 }
+
