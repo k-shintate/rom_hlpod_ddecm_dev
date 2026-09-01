@@ -39,6 +39,7 @@ static const char* OUTPUT_FILENAME_VTK    = "result_%06d.vtk";
  *   D_out / D_in = 1.0e4
  */
 
+/*
 #define XC      2.5
 #define YC      2.5
 #define ZC      2.5
@@ -96,11 +97,6 @@ static int manusol_rank_mode_triplet(
         return -1;
     }
 
-    /*
-     * Enumerate low-frequency sine eigenmodes by expanding max-frequency
-     * shells.  This keeps the benchmark usable beyond r=8 without a fixed
-     * hard-coded mode table.
-     */
     for(int shell = 1; shell <= 16; shell++){
         for(int i = 1; i <= shell; i++){
             for(int j = 1; j <= shell; j++){
@@ -145,7 +141,6 @@ static double manusol_rank_spatial_mode(
     xi[2] = (z - g_rank_benchmark.domain_min[2])
         / g_rank_benchmark.domain_length[2];
 
-    /* Make the homogeneous Dirichlet boundary exact in floating point. */
     for(int d = 0; d < 3; d++){
         if(xi[d] <= 1.0e-12 || xi[d] >= 1.0 - 1.0e-12){
             return 0.0;
@@ -198,7 +193,6 @@ static double manusol_rank_slab_shape(int slab)
         return 1.0;
     }
 
-    /* Shared temporal shape for all spatial modes inside every ST window. */
     return 1.0
         - 0.5 * (double)slab
         / (double)(g_rank_benchmark.slabs_per_window - 1);
@@ -223,7 +217,6 @@ static double manusol_rank_modal_coefficient(int mode, int step)
         return 0.0;
     }
 
-    /* Equal-energy spatial modes while keeping total field energy O(1). */
     sigma = g_rank_benchmark.total_amplitude
         / sqrt((double)g_rank_benchmark.rank);
 
@@ -411,12 +404,6 @@ double manusol_get_source(
                 mode, x[0], x[1], x[2]);
             const double lambda = manusol_rank_eigenvalue(mode);
 
-            /*
-             * Discrete dG(0)/backward-Euler manufactured forcing:
-             *   (u_n-u_{n-1})/dt - k Delta u_n = f_n.
-             * This prevents physical diffusion from destroying the desired
-             * rank spectrum during the benchmark.
-             */
             value += (
                 a * (coeff_now - coeff_old) / g_rank_benchmark.dt
                 + k * lambda * coeff_now) * psi;
@@ -469,6 +456,7 @@ double manusol_get_source(
         +
         h * q;
 }
+*/
 
 double manusol_get_sol_without_time(
 		double x,
@@ -500,7 +488,7 @@ double manusol_get_mass_coef(
 	return val;
 }
 
-/*
+
 double manusol_get_sol(
 		double x,
 		double y,
@@ -511,9 +499,7 @@ double manusol_get_sol(
 
 	return val;
 }
-*/
 
-/*
 double manusol_get_diff_coef(
 		double x[3])
 {
@@ -523,7 +509,7 @@ double manusol_get_diff_coef(
 
 	return val;
 }
-*/
+
 
 /*
 double manusol_get_source(
@@ -539,7 +525,7 @@ double manusol_get_source(
 }
 */
 
-/*
+
 double manusol_get_source(
                 double x[3],
                 double t,
@@ -547,22 +533,60 @@ double manusol_get_source(
                 double v[3],
                 double k)
 {
-        double val = 0.0;
-/*
-        if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 3.70 && x[1] < 3.8 &&x[2] > 3.7 && x[2] < 3.8){
-                val = 1000 * (1 + sin(t));
-        }
-        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 2.45 && x[1] < 2.55 &&x[2] > 2.45 && x[2] < 2.55){
-                val = 1000 * (1 + sin(t));
-        }
-        else if(x[0] > 2.45 && x[0] < 2.55 && x[1] > 1.20 && x[1] < 1.3 &&x[2] > 1.2 && x[2] < 1.3){
-                val = 1000 * (1 + sin(t));
-        }
-*/
-/*
-        return val;
+        /*
+         * Manufactured source for the active diffusion equation
+         *
+         *   a dT/dt - div(k grad T) = f,
+         *
+         * with
+         *
+         *   T = sin(0.25 x) sin(0.5 y) sin(z) sin(t),
+         *   k = 2 + sin(x) sin(0.5 y) sin(0.25 z).
+         *
+         * manusol_get_sol() is also imposed as the Dirichlet boundary value.
+         * The convection term is currently disabled in set_element_mat() and
+         * in the ST-FOM operator, so v is intentionally not included here.
+         */
+        const double ax = 0.25;
+        const double ay = 0.50;
+        const double az = 1.00;
+
+        const double sx = sin(ax * x[0]);
+        const double sy = sin(ay * x[1]);
+        const double sz = sin(az * x[2]);
+        const double cx = cos(ax * x[0]);
+        const double cy = cos(ay * x[1]);
+        const double cz = cos(az * x[2]);
+        const double st = sin(t);
+        const double ct = cos(t);
+
+        const double spatial = sx * sy * sz;
+        const double dT_dt = spatial * ct;
+
+        const double dT_dx = ax * cx * sy * sz * st;
+        const double dT_dy = ay * sx * cy * sz * st;
+        const double dT_dz = az * sx * sy * cz * st;
+
+        const double dk_dx =
+                cos(x[0]) * sin(0.5 * x[1]) * sin(0.25 * x[2]);
+        const double dk_dy =
+                0.5 * sin(x[0]) * cos(0.5 * x[1]) * sin(0.25 * x[2]);
+        const double dk_dz =
+                0.25 * sin(x[0]) * sin(0.5 * x[1]) * cos(0.25 * x[2]);
+
+        const double laplacian_T =
+                -(ax * ax + ay * ay + az * az) * spatial * st;
+
+        const double grad_k_dot_grad_T =
+                dk_dx * dT_dx + dk_dy * dT_dy + dk_dz * dT_dz;
+
+        (void)v;
+
+        return a * dT_dt
+                - grad_k_dot_grad_T
+                - k * laplacian_T;
 }
-*/
+
 
 double manusol_get_source_without_time(
                 double x[3],
@@ -696,7 +720,7 @@ void memory_allocation_nodal_values(
 {
 	vals->T        = BB_std_calloc_1d_double(vals->T,     total_num_nodes);
 	vals->error    = BB_std_calloc_1d_double(vals->error, total_num_nodes);
-	vals->theo_sol = BB_std_calloc_1d_double(vals->error, total_num_nodes);
+	vals->theo_sol = BB_std_calloc_1d_double(vals->theo_sol, total_num_nodes);
 }
 
 

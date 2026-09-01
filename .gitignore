@@ -8,6 +8,7 @@ include/*
 !*.cpp
 !*.h
 !*.hpp
+!*.inc
 !*.sh
 !*.py
 !*Makefile*
