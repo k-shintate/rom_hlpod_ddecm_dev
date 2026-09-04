@@ -39,7 +39,7 @@ static const char* OUTPUT_FILENAME_VTK    = "result_%06d.vtk";
  *   D_out / D_in = 1.0e4
  */
 
-/*
+
 #define XC      2.5
 #define YC      2.5
 #define ZC      2.5
@@ -456,7 +456,7 @@ double manusol_get_source(
         +
         h * q;
 }
-*/
+
 
 double manusol_get_sol_without_time(
 		double x,
@@ -469,7 +469,25 @@ double manusol_get_sol_without_time(
 	return val;
 }
 
+void manusol_get_conv_vel(
+		double v[3],
+		double x[3])
+{
+	v[0] = 1.0 + x[0]*x[0];
+	v[1] = 1.0 + x[1]*x[1];
+	v[2] = 1.0 + x[2]*x[2];
+}
 
+
+double manusol_get_mass_coef(
+		double x[3])
+{
+	double val = 1.0;
+
+	return val;
+}
+
+/*
 void manusol_get_conv_vel(
 		double v[3],
 		double x[3])
@@ -509,21 +527,10 @@ double manusol_get_diff_coef(
 
 	return val;
 }
-
+*/
 
 /*
-double manusol_get_source(
-		double x[3],
-		double t,
-		double a,
-		double v[3],
-		double k)
-{
-	double val = 0.0;
 
-	return val;
-}
-*/
 
 
 double manusol_get_source(
@@ -533,20 +540,7 @@ double manusol_get_source(
                 double v[3],
                 double k)
 {
-        /*
-         * Manufactured source for the active diffusion equation
-         *
-         *   a dT/dt - div(k grad T) = f,
-         *
-         * with
-         *
-         *   T = sin(0.25 x) sin(0.5 y) sin(z) sin(t),
-         *   k = 2 + sin(x) sin(0.5 y) sin(0.25 z).
-         *
-         * manusol_get_sol() is also imposed as the Dirichlet boundary value.
-         * The convection term is currently disabled in set_element_mat() and
-         * in the ST-FOM operator, so v is intentionally not included here.
-         */
+
         const double ax = 0.25;
         const double ay = 0.50;
         const double az = 1.00;
@@ -586,7 +580,7 @@ double manusol_get_source(
                 - grad_k_dot_grad_T
                 - k * laplacian_T;
 }
-
+*/
 
 double manusol_get_source_without_time(
                 double x[3],

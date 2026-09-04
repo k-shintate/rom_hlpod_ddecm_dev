@@ -258,8 +258,9 @@ void HROM_ddecm_write_selected_elems(
 {
     int nl = fe->local_num_nodes;
 
-    const int max_ITER = 400;
-    const double TOL = 1.0e-6;
+    const int max_ITER = (max_iter > 0) ? max_iter : 400;
+    const double TOL = (tol > 0.0) ? tol : 1.0e-6;
+    const int nnls_comm = monolis_mpi_get_self_comm();
 
     double residual;
 
@@ -298,12 +299,24 @@ void HROM_ddecm_write_selected_elems(
 
         residual = 0.0;
 
+        const int nnls_n = hlpod_ddhr->num_elems[m];
+        const int nnls_dim_max = (NNLS_row > nnls_n) ? NNLS_row : nnls_n;
+        const double nnls_tol_inner = 1.0e-14 * (double)nnls_dim_max;
+
         monolis_optimize_nnls_R_with_sparse_solution(
             matrix,
             RH,
-            ans_vec, NNLS_row, hlpod_ddhr->num_elems[m], max_ITER, TOL, &residual);
+            ans_vec,
+            NNLS_row,
+            nnls_n,
+            max_ITER,
+            TOL,
+            nnls_tol_inner,
+            &residual,
+            nnls_comm);
 
-        printf("\n\nmax_iter = %d, tol = %lf, residuals = %lf\n\n", max_ITER, TOL, residual);
+        printf("\n\nmax_iter = %d, tol_outer = %lf, tol_inner = %.15e, residuals = %lf\n\n",
+               max_ITER, TOL, nnls_tol_inner, residual);
 
         int index = 0;
 
@@ -400,7 +413,7 @@ void HROM_ddecm_write_selected_elems(
 
         BB_std_free_1d_double(ans_vec, hlpod_ddhr->num_elems[m]);
         BB_std_free_2d_double(matrix, NNLS_row, hlpod_ddhr->num_elems[m]);
-        BB_std_free_1d_double(RH, hlpod_ddhr->num_elems[m]);
+        BB_std_free_1d_double(RH, NNLS_row);
 
         BB_std_free_1d_bool(bool_elem, total_num_selected_elems);
         BB_std_free_1d_int(total_id_selected_elems, total_num_selected_elems);

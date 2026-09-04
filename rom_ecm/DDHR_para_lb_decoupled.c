@@ -525,6 +525,7 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 	const char*		directory)
 {
 	const int myrank = monolis_mpi_get_global_my_rank();
+	const int nnls_comm = monolis_mpi_get_self_comm();
 
 	FILE* fp;
 	char fname[BUFFER_SIZE];
@@ -550,8 +551,8 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 	int nl = fe->local_num_nodes;
     double t1 = monolis_get_time_global_sync();
 
-	const int max_ITER = 10000;
-	const double TOL = 1.0e-12;
+	const int max_ITER = (max_iter > 0) ? max_iter : 10000;
+	const double TOL = (tol > 0.0) ? tol : 1.0e-12;
 
 	double residual;
 
@@ -643,10 +644,21 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_decoupled(
 
 		residual = 0.0;
 
+		const int nnls_n = hlpod_ddhr->num_elems[m];
+		const int nnls_dim_max = (NNLS_row > nnls_n) ? NNLS_row : nnls_n;
+		const double nnls_tol_inner = 1.0e-14 * (double)nnls_dim_max;
+
 		monolis_optimize_nnls_R_with_sparse_solution(
 			matrix,
 			RH,
-			ans_vec, NNLS_row, hlpod_ddhr->num_elems[m], max_ITER, TOL, &residual);
+			ans_vec,
+			NNLS_row,
+			nnls_n,
+			max_ITER,
+			TOL,
+			nnls_tol_inner,
+			&residual,
+			nnls_comm);
 
 		printf("\n\nmax_iter = %d, tol = %lf, residuals = %lf\n\n", max_ITER, TOL, residual);
 
@@ -1515,8 +1527,8 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 	int nl = fe->local_num_nodes;
     double t1 = monolis_get_time_global_sync();
 
-	const int max_ITER = 50000;
-	//const double TOL = 1.0e-20;
+	const int max_ITER = (max_iter > 0) ? max_iter : 50000;
+	const double nnls_tol_outer = (tol > 0.0) ? tol : 1.0e-14;
 
 	double residual;
 
@@ -1658,12 +1670,21 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 
             residual = 0.0;
 
- double TOL = 1.0e-16;
+        const int nnls_n = hlpod_ddhr->num_elems[m];
+        const int nnls_dim_max = (k > nnls_n) ? k : nnls_n;
+        const double nnls_tol_inner = 1.0e-14 * (double)nnls_dim_max;
 
         monolis_optimize_nnls_R_with_sparse_solution(
             G_k,
             b_k,
-            ans_vec, k, hlpod_ddhr->num_elems[m], max_ITER,  1.0e-14, &residual);
+            ans_vec,
+            k,
+            nnls_n,
+            max_ITER,
+            nnls_tol_outer,
+            nnls_tol_inner,
+            &residual,
+            comm);
 
 		index_NNLS1 = 0;
 		index_NNLS2 = 0;
@@ -1673,9 +1694,18 @@ void HROM_ddecm_write_selected_elems_para_arbit_subd_svd_decoupled(
 		monolis_optimize_nnls_R_with_sparse_solution(
 			matrix,
 			RH,
-			ans_vec, NNLS_row, hlpod_ddhr->num_elems[m], max_ITER, TOL, &residual);
+			ans_vec,
+			NNLS_row,
+			hlpod_ddhr->num_elems[m],
+			max_ITER,
+			nnls_tol_outer,
+			1.0e-14 * (double)((NNLS_row > hlpod_ddhr->num_elems[m])
+				? NNLS_row : hlpod_ddhr->num_elems[m]),
+			&residual,
+			comm);
 */
-		printf("\n\nmax_iter = %d, tol = %e, residuals = %e\n\n", max_ITER, TOL, residual/sqrt(local_norm));
+		printf("\n\nmax_iter = %d, tol = %e, residuals = %e\n\n",
+		       max_ITER, nnls_tol_outer, residual/sqrt(local_norm));
 
 		int index = 0;
 		for (int i = 0; i < hlpod_ddhr->num_elems[m]; i++) {

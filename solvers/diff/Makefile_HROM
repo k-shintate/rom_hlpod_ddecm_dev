@@ -6,6 +6,10 @@ LDFLAGS  :=
 INCLUDES := -I/usr/local/include -I./../../../test_thermal/submodule/monolis/include
 LIBS     := -L/usr/local/lib -lm -lstdc++ -L../../../test_thermal/submodule/monolis/lib -lmonolis_solver -lgedatsu -lmonolis_utils -lmetis -lscalapack -llapack -lblas
 
+# mpic++ でコンパイルした object が要求する OpenMPI C++ binding を、
+# mpif90 による最終リンクでも追加する。
+MPI_CXX_LIBS := $(shell $(CC) --showme:link)
+
 INCLUDES_BB = -I../../../test_thermal/include
 LIBS_BB     = -L../../../test_thermal/lib -lBBFE_std -lBBFE_sys -lBBFE_elemmat -lBBFE_manusol -lBB
 
@@ -25,6 +29,7 @@ TARGET2 := hlpod_diff_offline_ROM
 TARGET3 := hlpod_diff_online_HROM
 TARGET4 := hrom_stage3_serial
 
+.PHONY: all build clean clean_data
 
 # Default make target
 all: build clean_data
@@ -33,23 +38,24 @@ all: build clean_data
 build: $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
 
 $(TARGET1): $(OBJ1)
-	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group
+	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
 
 $(TARGET2): $(OBJ2)
-	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group
+	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
 
 $(TARGET3): $(OBJ3)
-	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group
+	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
 
 $(TARGET4): $(OBJ4)
-	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group
+	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
 
 # Compilation rule for .c to .o
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) -c $< -o $@
 
-.PHONY clean:;
+clean:
 	$(RM) -f $(OBJ1) $(TARGET1) $(OBJ2) $(TARGET2) $(OBJ3) $(TARGET3) $(OBJ4) $(TARGET4)
 
 clean_data:
 	$(RM) -f $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
+

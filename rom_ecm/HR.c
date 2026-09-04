@@ -64,8 +64,18 @@ void HROM_ecm_get_selected_elems(
 {
     int nl = fe->local_num_nodes;
 
-    const int max_ITER = 2000;
-    const double TOL = 1.0e-9;
+    /*
+     * Updated MONOLIS sparse-NNLS API:
+     *   - tol_outer : sparse-solution early-exit tolerance
+     *   - tol_inner : Lawson-Hanson/KKT inner tolerance
+     *   - comm      : MPI communicator
+     *
+     * This HR problem is solved locally, so use the self communicator.
+     * Preserve the historical defaults when max_iter/tol are not positive.
+     */
+    const int nnls_max_iter = (max_iter > 0) ? max_iter : 2000;
+    const double nnls_tol_outer = (tol > 0.0) ? tol : 1.0e-9;
+    const int nnls_comm = monolis_mpi_get_self_comm();
 
     double* ans_vec;
     ans_vec = BB_std_calloc_1d_double(ans_vec, total_num_elem);
@@ -74,12 +84,27 @@ void HROM_ecm_get_selected_elems(
 
     int NNLS_row = total_num_snapshot * total_num_modes;
 
-    monolis_optimize_nnls_R_with_sparse_solution(
-        hlpod_hr->matrix, 
-        hlpod_hr->RH, 
-        ans_vec, NNLS_row, total_num_elem, max_ITER, TOL, &residual);
+    /* Match the strict inner tolerance used by the former sparse-NNLS path. */
+    const int nnls_dim_max =
+        (NNLS_row > total_num_elem) ? NNLS_row : total_num_elem;
+    const double nnls_tol_inner = 1.0e-14 * (double)nnls_dim_max;
 
-    printf("\n\nmax_iter = %d, tol = %lf, residuals = %lf\n\n", max_ITER, TOL, residual);
+    monolis_optimize_nnls_R_with_sparse_solution(
+        hlpod_hr->matrix,
+        hlpod_hr->RH,
+        ans_vec,
+        NNLS_row,
+        total_num_elem,
+        nnls_max_iter,
+        nnls_tol_outer,
+        nnls_tol_inner,
+        &residual,
+        nnls_comm);
+
+    printf(
+        "\n\nmax_iter = %d, tol_outer = %.15e, tol_inner = %.15e, "
+        "residuals = %.15e\n\n",
+        nnls_max_iter, nnls_tol_outer, nnls_tol_inner, residual);
 
     int index = 0;
 

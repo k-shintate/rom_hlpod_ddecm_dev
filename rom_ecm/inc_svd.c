@@ -646,8 +646,9 @@ void HROM_ddecm_write_selected_elems_inc_svd(
 	double* total_elem_weight;
 	int* total_num_selected_elems;
 
-    const int max_ITER = 1000;
-    const double TOL   = 1.0e-10;
+    const int max_ITER = (max_iter > 0) ? max_iter : 1000;
+    const double TOL   = (tol > 0.0) ? tol : 1.0e-10;
+    const int nnls_comm = monolis_mpi_get_self_comm();
 
 	/**/
 	hlpod_ddhr->D_bc_exists = BB_std_calloc_2d_bool(hlpod_ddhr->D_bc_exists, fe->total_num_nodes, num_subdomains);
@@ -691,8 +692,23 @@ void HROM_ddecm_write_selected_elems_inc_svd(
     build_compressed_system_from_incsvd(&g_svd[0], &G_k, &b_k); /* r×N, r */
 
     double *ans_vec = BB_std_calloc_1d_double(ans_vec, N);
+    const int nnls_m = g_svd[0].r;
+    const int nnls_n = N;
+    const double nnls_tol_inner =
+        1.0e-14 * (double)((nnls_m > nnls_n) ? nnls_m : nnls_n);
+
+    residual = 0.0;
     monolis_optimize_nnls_R_with_sparse_solution(
-        G_k, b_k, ans_vec, g_svd[0].r, N, max_ITER, TOL, &residual);
+        G_k,
+        b_k,
+        ans_vec,
+        nnls_m,
+        nnls_n,
+        max_ITER,
+        TOL,
+        nnls_tol_inner,
+        &residual,
+        nnls_comm);
 
     int index = 0;
     for (int i = 0; i < hlpod_ddhr->num_elems[0]; i++) {
