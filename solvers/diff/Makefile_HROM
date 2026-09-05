@@ -23,11 +23,13 @@ OBJ1    := $(patsubst %.c,%.o,$(SRC)) ./diff_main/FOM/main_offline_FOM.o
 OBJ2    := $(patsubst %.c,%.o,$(SRC)) ./diff_main/HROM/main_offline_ROM.o
 OBJ3    := $(patsubst %.c,%.o,$(SRC)) ./diff_main/HROM/main_online_HROM.o
 OBJ4    := $(patsubst %.c,%.o,$(SRC)) ./diff_main/HROM/HROM_stage3_serial_main.o
+OBJ5    := ./diff_main/HROM/HROM_stage3_parallel_mode0_main.o ./diff_main/HROM/HROM_stage3_parallel_mode0.o
 
 TARGET1 := hlpod_diff_offline_FOM
 TARGET2 := hlpod_diff_offline_ROM
 TARGET3 := hlpod_diff_online_HROM
 TARGET4 := hrom_stage3_serial
+TARGET5 := hrom_stage3_parallel_mode0
 
 .PHONY: all build clean clean_data
 
@@ -35,7 +37,7 @@ TARGET4 := hrom_stage3_serial
 all: build clean_data
 
 # Build targets
-build: $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4)
+build: $(TARGET1) $(TARGET2) $(TARGET3) $(TARGET4) $(TARGET5)
 
 $(TARGET1): $(OBJ1)
 	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
@@ -49,13 +51,15 @@ $(TARGET3): $(OBJ3)
 $(TARGET4): $(OBJ4)
 	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS_BB) $(LIBS_ROM) $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
 
+$(TARGET5): $(OBJ5)
+	$(FC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) $(LDFLAGS) -o $@ $^ -Wl,--start-group $(LIBS) -Wl,--end-group $(MPI_CXX_LIBS)
+
 # Compilation rule for .c to .o
 %.o: %.c
 	$(CC) $(CFLAGS) $(INCLUDES) $(INCLUDES_BB) $(INCLUDES_ROM) -c $< -o $@
 
 clean:
-	$(RM) -f $(OBJ1) $(TARGET1) $(OBJ2) $(TARGET2) $(OBJ3) $(TARGET3) $(OBJ4) $(TARGET4)
+	$(RM) -f $(OBJ1) $(TARGET1) $(OBJ2) $(TARGET2) $(OBJ3) $(TARGET3) $(OBJ4) $(TARGET4) $(OBJ5) $(TARGET5)
 
 clean_data:
-	$(RM) -f $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4)
-
+	$(RM) -f $(OBJ1) $(OBJ2) $(OBJ3) $(OBJ4) $(OBJ5)

@@ -8,7 +8,7 @@ e=20
 ep=5
 
 #podモード数
-num_modes=(10)
+num_modes=(5)
 #POD計算領域数
 num_1stdd=(16)
 #並列計算領域数 (=並列数)
@@ -25,8 +25,8 @@ do
     	for np in "${num_parallel[@]}"
     	do
 	
-        . shell/diff_hrom/meshgen.sh $e $ep $nm $nd $np $pa
-	    . shell/diff_hrom/merge_graph.sh $e $ep $nm $nd $np $pa
+        #. shell/diff_hrom/meshgen.sh $e $ep $nm $nd $np $pa
+	#    . shell/diff_hrom/merge_graph.sh $e $ep $nm $nd $np $pa
 	    . shell/diff_hrom/execution_offline_3ph.sh $e $ep $nm $nd $np $pa $st
 
         done
